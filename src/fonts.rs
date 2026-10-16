@@ -7,15 +7,86 @@
 //! Latin, Greek, Cyrillic, punctuation, arrows and math) serve the others.
 //! Without them a bold or medium "Inter" run falls through to JetBrains Mono.
 //! Inter is licensed under the SIL OFL 1.1; see `assets/fonts/Inter-OFL.txt`.
+//!
+//! `NotoSansTC-{Regular,Bold}.ttf` carry CJK text (Traditional forms), since
+//! the macOS system fallback resolves to Arial Unicode MS. They are static
+//! 400/700 instances of Noto Sans TC (SIL OFL 1.1, see
+//! `assets/fonts/NotoSansTC-OFL.txt`) subset to Big5 common hanzi, GB2312
+//! level-1 hanzi, CJK and fullwidth punctuation, kana and bopomofo; rarer
+//! characters still fall back to the system. Each also holds half-width
+//! copies of the brackets and stops (the font's own `halt` shapes) at
+//! U+E000.., used by [`squeeze_fullwidth_punct`]. cosmic-text shapes every
+//! punctuation mark as its own word, so OpenType pair kerning cannot do this.
 
-pub const BUNDLED: [&[u8]; 6] = [
+pub const BUNDLED: [&[u8]; 8] = [
     include_bytes!("assets/fonts/Inter-Variable.ttf"),
     include_bytes!("assets/fonts/Inter-Medium.ttf"),
     include_bytes!("assets/fonts/Inter-SemiBold.ttf"),
     include_bytes!("assets/fonts/Inter-Bold.ttf"),
     include_bytes!("assets/fonts/JetBrainsMono-Regular.otf"),
     include_bytes!("assets/fonts/lucide.ttf"),
+    include_bytes!("assets/fonts/NotoSansTC-Regular.ttf"),
+    include_bytes!("assets/fonts/NotoSansTC-Bold.ttf"),
 ];
+
+/// Characters that have a half-width copy in the bundled CJK face, in the
+/// order of their private-use code points (`U+E000 + index`): opening
+/// brackets, closing brackets, then stops.
+const SQUEEZABLE: &str = "「『（【〔〈《［｛」』）】〕〉》］｝，。、．";
+const OPENING: usize = 9;
+
+fn is_opening(c: char) -> bool {
+    SQUEEZABLE.chars().take(OPENING).any(|o| o == c)
+}
+
+fn squeezed_form(c: char) -> Option<char> {
+    SQUEEZABLE
+        .chars()
+        .position(|o| o == c)
+        .and_then(|i| char::from_u32(0xE000 + i as u32))
+}
+
+/// Squeeze adjacent fullwidth punctuation to half width (CSS
+/// `text-spacing-trim: normal`): a closing bracket or stop followed by
+/// another bracket or stop, and an opening bracket followed by an opening
+/// bracket, are swapped for their half-width copy. Every swapped character
+/// stays 3 UTF-8 bytes, so byte offsets into the text do not move.
+pub fn squeeze_fullwidth_punct(text: &str) -> std::borrow::Cow<'_, str> {
+    let mut out: Option<String> = None;
+    let mut chars = text.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        let next = chars.peek().map(|&(_, n)| n);
+        let squeeze = match next {
+            Some(n) if squeezed_form(n).is_some() => {
+                if is_opening(c) {
+                    is_opening(n)
+                } else {
+                    true
+                }
+            }
+            _ => false,
+        };
+        let replacement = if squeeze { squeezed_form(c) } else { None };
+        match (replacement, out.as_mut()) {
+            (Some(r), None) => {
+                let mut s = String::with_capacity(text.len());
+                s.push_str(&text[..i]);
+                s.push(r);
+                out = Some(s);
+            }
+            (Some(r), Some(s)) => s.push(r),
+            (None, Some(s)) => s.push(c),
+            (None, None) => {}
+        }
+    }
+    match out {
+        Some(s) => s.into(),
+        None => text.into(),
+    }
+}
+
+/// Family name of the bundled CJK face (Noto Sans TC, Traditional forms).
+pub const CJK_FAMILY: &str = "Noto Sans TC";
 
 #[cfg(test)]
 mod tests {
@@ -28,6 +99,10 @@ mod tests {
     /// Shape `text` the way Iced does (family "Inter" at `weight`, only the
     /// bundled fonts loaded) and return the family of each glyph's face.
     fn shaped_families(text: &str, weight: Weight) -> Vec<String> {
+        shaped_families_in("Inter", text, weight)
+    }
+
+    fn shaped_families_in(family: &'static str, text: &str, weight: Weight) -> Vec<String> {
         let sources = BUNDLED
             .iter()
             .map(|bytes| fontdb::Source::Binary(Arc::new(*bytes)));
@@ -36,7 +111,7 @@ mod tests {
         buffer.set_text(
             &mut fonts,
             text,
-            &Attrs::new().family(Family::Name("Inter")).weight(weight),
+            &Attrs::new().family(Family::Name(family)).weight(weight),
             Shaping::Advanced,
             None,
         );
@@ -66,5 +141,95 @@ mod tests {
                 "weight {weight:?} shaped with {families:?}"
             );
         }
+    }
+
+    /// Sum of glyph advances (px at 16 px) for `text` shaped in the bundled CJK face.
+    fn cjk_advance(text: &str) -> f32 {
+        let text = &*super::squeeze_fullwidth_punct(text);
+        let sources = BUNDLED
+            .iter()
+            .map(|bytes| fontdb::Source::Binary(Arc::new(*bytes)));
+        let mut fonts = FontSystem::new_with_fonts(sources);
+        let mut buffer = Buffer::new(&mut fonts, Metrics::new(16.0, 24.0));
+        buffer.set_size(&mut fonts, Some(100_000.0), None);
+        buffer.set_text(
+            &mut fonts,
+            text,
+            &Attrs::new()
+                .family(Family::Name(super::CJK_FAMILY))
+                .weight(Weight::NORMAL),
+            Shaping::Advanced,
+            None,
+        );
+        buffer.shape_until_scroll(&mut fonts, false);
+        buffer
+            .layout_runs()
+            .flat_map(|run| run.glyphs.iter().map(|g| g.w).collect::<Vec<_>>())
+            .sum()
+    }
+
+    #[test]
+    fn cjk_text_resolves_to_the_bundled_noto_sans_tc() {
+        for weight in [Weight::NORMAL, Weight::BOLD] {
+            let families = shaped_families_in(super::CJK_FAMILY, "閱讀體驗，中文。", weight);
+            assert!(!families.is_empty());
+            assert!(
+                families.iter().all(|f| f == "Noto Sans TC"),
+                "weight {weight:?} shaped with {families:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn adjacent_fullwidth_brackets_and_stops_are_squeezed_to_half() {
+        let eps = 0.01;
+        // Closing + opening, closing + closing, opening + opening: first glyph halves.
+        assert!(
+            (cjk_advance("」「") - 24.0).abs() < eps,
+            "{}",
+            cjk_advance("」「")
+        );
+        assert!(
+            (cjk_advance("）」") - 24.0).abs() < eps,
+            "{}",
+            cjk_advance("）」")
+        );
+        assert!(
+            (cjk_advance("（「") - 24.0).abs() < eps,
+            "{}",
+            cjk_advance("（「")
+        );
+        assert!(
+            (cjk_advance("。「") - 24.0).abs() < eps,
+            "{}",
+            cjk_advance("。「")
+        );
+        // Not adjacent to other punctuation: stay full width.
+        assert!(
+            (cjk_advance("「這」") - 48.0).abs() < eps,
+            "{}",
+            cjk_advance("「這」")
+        );
+        assert!(
+            (cjk_advance("這。這") - 48.0).abs() < eps,
+            "{}",
+            cjk_advance("這。這")
+        );
+        assert!((cjk_advance("。") - 16.0).abs() < eps);
+    }
+
+    #[test]
+    fn squeeze_only_touches_adjacent_punctuation_and_keeps_byte_length() {
+        use super::squeeze_fullwidth_punct as sq;
+        assert_eq!(sq("「這」"), "「這」");
+        assert_eq!(sq("沒有標點"), "沒有標點");
+        for s in ["」「", "）」", "（「", "。「", "他說：「好」。「對」"] {
+            let out = sq(s);
+            assert_eq!(out.len(), s.len(), "{s}");
+            assert_ne!(out, s, "{s}");
+        }
+        // Opening followed by closing is left alone; colon is not squeezed.
+        assert_eq!(sq("「」"), "「」");
+        assert_eq!(sq("：「"), "：「");
     }
 }

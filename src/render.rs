@@ -603,7 +603,7 @@ fn render_block<'a>(
         }
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, &mut ctx);
-            rich_text_spaced(spans, typ.line_height)
+            rich_text_spaced(spans, paragraph_line_height(inlines, typ.line_height))
         }
         Block::CodeBlock { code, spans, .. } => {
             let pal_c = *pal;
@@ -748,13 +748,37 @@ fn is_cjk_fallback_char(c: char) -> bool {
     )
 }
 
+/// Punctuation that Latin text also uses but CJK text sets in the CJK face
+/// (centered ellipsis, full-width dashes). It joins a CJK run only when
+/// it touches CJK text, so an English "wait… no" keeps Inter's glyph.
+fn is_cjk_context_char(c: char) -> bool {
+    matches!(c, '\u{2014}' | '\u{2015}' | '\u{2026}')
+}
+
 /// Visit contiguous CJK/non-CJK runs without splitting a UTF-8 character.
 fn for_text_runs<'a>(text_str: &'a str, mut visit: impl FnMut(&'a str, bool)) {
+    let chars: Vec<(usize, char)> = text_str.char_indices().collect();
+    let mut cjk: Vec<bool> = chars
+        .iter()
+        .map(|&(_, c)| is_cjk_fallback_char(c))
+        .collect();
+    // A context char follows its neighbours: forward pass, then backward pass
+    // so a run like "……" before CJK text resolves too.
+    for i in 1..chars.len() {
+        if is_cjk_context_char(chars[i].1) && cjk[i - 1] {
+            cjk[i] = true;
+        }
+    }
+    for i in (0..chars.len().saturating_sub(1)).rev() {
+        if is_cjk_context_char(chars[i].1) && cjk[i + 1] {
+            cjk[i] = true;
+        }
+    }
+
     let mut run_start = 0usize;
     let mut run_is_cjk: Option<bool> = None;
-
-    for (idx, c) in text_str.char_indices() {
-        let is_cjk = is_cjk_fallback_char(c);
+    for (n, &(idx, _)) in chars.iter().enumerate() {
+        let is_cjk = cjk[n];
         match run_is_cjk {
             None => run_is_cjk = Some(is_cjk),
             Some(previous) if previous != is_cjk => {
@@ -771,6 +795,30 @@ fn for_text_runs<'a>(text_str: &'a str, mut visit: impl FnMut(&'a str, bool)) {
             &text_str[run_start..],
             run_is_cjk.expect("a non-empty text run has a classification"),
         );
+    }
+}
+
+/// CJK body text reads best at about 1.75 em leading where Latin uses 1.5
+/// (Notion default), because ideographs fill the whole em box. The scale is
+/// applied to the user's current line height, so Compact/Default/Relaxed keep
+/// their proportions.
+const CJK_LINE_HEIGHT_SCALE: f32 = 1.75 / 1.5;
+
+fn inlines_have_cjk(inlines: &[Inline]) -> bool {
+    inlines.iter().any(|i| match i {
+        Inline::Text(t) | Inline::Code(t) => t.chars().any(is_cjk_fallback_char),
+        Inline::Emph(c) | Inline::Strong(c) | Inline::Strike(c) => inlines_have_cjk(c),
+        Inline::Link { children, .. } => inlines_have_cjk(children),
+    })
+}
+
+/// Line height for a paragraph: `base` for Latin-only text, scaled up when
+/// the paragraph holds any CJK character.
+fn paragraph_line_height(inlines: &[Inline], base: f32) -> f32 {
+    if inlines_have_cjk(inlines) {
+        base * CJK_LINE_HEIGHT_SCALE
+    } else {
+        base
     }
 }
 
@@ -838,7 +886,14 @@ fn make_span<'a>(
     cjk: bool,
     bg: Option<iced::Color>,
 ) -> RtSpan<'a> {
-    let mut font = if code && !cjk {
+    let text_str: std::borrow::Cow<'a, str> = if cjk {
+        crate::fonts::squeeze_fullwidth_punct(text_str)
+    } else {
+        text_str.into()
+    };
+    let mut font = if cjk {
+        iced::Font::with_name(crate::fonts::CJK_FAMILY)
+    } else if code {
         iced::Font::MONOSPACE
     } else {
         iced::Font::with_name("Inter")
@@ -937,10 +992,9 @@ fn push_code_runs<'a>(
     for_text_runs(text_str, |run, cjk| {
         let mut s = span(run)
             .font(if cjk {
-                // Use the normal reader family so the platform CJK fallback
-                // can provide glyphs; no platform has a universal CJK mono
+                // The bundled CJK face; no platform has a universal CJK mono
                 // face that can be relied on here.
-                iced::Font::with_name("Inter")
+                iced::Font::with_name(crate::fonts::CJK_FAMILY)
             } else {
                 iced::Font::MONOSPACE
             })
@@ -1383,7 +1437,7 @@ fn render_block_inner<'a>(
     match b {
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, ctx);
-            rich_text_spaced(spans, typ.line_height)
+            rich_text_spaced(spans, paragraph_line_height(inlines, typ.line_height))
         }
         _ => render_block(b, pal, typ, ctx.query, ctx.current_in_block, img),
     }
@@ -2257,7 +2311,7 @@ pub fn style_color(s: crate::ast::HlStyle, pal: &Palette) -> iced::Color {
 mod tests {
     use super::{
         adaptive_table_cell_width, fit_table_columns, for_text_runs, is_cjk_fallback_char,
-        reading_max_width, ReadingWidth, TableStyle,
+        paragraph_line_height, reading_max_width, ReadingWidth, TableStyle,
     };
     use crate::theme::{radius, Palette};
     use iced::advanced::layout;
@@ -2410,6 +2464,42 @@ mod tests {
                 ("한국어".to_string(), true),
                 ("D".to_string(), false),
             ]
+        );
+    }
+
+    #[test]
+    fn cjk_paragraphs_get_taller_lines_and_latin_paragraphs_do_not() {
+        use crate::ast::Inline;
+        let latin = [Inline::Text("plain english".into())];
+        let cjk = [Inline::Text("這是中文".into())];
+        let nested = [Inline::Strong(vec![Inline::Emph(vec![Inline::Text(
+            "中".into(),
+        )])])];
+        let code = [Inline::Text("a ".into()), Inline::Code("終端".into())];
+        assert_eq!(paragraph_line_height(&latin, 1.5), 1.5);
+        assert!((paragraph_line_height(&cjk, 1.5) - 1.75).abs() < 1e-5);
+        assert!((paragraph_line_height(&nested, 1.5) - 1.75).abs() < 1e-5);
+        assert!((paragraph_line_height(&code, 1.5) - 1.75).abs() < 1e-5);
+        // Compact 1.35 / Relaxed 1.725 keep their ratio to Default.
+        assert!((paragraph_line_height(&cjk, 1.35) - 1.575).abs() < 1e-5);
+        assert!((paragraph_line_height(&cjk, 1.725) - 2.0125).abs() < 1e-4);
+    }
+
+    #[test]
+    fn ellipsis_and_dashes_join_cjk_runs_only_next_to_cjk_text() {
+        let runs = |t: &str| {
+            let mut v = Vec::new();
+            for_text_runs(t, |r, c| v.push((r.to_string(), c)));
+            v
+        };
+        assert_eq!(
+            runs("等待……與——好"),
+            vec![("等待……與——好".to_string(), true)]
+        );
+        assert_eq!(runs("wait… no"), vec![("wait… no".to_string(), false)]);
+        assert_eq!(
+            runs("a…中"),
+            vec![("a".to_string(), false), ("…中".to_string(), true)]
         );
     }
 }
