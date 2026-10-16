@@ -6,8 +6,8 @@ use crate::theme::{Palette, Typography};
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
 use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout, Shell};
 use iced::widget::{
-    container, image as image_widget, mouse_area, rich_text, row, scrollable, span, stack,
-    svg as svg_widget, text, tooltip, Column, Space,
+    container, image as image_widget, mouse_area, row, scrollable, span, stack, svg as svg_widget,
+    text, tooltip, Column, Space,
 };
 use iced::{Background, Element, Event, Length, Padding, Rectangle, Size, Vector};
 use std::cell::Cell;
@@ -144,7 +144,7 @@ pub fn render<'a>(
         .into()
 }
 
-fn render_heading_with_chevron<'a>(
+pub(crate) fn render_heading_with_chevron<'a>(
     id: BlockId,
     b: &'a Block,
     pal: &Palette,
@@ -225,7 +225,7 @@ pub fn data_view<'a>(
                 .line_height(iced::widget::text::LineHeight::Relative(1.55)),
         );
     }
-    container(rich_text(out))
+    container(rich_text_links(out, pal.selection))
         .padding(Padding::from([28, 32]))
         .width(Length::Fill)
         .into()
@@ -248,7 +248,7 @@ pub fn data_view_owned(code: String, pal: &Palette, typ: &Typography) -> Element
                 .line_height(iced::widget::text::LineHeight::Relative(1.55)),
         );
     }
-    container(rich_text(out))
+    container(rich_text_links(out, pal.selection))
         .padding(Padding::from([28, 32]))
         .width(Length::Fill)
         .into()
