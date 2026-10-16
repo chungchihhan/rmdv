@@ -1577,7 +1577,7 @@ impl<'a, Message, Theme, Renderer> AdaptiveTableCell<'a, Message, Theme, Rendere
     fn new(content: Element<'a, Message, Theme, Renderer>) -> Self {
         Self {
             content,
-            padding: Padding::from([9, 12]),
+            padding: Padding::from([11, 16]),
             clip: true,
         }
     }
@@ -1808,10 +1808,51 @@ struct AdaptiveTable<'a, Message, Theme, Renderer> {
     cells: Vec<Element<'a, Message, Theme, Renderer>>,
     width: Length,
     height: Length,
-    separator_x: f32,
-    separator_y: f32,
-    palette: Palette,
+    style: TableStyle,
     viewport: Rc<Cell<f32>>,
+}
+
+/// Colors and metrics of a table's rounded frame, taken from the theme so
+/// presets and custom themes share one look.
+#[derive(Debug, Clone, Copy)]
+struct TableStyle {
+    radius: f32,
+    border_width: f32,
+    border: iced::Color,
+    header_bg: iced::Color,
+    body_bg: iced::Color,
+    /// Width of the rules between columns. Zero: columns are separated by
+    /// cell padding only.
+    column_rule: f32,
+    /// Width of the rules between rows.
+    row_rule: f32,
+}
+
+impl TableStyle {
+    fn from_palette(pal: &Palette) -> Self {
+        Self {
+            radius: crate::theme::radius::TABLE,
+            border_width: 1.0,
+            border: pal.rule,
+            header_bg: pal.surface_alt,
+            body_bg: pal.surface,
+            column_rule: 0.0,
+            row_rule: 1.0,
+        }
+    }
+
+    /// Corners of the header fill. It follows the frame's top corners, and
+    /// also its bottom corners when the header is the only row, so no fill
+    /// shows outside the rounded frame.
+    fn header_radius(&self, rows: usize) -> iced::border::Radius {
+        let bottom = if rows <= 1 { self.radius } else { 0.0 };
+        iced::border::Radius {
+            top_left: self.radius,
+            top_right: self.radius,
+            bottom_right: bottom,
+            bottom_left: bottom,
+        }
+    }
 }
 
 struct AdaptiveTableMetrics {
@@ -1834,9 +1875,7 @@ impl<'a, Message, Theme, Renderer> AdaptiveTable<'a, Message, Theme, Renderer> {
             cells,
             width: Length::Shrink,
             height: Length::Shrink,
-            separator_x: 1.0,
-            separator_y: 1.0,
-            palette,
+            style: TableStyle::from_palette(&palette),
             viewport,
         }
     }
@@ -1916,7 +1955,7 @@ where
                 .min(Self::MAX_COLUMN_WIDTH);
         }
 
-        let separators_width = self.separator_x * columns.saturating_sub(1) as f32;
+        let separators_width = self.style.column_rule * columns.saturating_sub(1) as f32;
         let viewport_width = self.viewport.get();
 
         // Horizontal scrollables hide the real viewport from their child, so
@@ -1953,8 +1992,8 @@ where
         metrics.rows = row_heights.clone();
 
         let table_width = column_widths.iter().sum::<f32>() + separators_width;
-        let table_height =
-            row_heights.iter().sum::<f32>() + self.separator_y * row_count.saturating_sub(1) as f32;
+        let table_height = row_heights.iter().sum::<f32>()
+            + self.style.row_rule * row_count.saturating_sub(1) as f32;
 
         let mut y = 0.0;
         for row in 0..row_count {
@@ -1964,9 +2003,9 @@ where
                 if let Some(cell) = cells.get_mut(index) {
                     cell.move_to_mut((x, y));
                 }
-                x += column_widths[column] + self.separator_x;
+                x += column_widths[column] + self.style.column_rule;
             }
-            y += row_heights[row] + self.separator_y;
+            y += row_heights[row] + self.style.row_rule;
         }
 
         let size = table_limits.resolve(
@@ -2013,30 +2052,41 @@ where
     ) {
         let bounds = layout.bounds();
         let metrics = tree.state.downcast_ref::<AdaptiveTableMetrics>();
-        let mut y = bounds.y;
+        let table = &self.style;
+        let row_count = metrics.rows.len();
 
-        // Draw row surfaces independently from cell content. That keeps the
-        // header and body fills continuous even when a row's tallest cell is
-        // taller than its neighbors.
-        for (row, height) in metrics.rows.iter().copied().enumerate() {
+        // The body fill carries the frame's rounded corners. Row surfaces are
+        // drawn independently from cell content, so the header fill stays
+        // continuous even when a row's tallest cell is taller than its
+        // neighbors.
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: iced::Border {
+                    radius: table.radius.into(),
+                    ..Default::default()
+                },
+                snap: true,
+                ..Default::default()
+            },
+            Background::Color(table.body_bg),
+        );
+        if let Some(header) = metrics.rows.first().copied() {
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: Rectangle {
-                        x: bounds.x,
-                        y,
-                        width: bounds.width,
-                        height,
+                        height: header,
+                        ..bounds
+                    },
+                    border: iced::Border {
+                        radius: table.header_radius(row_count),
+                        ..Default::default()
                     },
                     snap: true,
                     ..Default::default()
                 },
-                if row == 0 {
-                    Background::Color(self.palette.surface_alt)
-                } else {
-                    Background::Color(self.palette.surface)
-                },
+                Background::Color(table.header_bg),
             );
-            y += height + self.separator_y;
         }
 
         for ((cell, state), layout) in self.cells.iter().zip(&tree.children).zip(layout.children())
@@ -2045,54 +2095,47 @@ where
                 .draw(state, renderer, theme, style, layout, cursor, viewport);
         }
 
-        let line = self.palette.rule;
-        let mut x = bounds.x;
-        for width in metrics
-            .columns
-            .iter()
-            .copied()
-            .take(metrics.columns.len().saturating_sub(1))
-        {
-            x += width;
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x,
-                        y: bounds.y,
-                        width: self.separator_x,
-                        height: bounds.height,
-                    },
-                    snap: true,
-                    ..Default::default()
-                },
-                line,
-            );
-            x += self.separator_x;
-        }
-
+        // Row rules stop inside the frame stroke. They sit at least a header
+        // height away from the top and bottom edges, so the rounded corners
+        // never cut them.
         let mut y = bounds.y;
         for height in metrics
             .rows
             .iter()
             .copied()
-            .take(metrics.rows.len().saturating_sub(1))
+            .take(row_count.saturating_sub(1))
         {
             y += height;
             renderer.fill_quad(
                 renderer::Quad {
                     bounds: Rectangle {
-                        x: bounds.x,
+                        x: bounds.x + table.border_width,
                         y,
-                        width: bounds.width,
-                        height: self.separator_y,
+                        width: (bounds.width - 2.0 * table.border_width).max(0.0),
+                        height: table.row_rule,
                     },
                     snap: true,
                     ..Default::default()
                 },
-                line,
+                table.border,
             );
-            y += self.separator_y;
+            y += table.row_rule;
         }
+
+        // The frame stroke goes last so it sits above the fills and rules.
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds,
+                border: iced::Border {
+                    color: table.border,
+                    width: table.border_width,
+                    radius: table.radius.into(),
+                },
+                snap: true,
+                ..Default::default()
+            },
+            Background::Color(iced::Color::TRANSPARENT),
+        );
     }
 
     fn mouse_interaction(
@@ -2186,10 +2229,45 @@ pub fn style_color(s: crate::ast::HlStyle, pal: &Palette) -> iced::Color {
 mod tests {
     use super::{
         adaptive_table_cell_width, fit_table_columns, for_text_runs, is_cjk_fallback_char,
-        reading_max_width, ReadingWidth,
+        reading_max_width, ReadingWidth, TableStyle,
     };
+    use crate::theme::{radius, Palette};
     use iced::advanced::layout;
     use iced::{Length, Size};
+
+    #[test]
+    fn table_frame_uses_the_theme_radius_and_palette() {
+        for pal in [Palette::ONE_DARK, Palette::GITHUB_LIGHT] {
+            let style = TableStyle::from_palette(&pal);
+            assert_eq!(style.radius, radius::TABLE);
+            assert_eq!(style.border_width, 1.0);
+            assert_eq!(style.border, pal.rule);
+            assert_eq!(style.header_bg, pal.surface_alt);
+            assert_eq!(style.body_bg, pal.surface);
+        }
+    }
+
+    #[test]
+    fn table_header_rounds_only_the_top_corners() {
+        let style = TableStyle::from_palette(&Palette::ONE_DARK);
+        let r = style.header_radius(4);
+        assert_eq!((r.top_left, r.top_right), (radius::TABLE, radius::TABLE));
+        assert_eq!((r.bottom_left, r.bottom_right), (0.0, 0.0));
+
+        // A header-only table is the whole frame, so all four corners round.
+        let r = style.header_radius(1);
+        assert_eq!(
+            (r.bottom_left, r.bottom_right),
+            (radius::TABLE, radius::TABLE)
+        );
+    }
+
+    #[test]
+    fn table_has_row_rules_but_no_column_rules() {
+        let style = TableStyle::from_palette(&Palette::ONE_DARK);
+        assert_eq!(style.column_rule, 0.0);
+        assert_eq!(style.row_rule, 1.0);
+    }
 
     #[test]
     fn table_cell_intrinsic_measurement_does_not_fill_unbounded_limits() {

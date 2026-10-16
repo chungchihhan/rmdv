@@ -722,8 +722,8 @@ impl Typography {
 }
 
 /// Corner radii shared by the app chrome and the renderer: one ladder of
-/// 6 / 10 / 16 plus a glyph-sized step and fully rounded ends. Call sites name
-/// a step, so a visual pass retunes radii here in one place.
+/// 6 / 10 / 16 plus a glyph-sized step, a table step, and fully rounded ends.
+/// Call sites name a step, so a visual pass retunes radii here in one place.
 pub mod radius {
     /// Inline code, keycaps, and other glyph-sized chips.
     pub const XS: f32 = 4.0;
@@ -731,6 +731,8 @@ pub mod radius {
     pub const SM: f32 = 6.0;
     /// Code blocks, toasts, popovers, and floating islands.
     pub const MD: f32 = 10.0;
+    /// Markdown table frames: a little softer than code blocks.
+    pub const TABLE: f32 = 12.0;
     /// Dialogs, pickers, centered cards, and the shortcuts sheet.
     pub const LG: f32 = 16.0;
     /// Fully rounded ends for chips, capsule buttons, and scrollbar thumbs.
