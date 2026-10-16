@@ -2725,7 +2725,11 @@ impl App {
             // so global shortcuts (Cmd+E, Cmd+S, Esc, etc.) still fire while the
             // text_editor is focused. We rely on the sub handler's modifier-aware
             // checks to avoid stealing plain typing keys.
-            let _ = status;
+            // Selectable reader text captures ⌘C when it copied a selection;
+            // skip the "how to select" hint in that case.
+            if crate::selectable::copied_by_reader(&ev, status) {
+                return None;
+            }
             Some(ev)
         })
         // Std tuples hash only up to 12 fields, so the modal flag nests.

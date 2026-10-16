@@ -599,11 +599,11 @@ fn render_block<'a>(
     match b {
         Block::Heading { level, inlines, .. } => {
             let spans = inline_spans(inlines, pal, typ.heading_size(*level), &mut ctx);
-            rich_text_spaced(spans, crate::theme::HEADING_LINE_HEIGHT)
+            rich_text_spaced(spans, crate::theme::HEADING_LINE_HEIGHT, pal.selection)
         }
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, &mut ctx);
-            rich_text_spaced(spans, typ.line_height)
+            rich_text_spaced(spans, typ.line_height, pal.selection)
         }
         Block::CodeBlock { code, spans, .. } => {
             let pal_c = *pal;
@@ -632,7 +632,7 @@ fn render_block<'a>(
                     &mut ctx,
                 );
             }
-            let body = container(rich_text(out))
+            let body = container(rich_text_links(out, pal_c.selection))
                 .padding(Padding::from([10, 12]))
                 .style(move |_| container::Style {
                     background: Some(pal_c.code_bg.into()),
@@ -774,19 +774,7 @@ fn for_text_runs<'a>(text_str: &'a str, mut visit: impl FnMut(&'a str, bool)) {
     }
 }
 
-/// `rich_text` whose link spans dispatch their carried `Message` on click.
-/// The span `Link` type is `Message`, so the click handler is the identity.
-fn rich_text_links<'a>(spans: Vec<RtSpan<'a>>) -> Element<'a, Message> {
-    rich_text(spans).on_link_click(|m| m).into()
-}
-
-/// Rich text at a relative line height (body or heading).
-fn rich_text_spaced<'a>(spans: Vec<RtSpan<'a>>, line_height: f32) -> Element<'a, Message> {
-    rich_text(spans)
-        .line_height(iced::widget::text::LineHeight::Relative(line_height))
-        .on_link_click(|m| m)
-        .into()
-}
+use crate::selectable::{rich_text_links, rich_text_spaced};
 
 struct HlCtx<'a> {
     query: &'a str,
@@ -1383,7 +1371,7 @@ fn render_block_inner<'a>(
     match b {
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, ctx);
-            rich_text_spaced(spans, typ.line_height)
+            rich_text_spaced(spans, typ.line_height, pal.selection)
         }
         _ => render_block(b, pal, typ, ctx.query, ctx.current_in_block, img),
     }
@@ -1419,7 +1407,7 @@ fn render_table<'a>(
                 },
                 ctx,
             );
-            rich_text_links(spans)
+            rich_text_links(spans, pal.selection)
         } else {
             text("").into()
         };
@@ -1430,7 +1418,7 @@ fn render_table<'a>(
         for column_index in 0..cols {
             let content: Element<'a, Message> = if let Some(cell) = row_cells.get(column_index) {
                 let spans = inline_spans(cell, pal, typ.body_size, ctx);
-                rich_text_links(spans)
+                rich_text_links(spans, pal.selection)
             } else {
                 text("").into()
             };

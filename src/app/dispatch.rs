@@ -639,7 +639,7 @@ impl App {
                 Task::none()
             }
             Message::HintSelection => {
-                return self.show_toast("Press ⌘E to edit & select text".into());
+                return self.show_toast("Drag over text to select it, then press ⌘C".into());
             }
             Message::FoldChordStart => {
                 self.fold_chord_pending = true;

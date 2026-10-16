@@ -27,6 +27,7 @@ pub mod quick_slots;
 pub mod recent;
 pub mod render;
 pub mod search;
+pub mod selectable;
 pub mod terminal;
 pub mod tex;
 pub mod theme;

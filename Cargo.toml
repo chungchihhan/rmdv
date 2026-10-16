@@ -43,6 +43,7 @@ tree-sitter-toml-ng = "0.7"
 mermaid-rs-renderer = { git = "https://github.com/zed-industries/mermaid-rs-renderer", rev = "782b89a7da3f0e91e51f98d00a93acba679be6fb" }
 layout-rs = "0.1"
 iced_math = "0.5"
+iced_selection = "0.5"
 lru = "0.12"
 clap = { version = "4", features = ["derive"] }
 interprocess = { version = "2", features = ["tokio"] }
@@ -81,6 +82,7 @@ path = "src/main.rs"
 [dev-dependencies]
 insta = { version = "1", features = ["yaml"] }
 criterion = { version = "0.5", default-features = false, features = ["rayon"] }
+iced_runtime = "0.14"
 
 [[bench]]
 name = "cold_start"
