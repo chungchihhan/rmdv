@@ -385,6 +385,39 @@ mod tests {
     }
 
     #[test]
+    fn copying_squeezed_cjk_punctuation_gives_the_original_text() {
+        let raw = "他說（好」、「是）。";
+        let spans: Vec<_> = crate::fonts::squeeze_segments(raw)
+            .into_iter()
+            .map(|(seg, half)| {
+                let f = if half {
+                    Font::with_name(crate::fonts::PUNCT_FAMILY)
+                } else {
+                    Font::with_name(crate::fonts::CJK_FAMILY)
+                };
+                span(seg.to_string()).font(f)
+            })
+            .collect();
+        let el = rich_text_links(spans, iced::Color::BLACK);
+        let start = Point::new(1.0, 8.0);
+        let end = Point::new(700.0, 8.0);
+        let (clipboard, _) = run(
+            el,
+            vec![
+                (start, vec![moved(start)]),
+                (start, vec![Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]),
+                (end, vec![moved(end)]),
+                (end, vec![Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]),
+                (end, vec![
+                    Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
+                    key_press("c", Modifiers::COMMAND),
+                ]),
+            ],
+        );
+        assert_eq!(clipboard.0.as_deref(), Some(raw));
+    }
+
+    #[test]
     fn clicking_a_link_without_dragging_still_dispatches_it() {
         let el = rich_text_links(vec![span("go").link(Message::Noop)], iced::Color::BLACK);
         let at = Point::new(4.0, 8.0);
