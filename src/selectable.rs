@@ -62,7 +62,7 @@ struct LatinKeys<'a> {
     content: Element<'a, Message>,
 }
 
-fn latin_event(event: &iced::Event) -> Option<iced::Event> {
+pub(crate) fn latin_event(event: &iced::Event) -> Option<iced::Event> {
     use iced::keyboard::Event as KEv;
     let iced::Event::Keyboard(KEv::KeyPressed {
         key,

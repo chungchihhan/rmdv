@@ -15,6 +15,11 @@ fn join<'a>(blocks: impl Iterator<Item = &'a Block>, sep: &str) -> String {
     blocks.filter_map(block).collect::<Vec<_>>().join(sep)
 }
 
+/// One block's text, as in [`document`]; `None` when it has no text.
+pub(crate) fn block_text(b: &Block) -> Option<String> {
+    block(b)
+}
+
 /// One block's text, or `None` when it has no text: rules, Mermaid and DOT
 /// diagrams, and images without alt text. Display math keeps its TeX source.
 fn block(b: &Block) -> Option<String> {

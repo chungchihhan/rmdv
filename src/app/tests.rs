@@ -9008,7 +9008,9 @@ fn dragging_across_paragraphs_copies_the_text_in_between() {
     // The reading column is centred (max 720 px) under a 56 px top padding;
     // paragraphs are 24 px lines with an 8 px gap. Start inside the first
     // paragraph, end inside the third.
-    let start = Point::new(285.0, 66.0);
+    // x = 281 is on the left half of the "a" in "alpha", so the copy starts
+    // before it (285 lands after it).
+    let start = Point::new(281.0, 66.0);
     let end = Point::new(330.0, 66.0 + 2.0 * 32.0);
     let mut send = |at: Point, events: Vec<Event>| {
         let _ = ui.update(
@@ -9072,4 +9074,361 @@ fn dragging_across_paragraphs_copies_the_text_in_between() {
         copied.contains("alpha") && copied.contains("charlie"),
         "both end paragraphs must contribute text, got {copied:?}"
     );
+}
+
+/// Drives the reader view of a loaded document headlessly, the way the
+/// event loop does: one batch of events per cursor position.
+struct ReaderUi<'a> {
+    ui: iced_runtime::user_interface::UserInterface<'a, Message, iced::Theme, iced::Renderer>,
+    renderer: iced::Renderer,
+    clipboard: ReaderClipboard,
+    messages: Vec<Message>,
+}
+
+#[derive(Default)]
+struct ReaderClipboard(Option<String>);
+
+impl iced::advanced::Clipboard for ReaderClipboard {
+    fn read(&self, _kind: iced::advanced::clipboard::Kind) -> Option<String> {
+        self.0.clone()
+    }
+    fn write(&mut self, _kind: iced::advanced::clipboard::Kind, contents: String) {
+        self.0 = Some(contents);
+    }
+}
+
+fn reader_app(source: &str) -> App {
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        std::path::PathBuf::from("/tmp/xblock.md"),
+        source.to_string(),
+    ))));
+    app
+}
+
+const READER_SIZE: iced::Size = iced::Size::new(1280.0, 800.0);
+
+impl<'a> ReaderUi<'a> {
+    fn new(app: &'a App) -> Self {
+        use iced::advanced::renderer::Headless;
+        let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+            iced::Font::DEFAULT,
+            iced::Pixels(16.0),
+            Some("tiny-skia"),
+        ))
+        .expect("headless tiny-skia renderer");
+        let ui = iced_runtime::user_interface::UserInterface::build(
+            app.view(),
+            READER_SIZE,
+            iced_runtime::user_interface::Cache::default(),
+            &mut renderer,
+        );
+        Self {
+            ui,
+            renderer,
+            clipboard: ReaderClipboard::default(),
+            messages: Vec::new(),
+        }
+    }
+
+    fn send(&mut self, at: iced::Point, events: Vec<iced::Event>) {
+        let _ = self.ui.update(
+            &events,
+            iced::mouse::Cursor::Available(at),
+            &mut self.renderer,
+            &mut self.clipboard,
+            &mut self.messages,
+        );
+    }
+
+    fn mouse(&mut self, at: iced::Point, event: iced::mouse::Event) {
+        self.send(at, vec![iced::Event::Mouse(event)]);
+    }
+
+    fn click(&mut self, at: iced::Point) {
+        use iced::mouse::{Button, Event};
+        self.mouse(at, Event::CursorMoved { position: at });
+        self.mouse(at, Event::ButtonPressed(Button::Left));
+        self.mouse(at, Event::ButtonReleased(Button::Left));
+    }
+
+    fn drag(&mut self, from: iced::Point, to: iced::Point) {
+        use iced::mouse::{Button, Event};
+        self.mouse(from, Event::CursorMoved { position: from });
+        self.mouse(from, Event::ButtonPressed(Button::Left));
+        for step in 1..=8 {
+            let t = step as f32 / 8.0;
+            let at = iced::Point::new(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t);
+            self.mouse(at, Event::CursorMoved { position: at });
+        }
+        self.mouse(to, Event::ButtonReleased(Button::Left));
+    }
+
+    /// Presses ⌘ and a key whose character is `key` on the physical C key,
+    /// then returns the clipboard.
+    fn cmd_c_as(&mut self, key: &str) -> String {
+        use iced::keyboard::{self, Key, Modifiers};
+        let k = Key::Character(key.into());
+        let at = iced::Point::ORIGIN;
+        self.send(
+            at,
+            vec![
+                iced::Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
+                iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: k.clone(),
+                    modified_key: k,
+                    physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyC),
+                    location: keyboard::Location::Standard,
+                    modifiers: Modifiers::COMMAND,
+                    text: None,
+                    repeat: false,
+                }),
+            ],
+        );
+        self.clipboard.0.clone().unwrap_or_default()
+    }
+
+    fn cmd_c(&mut self) -> String {
+        self.cmd_c_as("c")
+    }
+
+    /// Layout bounds of every selectable reader text widget, top to bottom.
+    fn text_bounds(&mut self) -> Vec<iced::Rectangle> {
+        struct Collect(Vec<iced::Rectangle>);
+        impl iced::advanced::widget::Operation for Collect {
+            fn traverse(
+                &mut self,
+                operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation),
+            ) {
+                operate(self);
+            }
+            fn custom(
+                &mut self,
+                _id: Option<&iced::widget::Id>,
+                bounds: iced::Rectangle,
+                state: &mut dyn std::any::Any,
+            ) {
+                if state
+                    .downcast_ref::<iced_selection::text::RichState<Message>>()
+                    .is_some()
+                {
+                    self.0.push(bounds);
+                }
+            }
+        }
+        let mut op = Collect(Vec::new());
+        self.ui.operate(&self.renderer, &mut op);
+        op.0
+    }
+
+    fn shot(&mut self) -> Vec<u8> {
+        self.ui.draw(
+            &mut self.renderer,
+            &iced::Theme::Light,
+            &iced::advanced::renderer::Style {
+                text_color: iced::Color::BLACK,
+            },
+            iced::mouse::Cursor::Unavailable,
+        );
+        use iced::advanced::renderer::Headless;
+        self.renderer.screenshot(
+            iced::Size::new(READER_SIZE.width as u32, READER_SIZE.height as u32),
+            1.0,
+            iced::Color::WHITE,
+        )
+    }
+}
+
+/// A point inside `r`, `fx` of the way across its first line.
+fn on_first_line(r: iced::Rectangle, fx: f32) -> iced::Point {
+    iced::Point::new(r.x + r.width * fx, r.y + 8.0)
+}
+
+/// Pixels that differ between two screenshots inside a horizontal band.
+fn changed_in_band(a: &[u8], b: &[u8], top: f32, bottom: f32) -> usize {
+    let w = READER_SIZE.width as usize;
+    let (top, bottom) = (top.max(0.0) as usize, bottom as usize);
+    (top..bottom)
+        .flat_map(|y| (0..w).map(move |x| (y * w + x) * 4))
+        .filter(|&i| a[i..i + 3] != b[i..i + 3])
+        .count()
+}
+
+#[test]
+fn cross_block_drag_highlights_the_middle_block_and_a_click_clears_it() {
+    let app = reader_app("alpha one two\n\nbravo three four\n\ncharlie five six\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    assert!(rows.len() >= 3, "three paragraphs, got {rows:?}");
+    let before = r.shot();
+    let middle = rows[1];
+    r.drag(on_first_line(rows[0], 0.0), on_first_line(rows[2], 0.02));
+    let during = r.shot();
+    let painted = changed_in_band(&before, &during, middle.y, middle.y + middle.height);
+    assert!(
+        painted > 1000,
+        "middle paragraph should be highlighted, {painted} px changed"
+    );
+
+    // A plain click elsewhere drops the cross-block selection and its paint.
+    r.click(iced::Point::new(rows[2].x + 40.0, rows[2].y + 300.0));
+    let after = r.shot();
+    let left = changed_in_band(&before, &after, middle.y, middle.y + middle.height);
+    assert_eq!(left, 0, "highlight must be cleared after a click");
+    assert_eq!(
+        r.cmd_c(),
+        "",
+        "nothing is copied once the selection is cleared"
+    );
+}
+
+#[test]
+fn dragging_inside_one_paragraph_still_copies_just_that_part() {
+    let app = reader_app("alpha one two\n\nbravo three four\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    r.drag(
+        on_first_line(rows[1], 0.0),
+        iced::Point::new(rows[1].x + 2000.0, rows[1].y + 8.0),
+    );
+    assert_eq!(r.cmd_c(), "bravo three four");
+}
+
+#[test]
+fn double_and_triple_click_in_the_reader_still_select_word_and_line() {
+    let app = reader_app("alpha one two\n\nbravo three four\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    // "alpha one two": the middle of the line is inside "one".
+    let mut at = rows[0].position() + iced::Vector::new(0.0, 8.0);
+    // Find the x of "one" by scanning: double-click until the word is "one".
+    let mut word = String::new();
+    for x in (0..200).step_by(4) {
+        at.x = rows[0].x + x as f32;
+        r.click(at);
+        r.click(at);
+        word = r.cmd_c();
+        if word == "one" {
+            break;
+        }
+    }
+    assert_eq!(word, "one", "double-click selects one word");
+
+    // Wait past the double-click interval so the next click starts fresh.
+    std::thread::sleep(std::time::Duration::from_millis(400));
+    r.click(at);
+    r.click(at);
+    r.click(at);
+    assert_eq!(r.cmd_c(), "alpha one two", "triple-click selects the line");
+}
+
+#[test]
+fn dragging_from_a_heading_into_a_list_copies_both() {
+    let app = reader_app("# Title here\n\n- first item\n- second item\n\nTail paragraph.\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    assert!(rows.len() >= 4, "heading, two items, tail; got {rows:?}");
+    // End on the far right of "second item": the whole item.
+    let end = iced::Point::new(rows[2].x + rows[2].width - 1.0, rows[2].y + 8.0);
+    r.drag(on_first_line(rows[0], 0.0), end);
+    assert_eq!(r.cmd_c(), "Title here\n\nfirst item\nsecond item");
+}
+
+#[test]
+fn cross_block_copy_keeps_squeezed_cjk_punctuation_as_written() {
+    let first = "他說（好」、「是）。";
+    let second = "第二段「引號」，完。";
+    let app = reader_app(&format!("{first}\n\n{second}\n"));
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    let end = iced::Point::new(rows[1].x + rows[1].width - 1.0, rows[1].y + 8.0);
+    r.drag(on_first_line(rows[0], 0.0), end);
+    assert_eq!(r.cmd_c(), format!("{first}\n\n{second}"));
+}
+
+#[test]
+fn cross_block_copy_works_under_a_zhuyin_input_source() {
+    let app = reader_app("alpha one two\n\nbravo three four\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    let end = iced::Point::new(rows[1].x + rows[1].width - 1.0, rows[1].y + 8.0);
+    r.drag(on_first_line(rows[0], 0.0), end);
+    assert_eq!(r.cmd_c_as("ㄏ"), "alpha one two\n\nbravo three four");
+}
+
+#[test]
+fn dragging_upward_across_blocks_copies_in_document_order() {
+    let app = reader_app("alpha one two\n\nbravo three four\n\ncharlie five six\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    let bottom = iced::Point::new(rows[2].x + rows[2].width - 1.0, rows[2].y + 8.0);
+    r.drag(bottom, on_first_line(rows[0], 0.0));
+    assert_eq!(
+        r.cmd_c(),
+        "alpha one two\n\nbravo three four\n\ncharlie five six"
+    );
+}
+
+#[test]
+fn clicking_a_link_in_the_reader_still_opens_it() {
+    let app = reader_app("see [the docs](https://example.com/docs) here\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    let mut opened = false;
+    for x in (0..300).step_by(6) {
+        r.click(iced::Point::new(rows[0].x + x as f32, rows[0].y + 8.0));
+        if r.messages
+            .iter()
+            .any(|m| matches!(m, Message::OpenLink(u) if u == "https://example.com/docs"))
+        {
+            opened = true;
+            break;
+        }
+        // Space clicks apart so they never count as a double-click.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert!(opened, "a click on the link dispatches OpenLink");
+}
+
+#[test]
+fn cross_block_copy_leaves_out_a_folded_section() {
+    let mut app = reader_app("# One\n\nhidden paragraph\n\n# Two\n\nafter paragraph\n");
+    let first = app.ast[0].0;
+    let _ = app.update(Message::ToggleFold(first));
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    assert_eq!(
+        rows.len(),
+        3,
+        "One, Two, after; the folded paragraph is hidden"
+    );
+    let end = iced::Point::new(rows[2].x + rows[2].width - 1.0, rows[2].y + 8.0);
+    r.drag(on_first_line(rows[0], 0.0), end);
+    assert_eq!(r.cmd_c(), "One\n\nTwo\n\nafter paragraph");
+}
+
+#[test]
+fn cmd_a_drops_the_cross_block_range_for_the_whole_document_select() {
+    use iced::keyboard::{self, Key, Modifiers};
+    let app = reader_app("alpha one two\n\nbravo three four\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    let end = iced::Point::new(rows[1].x + rows[1].width - 1.0, rows[1].y + 8.0);
+    r.drag(on_first_line(rows[0], 0.0), end);
+    let a = Key::Character("a".into());
+    r.send(
+        iced::Point::ORIGIN,
+        vec![iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: a.clone(),
+            modified_key: a,
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyA),
+            location: keyboard::Location::Standard,
+            modifiers: Modifiers::COMMAND,
+            text: None,
+            repeat: false,
+        })],
+    );
+    // The app's subscription handles ⌘A and ⌘C for the whole document; the
+    // reader widgets no longer hold a selection to copy.
+    assert_eq!(r.cmd_c(), "");
 }

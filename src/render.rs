@@ -125,7 +125,7 @@ pub fn render<'a>(
                 .into()
         };
         keys.push(RowKey::Block(id.0));
-        col = col.push(el);
+        col = col.push(crate::select_scope::BlockMark::new(idx, el));
     }
     if let Some(h) = virt.and_then(|w| w.bottom_spacer()) {
         keys.push(RowKey::BottomSpacer);
@@ -139,7 +139,7 @@ pub fn render<'a>(
     } else {
         KeyedBody::new_fresh(keys, col, keyed_widget_generation).into()
     };
-    container(body)
+    container(crate::select_scope::SelectScope::new(blocks, folded, body))
         .max_width(reading_max_width(reading_width))
         .into()
 }
