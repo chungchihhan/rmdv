@@ -41,6 +41,10 @@ No active product workstream. Pick the next task from
 - Phase-5 tasks (`MDV-032`–`MDV-035`) start with a design for the owner.
 - GitHub Actions: the repo is public and uses standard runners only, which do
   not consume the owner's (exhausted) private-repo minutes. Keep it that way.
+- Website deploys run locally with `wrangler deploy` by the owner. The
+  `deploy-site` workflow fails because the repo has no `CLOUDFLARE_API_TOKEN`
+  secret (run 39041702967); v0.10.0's site went live this way (Worker version
+  `6e4b9588`, 2026-10-17).
 - Release dispatches default to `dry_run: true`; a real release needs
   `dry_run: false` and owner authority.
 

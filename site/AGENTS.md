@@ -29,6 +29,8 @@ It is separate from the Rust application and has no Cargo build boundary.
 - `_headers` is part of the deployment contract. The Content-Security-Policy
   hashes cover the inline scripts in `index.html`; changing an inline script
   requires updating the matching hash deliberately.
+- Deploys run locally with `wrangler deploy` by the owner. The `deploy-site`
+  workflow currently fails: the repo has no `CLOUDFLARE_API_TOKEN` secret.
 - The deploy workflow is `workflow_dispatch` only. Do not imply that a local
   site edit is live until an explicit deployment and live check has happened.
 
