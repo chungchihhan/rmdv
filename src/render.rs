@@ -884,14 +884,12 @@ fn make_span<'a>(
     st: &Style,
     code: bool,
     cjk: bool,
+    narrow: bool,
     bg: Option<iced::Color>,
 ) -> RtSpan<'a> {
-    let text_str: std::borrow::Cow<'a, str> = if cjk {
-        crate::fonts::squeeze_fullwidth_punct(text_str)
-    } else {
-        text_str.into()
-    };
-    let mut font = if cjk {
+    let mut font = if narrow {
+        iced::Font::with_name(crate::fonts::PUNCT_FAMILY)
+    } else if cjk {
         iced::Font::with_name(crate::fonts::CJK_FAMILY)
     } else if code {
         iced::Font::MONOSPACE
@@ -941,7 +939,13 @@ fn push_styled_runs<'a>(
     out: &mut Vec<RtSpan<'a>>,
 ) {
     for_text_runs(text_str, |run, cjk| {
-        out.push(make_span(run, pal, size, st, code, cjk, bg));
+        if cjk {
+            for (part, narrow) in crate::fonts::squeeze_segments(run) {
+                out.push(make_span(part, pal, size, st, code, true, narrow, bg));
+            }
+        } else {
+            out.push(make_span(run, pal, size, st, code, false, false, bg));
+        }
     });
 }
 
@@ -2311,7 +2315,8 @@ pub fn style_color(s: crate::ast::HlStyle, pal: &Palette) -> iced::Color {
 mod tests {
     use super::{
         adaptive_table_cell_width, fit_table_columns, for_text_runs, is_cjk_fallback_char,
-        paragraph_line_height, reading_max_width, ReadingWidth, TableStyle,
+        paragraph_line_height, push_styled_runs, reading_max_width, ReadingWidth, Style,
+        TableStyle,
     };
     use crate::theme::{radius, Palette};
     use iced::advanced::layout;
@@ -2501,5 +2506,53 @@ mod tests {
             runs("a…中"),
             vec![("a".to_string(), false), ("…中".to_string(), true)]
         );
+    }
+    #[test]
+    fn squeezed_punctuation_keeps_the_original_text_in_the_spans() {
+        for text in [
+            "他說（好",
+            "是）。",
+            "「他說」「好」，（對）。「……」",
+            "一二三",
+        ] {
+            let mut out = Vec::new();
+            push_styled_runs(
+                text,
+                &Palette::GITHUB_LIGHT,
+                16.0,
+                &Style::default(),
+                false,
+                None,
+                &mut out,
+            );
+            let joined: String = out.iter().map(|s| s.text.as_ref()).collect();
+            assert_eq!(joined, text);
+            assert!(
+                !joined
+                    .chars()
+                    .any(|c| ('\u{E000}'..='\u{F8FF}').contains(&c)),
+                "private-use char in {joined:?}"
+            );
+        }
+        // The squeezed marks sit in their own spans with the narrow face.
+        let mut out = Vec::new();
+        push_styled_runs(
+            "「他說」「好」",
+            &Palette::GITHUB_LIGHT,
+            16.0,
+            &Style::default(),
+            false,
+            None,
+            &mut out,
+        );
+        let narrow: Vec<&str> = out
+            .iter()
+            .filter(|s| {
+                s.font.map(|f| f.family)
+                    == Some(iced::font::Family::Name(crate::fonts::PUNCT_FAMILY))
+            })
+            .map(|s| s.text.as_ref())
+            .collect();
+        assert_eq!(narrow, vec!["」"]);
     }
 }

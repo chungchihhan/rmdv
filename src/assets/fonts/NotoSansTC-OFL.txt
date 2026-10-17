@@ -4,6 +4,11 @@ instances cut from the variable font and subset (Big5 common + GB2312 level 1
 hanzi, CJK/fullwidth punctuation, kana, bopomofo). The font family name
 'Noto Sans TC' is unchanged; the Reserved Font Name 'Source' is not used.
 
+RmdvCJKPunct-Regular/Bold are a further modified subset of the same files: only
+the fullwidth brackets and stops, at their original code points, with the
+font's own half-width ('halt') shapes. Their family name is 'rmdv CJK Punct';
+the Reserved Font Name 'Source' is not used. They are under the same license.
+
 SIL OPEN FONT LICENSE
 
 Version 1.1 - 26 February 2007

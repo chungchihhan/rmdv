@@ -13,12 +13,17 @@
 //! 400/700 instances of Noto Sans TC (SIL OFL 1.1, see
 //! `assets/fonts/NotoSansTC-OFL.txt`) subset to Big5 common hanzi, GB2312
 //! level-1 hanzi, CJK and fullwidth punctuation, kana and bopomofo; rarer
-//! characters still fall back to the system. Each also holds half-width
-//! copies of the brackets and stops (the font's own `halt` shapes) at
-//! U+E000.., used by [`squeeze_fullwidth_punct`]. cosmic-text shapes every
-//! punctuation mark as its own word, so OpenType pair kerning cannot do this.
+//! characters still fall back to the system.
+//!
+//! `RmdvCJKPunct-{Regular,Bold}.ttf` hold only the fullwidth brackets and
+//! stops, at their own code points, with the half-width shapes of the
+//! font's `halt` feature. They are a derived subset (family renamed, since
+//! the Noto Sans TC copyright names the Reserved Font Name 'Source'); text
+//! that [`squeeze_segments`] marks as narrow is set in this family, so the
+//! text itself never changes. cosmic-text shapes every punctuation mark as
+//! its own word, so OpenType pair kerning cannot do this.
 
-pub const BUNDLED: [&[u8]; 8] = [
+pub const BUNDLED: [&[u8]; 10] = [
     include_bytes!("assets/fonts/Inter-Variable.ttf"),
     include_bytes!("assets/fonts/Inter-Medium.ttf"),
     include_bytes!("assets/fonts/Inter-SemiBold.ttf"),
@@ -27,66 +32,61 @@ pub const BUNDLED: [&[u8]; 8] = [
     include_bytes!("assets/fonts/lucide.ttf"),
     include_bytes!("assets/fonts/NotoSansTC-Regular.ttf"),
     include_bytes!("assets/fonts/NotoSansTC-Bold.ttf"),
+    include_bytes!("assets/fonts/RmdvCJKPunct-Regular.ttf"),
+    include_bytes!("assets/fonts/RmdvCJKPunct-Bold.ttf"),
 ];
 
-/// Characters that have a half-width copy in the bundled CJK face, in the
-/// order of their private-use code points (`U+E000 + index`): opening
-/// brackets, closing brackets, then stops.
+/// Brackets and stops that the half-width face covers: opening brackets
+/// first (the first `OPENING` characters), then closing brackets and stops.
 const SQUEEZABLE: &str = "「『（【〔〈《［｛」』）】〕〉》］｝，。、．";
 const OPENING: usize = 9;
+
+fn is_squeezable(c: char) -> bool {
+    SQUEEZABLE.contains(c)
+}
 
 fn is_opening(c: char) -> bool {
     SQUEEZABLE.chars().take(OPENING).any(|o| o == c)
 }
 
-fn squeezed_form(c: char) -> Option<char> {
-    SQUEEZABLE
-        .chars()
-        .position(|o| o == c)
-        .and_then(|i| char::from_u32(0xE000 + i as u32))
-}
-
-/// Squeeze adjacent fullwidth punctuation to half width (CSS
-/// `text-spacing-trim: normal`): a closing bracket or stop followed by
+/// Split `text` into consecutive segments, each flagged "narrow" or not
+/// (CSS `text-spacing-trim: normal`). A closing bracket or stop followed by
 /// another bracket or stop, and an opening bracket followed by an opening
-/// bracket, are swapped for their half-width copy. Every swapped character
-/// stays 3 UTF-8 bytes, so byte offsets into the text do not move.
-pub fn squeeze_fullwidth_punct(text: &str) -> std::borrow::Cow<'_, str> {
-    let mut out: Option<String> = None;
+/// bracket, are narrow: the caller sets them in [`PUNCT_FAMILY`]. The
+/// segments always concatenate to `text`.
+pub fn squeeze_segments(text: &str) -> Vec<(&str, bool)> {
+    let mut out: Vec<(&str, bool)> = Vec::new();
     let mut chars = text.char_indices().peekable();
+    let mut start = 0usize;
+    let mut current: Option<bool> = None;
     while let Some((i, c)) = chars.next() {
-        let next = chars.peek().map(|&(_, n)| n);
-        let squeeze = match next {
-            Some(n) if squeezed_form(n).is_some() => {
-                if is_opening(c) {
-                    is_opening(n)
-                } else {
-                    true
-                }
+        let narrow = match chars.peek() {
+            Some(&(_, n)) if is_squeezable(n) && is_squeezable(c) => {
+                !is_opening(c) || is_opening(n)
             }
             _ => false,
         };
-        let replacement = if squeeze { squeezed_form(c) } else { None };
-        match (replacement, out.as_mut()) {
-            (Some(r), None) => {
-                let mut s = String::with_capacity(text.len());
-                s.push_str(&text[..i]);
-                s.push(r);
-                out = Some(s);
+        match current {
+            Some(flag) if flag != narrow => {
+                out.push((&text[start..i], flag));
+                start = i;
+                current = Some(narrow);
             }
-            (Some(r), Some(s)) => s.push(r),
-            (None, Some(s)) => s.push(c),
-            (None, None) => {}
+            None => current = Some(narrow),
+            _ => {}
         }
     }
-    match out {
-        Some(s) => s.into(),
-        None => text.into(),
+    if let Some(flag) = current {
+        out.push((&text[start..], flag));
     }
+    out
 }
 
 /// Family name of the bundled CJK face (Noto Sans TC, Traditional forms).
 pub const CJK_FAMILY: &str = "Noto Sans TC";
+
+/// Family name of the half-width punctuation face (same code points).
+pub const PUNCT_FAMILY: &str = "rmdv CJK Punct";
 
 #[cfg(test)]
 mod tests {
@@ -143,29 +143,38 @@ mod tests {
         }
     }
 
-    /// Sum of glyph advances (px at 16 px) for `text` shaped in the bundled CJK face.
+    /// Sum of glyph advances (px at 16 px) for `text`, each squeeze segment
+    /// shaped in its own family as the renderer does.
     fn cjk_advance(text: &str) -> f32 {
-        let text = &*super::squeeze_fullwidth_punct(text);
         let sources = BUNDLED
             .iter()
             .map(|bytes| fontdb::Source::Binary(Arc::new(*bytes)));
         let mut fonts = FontSystem::new_with_fonts(sources);
-        let mut buffer = Buffer::new(&mut fonts, Metrics::new(16.0, 24.0));
-        buffer.set_size(&mut fonts, Some(100_000.0), None);
-        buffer.set_text(
-            &mut fonts,
-            text,
-            &Attrs::new()
-                .family(Family::Name(super::CJK_FAMILY))
-                .weight(Weight::NORMAL),
-            Shaping::Advanced,
-            None,
-        );
-        buffer.shape_until_scroll(&mut fonts, false);
-        buffer
-            .layout_runs()
-            .flat_map(|run| run.glyphs.iter().map(|g| g.w).collect::<Vec<_>>())
-            .sum()
+        let mut total = 0.0;
+        for (segment, narrow) in super::squeeze_segments(text) {
+            let family = if narrow {
+                super::PUNCT_FAMILY
+            } else {
+                super::CJK_FAMILY
+            };
+            let mut buffer = Buffer::new(&mut fonts, Metrics::new(16.0, 24.0));
+            buffer.set_size(&mut fonts, Some(100_000.0), None);
+            buffer.set_text(
+                &mut fonts,
+                segment,
+                &Attrs::new()
+                    .family(Family::Name(family))
+                    .weight(Weight::NORMAL),
+                Shaping::Advanced,
+                None,
+            );
+            buffer.shape_until_scroll(&mut fonts, false);
+            total += buffer
+                .layout_runs()
+                .flat_map(|run| run.glyphs.iter().map(|g| g.w).collect::<Vec<_>>())
+                .sum::<f32>();
+        }
+        total
     }
 
     #[test]
@@ -219,17 +228,40 @@ mod tests {
     }
 
     #[test]
-    fn squeeze_only_touches_adjacent_punctuation_and_keeps_byte_length() {
-        use super::squeeze_fullwidth_punct as sq;
-        assert_eq!(sq("「這」"), "「這」");
-        assert_eq!(sq("沒有標點"), "沒有標點");
-        for s in ["」「", "）」", "（「", "。「", "他說：「好」。「對」"] {
-            let out = sq(s);
-            assert_eq!(out.len(), s.len(), "{s}");
-            assert_ne!(out, s, "{s}");
+    fn squeeze_segments_cover_the_text_exactly_and_mark_only_adjacent_punctuation() {
+        use super::squeeze_segments as seg;
+        let joined = |t: &str| seg(t).iter().map(|(s, _)| *s).collect::<String>();
+        for s in [
+            "」「",
+            "他說（好",
+            "是）。",
+            "他說：「好」。「對」",
+            "沒有標點",
+            "",
+        ] {
+            assert_eq!(joined(s), s);
         }
+        assert_eq!(seg("「這」"), vec![("「這」", false)]);
+        assert_eq!(seg("沒有標點"), vec![("沒有標點", false)]);
+        assert_eq!(seg("」「"), vec![("」", true), ("「", false)]);
+        assert_eq!(
+            seg("是）。"),
+            vec![("是", false), ("）", true), ("。", false)]
+        );
+        assert_eq!(seg("（「"), vec![("（", true), ("「", false)]);
         // Opening followed by closing is left alone; colon is not squeezed.
-        assert_eq!(sq("「」"), "「」");
-        assert_eq!(sq("：「"), "：「");
+        assert_eq!(seg("「」"), vec![("「」", false)]);
+        assert_eq!(seg("：「"), vec![("：「", false)]);
+    }
+
+    #[test]
+    fn punct_face_keeps_original_code_points_in_its_own_family() {
+        for weight in [Weight::NORMAL, Weight::BOLD] {
+            let families = shaped_families_in(super::PUNCT_FAMILY, "」「，。", weight);
+            assert!(
+                families.iter().all(|f| f == "rmdv CJK Punct"),
+                "{families:?}"
+            );
+        }
     }
 }
