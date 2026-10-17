@@ -20,7 +20,7 @@ mod rich;
 
 use iced_widget::graphics::text::Paragraph;
 use iced_widget::graphics::text::cosmic_text;
-pub use rich::Rich;
+pub use rich::{Rich, State as RichState};
 use text::{Alignment, LineHeight, Shaping, Wrapping};
 pub use text::{Fragment, Highlighter, IntoFragment, Span};
 

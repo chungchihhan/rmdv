@@ -228,7 +228,12 @@ where
     }
 }
 
-struct State<Link> {
+/// The state of a [`Rich`] text widget.
+///
+/// [`Rich::operate`](Widget::operate) hands it to
+/// [`Operation::custom`](core::widget::Operation::custom), so a parent can
+/// drive one selection across several widgets (rmdv).
+pub struct State<Link> {
     spans: Vec<Span<'static, Link, Font>>,
     span_pressed: Option<usize>,
     hovered_link: Option<usize>,
@@ -239,6 +244,7 @@ struct State<Link> {
     last_click: Option<click::Click>,
     keyboard_modifiers: keyboard::Modifiers,
     visual_lines_bounds: Vec<core::Rectangle>,
+    external: Option<Selection>,
 }
 
 impl<Link> State<Link> {
@@ -294,8 +300,8 @@ impl<Link> State<Link> {
         ))
     }
 
-    fn selection(&self) -> Vec<core::Rectangle> {
-        let Selection { start, end, .. } = self.selection;
+    fn selection(&self, selection: Selection) -> Vec<core::Rectangle> {
+        let Selection { start, end, .. } = selection;
 
         let buffer = self.paragraph.buffer();
         let line_height = self.paragraph.buffer().metrics().line_height;
@@ -336,6 +342,64 @@ impl<Link> State<Link> {
                 }
             })
             .collect()
+    }
+
+    /// The position nearest to `point`. Both `point` and `bounds` (the
+    /// widget's layout bounds) are in the same coordinates.
+    pub fn position_at(
+        &self,
+        point: Point,
+        bounds: core::Rectangle,
+    ) -> SelectionEnd {
+        let (line, index) = self
+            .grapheme_line_and_index(point, bounds)
+            .unwrap_or((0, 0));
+
+        SelectionEnd { line, index }
+    }
+
+    /// The position after the last grapheme.
+    pub fn end(&self) -> SelectionEnd {
+        let lines = &self.paragraph.buffer().lines;
+        let line = lines.len().saturating_sub(1);
+        let index = lines.get(line).map_or(0, |l| {
+            unicode_segmentation::UnicodeSegmentation::graphemes(l.text(), true)
+                .count()
+        });
+
+        SelectionEnd { line, index }
+    }
+
+    /// The text between two positions, in either order.
+    pub fn text_between(&self, a: SelectionEnd, b: SelectionEnd) -> String {
+        let mut selection = Selection::default();
+        selection.select_range(a, b);
+        selection.text(&self.paragraph)
+    }
+
+    /// Whether the widget's own selection is not empty.
+    pub fn has_selection(&self) -> bool {
+        !self.selection.is_empty()
+    }
+
+    /// Clears the widget's own selection and ends its drag.
+    pub fn clear_selection(&mut self) {
+        self.selection = Selection::default();
+        self.dragging = None;
+        self.span_pressed = None;
+    }
+
+    /// Draws `range` instead of the widget's own selection; `None` draws
+    /// the widget's own selection again.
+    pub fn set_external_selection(
+        &mut self,
+        range: Option<(SelectionEnd, SelectionEnd)>,
+    ) {
+        self.external = range.map(|(a, b)| {
+            let mut selection = Selection::default();
+            selection.select_range(a, b);
+            selection
+        });
     }
 
     fn update_visual_bounds(&mut self) {
@@ -379,6 +443,7 @@ where
             last_click: None,
             keyboard_modifiers: keyboard::Modifiers::default(),
             visual_lines_bounds: Vec::new(),
+            external: None,
         })
     }
 
@@ -521,10 +586,12 @@ where
             }
         }
 
-        if !state.selection.is_empty() {
+        let shown = state.external.unwrap_or(state.selection);
+
+        if !shown.is_empty() {
             let bounds = layout.bounds();
             let translation = bounds.position() - Point::ORIGIN;
-            let ranges = state.selection();
+            let ranges = state.selection(shown);
 
             for range in ranges
                 .into_iter()
@@ -851,6 +918,20 @@ where
 
             shell.request_redraw();
         }
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        _renderer: &Renderer,
+        operation: &mut dyn core::widget::Operation,
+    ) {
+        operation.custom(
+            None,
+            layout.bounds(),
+            tree.state.downcast_mut::<State<Link>>(),
+        );
     }
 
     fn mouse_interaction(
