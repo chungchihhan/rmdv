@@ -49,7 +49,10 @@ fn selectable<'a>(
     if let Some(line_height) = line_height {
         text = text.line_height(line_height);
     }
-    LatinKeys { content: text.into() }.into()
+    LatinKeys {
+        content: text.into(),
+    }
+    .into()
 }
 
 /// Hands the inner text widget key events whose letter is Latin. Under a
@@ -63,7 +66,7 @@ fn latin_event(event: &iced::Event) -> Option<iced::Event> {
     use iced::keyboard::Event as KEv;
     let iced::Event::Keyboard(KEv::KeyPressed {
         key,
-        modified_key,
+        modified_key: _,
         physical_key,
         location,
         modifiers,
@@ -356,13 +359,26 @@ mod tests {
             el,
             vec![
                 (start, vec![moved(start)]),
-                (start, vec![Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]),
+                (
+                    start,
+                    vec![Event::Mouse(mouse::Event::ButtonPressed(
+                        mouse::Button::Left,
+                    ))],
+                ),
                 (end, vec![moved(end)]),
-                (end, vec![Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]),
-                (end, vec![
-                    Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
-                    zhuyin_c,
-                ]),
+                (
+                    end,
+                    vec![Event::Mouse(mouse::Event::ButtonReleased(
+                        mouse::Button::Left,
+                    ))],
+                ),
+                (
+                    end,
+                    vec![
+                        Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
+                        zhuyin_c,
+                    ],
+                ),
             ],
         );
         assert_eq!(clipboard.0.as_deref(), Some("Hello world"));
