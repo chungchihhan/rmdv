@@ -1,6 +1,6 @@
 # rmdv project backlog
 
-Last triaged: 2026-10-07
+Last triaged: 2026-10-17
 
 ## State model
 
@@ -12,17 +12,19 @@ contract passed; code or prose merely existing is not sufficient.
 ## Active tasks
 
 Roadmap order (owner-approved 2026-10-04, re-confirmed 2026-10-05): phases 0–2,
-MDV-023, MDV-029, MDV-024 to MDV-028, MDV-036, and the phase-3 visual pass
-MDV-031, window glass (MDV-037), and the Settings page (MDV-019) have landed
-(PRs #28–#59). Next is the v0.8.0 release (MDV-039; MDV-021 landed), with the
-remaining phase-4 items (MDV-008, MDV-030) alongside. Phase 5 tasks (MDV-032 to MDV-035) start with a
-design for the owner, not code. Sources:
+the phase-3 visual pass, the Settings page, and releases v0.8.0 and v0.9.0
+have landed. Selectable text and CJK reading (MDV-040) are on `main`; the
+v0.10.0 release (MDV-041) is in progress. The remaining phase-4 items
+(MDV-008, MDV-030) run alongside. Phase 5 tasks (MDV-032 to MDV-035) start with
+a design for the owner, not code. Sources:
 [`MDV-022`](plans/completed/MDV-022-refactor-phases-0-2.md) and
 [`MDV-024–028`](plans/completed/MDV-024-028-phase-2-performance.md).
 
 | ID | Priority | State | Outcome | Acceptance | Plan | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
-| MDV-039 | P1 | in_progress | Release v0.8.0 (Settings page, window glass, Quick Slots, visual refresh, phase-2 performance). | Content-pack checklist complete: local release checks, native smoke, verified signed artifacts, live site. | [`MDV-039`](plans/active/MDV-039-release-v0.8.0.md) | Owner authority for tag and deploy. |
+| MDV-041 | P1 | in_progress | Release v0.10.0 (selectable text, cross-block copy, CJK reading). | Version bump, tests green, tag pushed with owner authority, Release workflow green, assets verified. | [`MDV-041`](plans/active/MDV-041-release-v0.10.0.md) | Owner authority for tag; website deploy is a separate decision. |
+| MDV-042 | P3 | proposed | After `goto` / `open --section`, the view stops about one block above the target. | Reproduce with the IPC harness, fix or record a bounded limitation. | — | — |
+| MDV-043 | P3 | proposed | The website returns a blank 404 for unknown URLs instead of `404.html`. | Unknown path serves `404.html` with status 404. | — | — |
 | MDV-019b | P2 | proposed | Theme Studio on the Settings page: custom-theme editing, `Import Theme…`, and the website theme gallery/composer (the pre-split candidate is reference only). | Design after MDV-019 lands. | — | — |
 | MDV-038 | P3 | proposed | After `goto`, a table row clipped at the viewport top sometimes renders without text (seen in screenshots on both pre- and post-MDV-031 builds). | Reproduce with the IPC harness, find the cause, and fix or record a bounded limitation. | — | — |
 | MDV-008 | P2 | ready | Clippy baseline: report-only in CI first, then tighten lint by lint. (The rustfmt half landed in PR #28; include the existing unused `Section` import warning in `tests/ipc_protocol.rs`.) | Recorded warning count; each tightening PR is lint-only with no behavior diff. | — | — |
@@ -48,6 +50,9 @@ design for the owner, not code. Sources:
 
 | ID | Outcome | Evidence route |
 | --- | --- | --- |
+| MDV-040 | Selectable text: drag, double-click, triple-click, ⌘A and ⌘C in the reader and the data view; one drag can cross blocks (visible range); ⌘C works under non-Latin input sources; CJK reading with bundled Noto Sans TC, taller CJK lines, and squeezed full-width punctuation. Owner-accepted on a trial build. | `main@d53f0a3`; cross-block drag is vendored `iced_selection` plus `src/select_scope.rs` (see `vendor/iced_selection/VENDORED.md`). |
+| MDV-039 | Published rmdv v0.8.0. | [`docs/plans/completed/MDV-039-release-v0.8.0.md`](plans/completed/MDV-039-release-v0.8.0.md) and [`docs/releases/v0.8.0-release-notes.md`](releases/v0.8.0-release-notes.md). |
+| v0.9.0 | Published rmdv v0.9.0 (rounded tables, Notion-like typography and Line spacing, Quick Slot assign and confirm). | Tag `v0.9.0` (`2a78558`), release run 38896180016; [`docs/releases/v0.9.0-content-pack.md`](releases/v0.9.0-content-pack.md). |
 | MDV-021 | Release workflow fails closed: DMG containers signed, notarized, stapled, and Gatekeeper-checked; every artifact required and checksummed; `dry_run` dispatch mode. | PR #55 (`57badd8`); dry run 37559928672 green (app and DMG `accepted source=Notarized Developer ID`, no release created). |
 | MDV-019 | Settings page (`⌘,`): every preference on one keyboard-driven page, with restart for glass; owner-accepted. | PR #54 (`4204211`) and [`docs/plans/completed/MDV-019-settings-page.md`](plans/completed/MDV-019-settings-page.md). |
 | MDV-037 | Optional macOS window glass (Off / Sidebar / Window, opacity 60–90%); owner-accepted. | PR #51 (`f522cf1`). |

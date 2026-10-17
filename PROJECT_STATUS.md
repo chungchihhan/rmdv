@@ -1,41 +1,37 @@
 # rmdv — project status
 
-Last verified: 2026-10-08 (Asia/Taipei)
+Last verified: 2026-10-17 (Asia/Taipei)
 Stale after: 7 days
 Canonical repository: `~/Documents/GitHub/mdv`
 Expected branch / HEAD / PR: start new work from the live `origin/main`
-(`c6087d0` when verified). Latest release: `v0.7.0` → `9dd7217`; `v0.8.0` is
-being prepared (`MDV-039`).
+(`d53f0a3` when verified, before the v0.10.0 docs and version commits). Latest
+published release: `v0.9.0` → `2a78558` (2026-10-16). `v0.10.0` is being
+prepared (`MDV-041`); it is not tagged.
 Authority: This is a routing snapshot. Verify Git, GitHub, runtime identity, and
 manual evidence before mutation.
 
 ## Current outcome
 
-The refactor roadmap through phase 2 has landed:
-- PRs #28–#33 (`MDV-022`): safety fixes, the `src/app/` split with design
-  tokens, search and finder performance, and theme persistence.
-- `MDV-023`: phase-1 leftovers (PR #35).
-- `MDV-029`: CI coverage and release gates (PR #36).
-- `MDV-024`–`MDV-028`: the phase-2 performance round (PRs #37–#41).
-- Two acceptance fixes: ⌘Z undo (PR #42) and lazy scan of folders the
-  workspace budget skipped (PR #43).
-- `MDV-036`: bare-directory launch fix (PR #45).
-- `MDV-031`: phase-3 visual refinement with the opt-in Soft syntax option
-  (PR #47).
-- `MDV-037`: optional macOS window glass (PR #51).
-- `MDV-019`: the Settings page (PR #54).
-- `MDV-021`: fail-closed release gates (PR #55, `57badd8`); dry run green.
-- Mind map labels scale with zoom (PR #58, `c6087d0`); release re-runs keep
-  the pdfium dylib (PR #59, `6e45c71`). Both owner-approved.
-- Site copy fixes deployed 2026-10-07 (PR #49; Worker version `b9383cc5`).
-
-The owner approved each merge. Next is the v0.8.0 release (`MDV-039`).
+- `v0.8.0` (2026-10-09) and `v0.9.0` (2026-10-16) are published. v0.9.0 added
+  rounded tables, Notion-like typography with Line spacing, and Quick Slot
+  assign and confirm. Record:
+  [`docs/releases/v0.9.0-content-pack.md`](docs/releases/v0.9.0-content-pack.md).
+- `main` has since gained `MDV-040`: selectable and copyable text (drag, double
+  and triple click, ⌘A, ⌘C under any input source, and one drag across blocks
+  in the visible range) and CJK reading (bundled Noto Sans TC, taller CJK
+  lines, squeezed full-width punctuation). The owner accepted it on a trial
+  build. It uses a vendored `iced_selection` (see
+  `vendor/iced_selection/VENDORED.md`).
+- Known limits of cross-block selection: no selection past the window edge
+  (no auto-scroll); an endpoint scrolled out of the virtual window copies its
+  whole block; after a double or triple click, dragging into another block
+  selects by character; Shift-extend works inside one block.
 
 ## Live workstreams
 
 | ID | State | Owner | Outcome | Acceptance | Plan |
 | --- | --- | --- | --- | --- | --- |
-| MDV-039 | in_progress | Claude | Release v0.8.0. | Content-pack checklist. | [`MDV-039`](docs/plans/active/MDV-039-release-v0.8.0.md) |
+| MDV-041 | in_progress | Claude | Release v0.10.0. | Version bump, tests green, tag with owner authority, Release workflow green, assets verified. | [`MDV-041`](docs/plans/active/MDV-041-release-v0.10.0.md) |
 
 The roadmap order and every other task are in [`docs/BACKLOG.md`](docs/BACKLOG.md).
 
@@ -54,45 +50,29 @@ The roadmap order and every other task are in [`docs/BACKLOG.md`](docs/BACKLOG.m
 
 ## Next safe actions
 
-1. Run the v0.8.0 release checks (CI, plus local checks when disk allows), then
-   the native smoke.
-2. Record the `MDV-008` clippy baseline (report-only).
+1. Finish `MDV-041`: bump to `0.10.0`, run the full checks, push, then tag
+   `v0.10.0` with owner authority and watch the Release workflow.
+2. After the release, the owner decides on the website deploy.
+3. Pick the next task from the backlog (`MDV-042` goto offset is the smallest).
 
 ## Verification state
 
 ### Verified now
 
-- `origin/main` is `20838b1`. PRs #45 (`3909cfa`), #46 (`71a408e`), and #47
-  (`20838b1`) were squash-merged on 2026-10-05 with owner authority. Before
-  that, PRs #34–#43 were squash-merged on 2026-10-05
-  with owner authority (`48732fd`, `1c7a10b`, `8ab3ca9`, `f60da48`,
-  `b971c35`, `27fcd52`, `f280f82`, `f4ad819`, `1df1b13`, `0ed7305`).
-- Each PR's final head passed CI: Linux and macOS tests, the Windows check, and
-  the Linux package. Main push CI passed on each merge commit (`f280f82`'s run
-  was cancelled by the next push).
-- `main@0ed7305` source equals the owner-accepted verify build
-  `codex/verify-phase2@d408864`, except the order of tests in
-  `src/app/tests.rs` and the docs/CI files from #34 and #36. That build passed
-  `cargo test --release -- --test-threads=1` (452 library tests plus all
-  integration suites), the lean check, and a release build.
-- Owner native acceptance of #37–#43 on the verify app (2026-10-05); details in
-  [`MDV-024–028`](docs/plans/completed/MDV-024-028-phase-2-performance.md).
-- Local `main` is `1244e4c`, an ancestor of `origin/main`; old local-only
-  commits are preserved on `archive/main-before-sync-20261004` (`MDV-010`
-  closed by archival).
+- `origin/main` was `d53f0a3` after the cross-block merge (owner authority,
+  2026-10-17). That tree passed `cargo fmt --check`, `cargo check
+  --all-targets` with no warnings, 536 library tests, and all integration
+  suites in release mode.
+- v0.9.0 release evidence (assets, signatures, notarization, site) is in the
+  v0.9.0 content pack.
 
 ### Not verified / follow-up
 
-- A local release test run on the exact `20838b1` tree. #45 and #47 were each
-  tested locally (#47: 461 library tests, lean check, release build) but not
-  together; main push CI covers the combination.
+- Cross-block selection was checked with headless screenshots, unit tests, and
+  an owner trial build; there is no automated native-window test.
 - `MDV-038`: a table row clipped at the viewport top can render without text
-  after `goto` (pre-existing).
-- One unreproduced "Couldn't open file" card after relaunching the verify app
-  (see `MDV-022`).
+  after `goto` (pre-existing). `MDV-042`: `goto` stops about one block high.
 - `HlCache` is bounded by entry count only (`MDV-002`).
-- v0.7.0 release evidence is in the archived snapshot
-  [`docs/status-history/2026-08-14-v0.7.0-project-status.md`](docs/status-history/2026-08-14-v0.7.0-project-status.md).
 
 ## Routes
 

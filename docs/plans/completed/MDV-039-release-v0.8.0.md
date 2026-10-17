@@ -1,10 +1,10 @@
 # MDV-039 — Release rmdv v0.8.0
 
-State: implementing
+State: done (v0.8.0 published 2026-10-09)
 Owner / accountable lead: Claude (gh-rmdv-orch)
 Active writer: Claude
 Created: 2026-10-07
-Updated: 2026-10-07
+Updated: 2026-10-17
 
 ## Outcome
 
