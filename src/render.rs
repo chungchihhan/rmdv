@@ -676,28 +676,27 @@ fn render_block<'a>(
                 c.push(render_block(b, pal, typ, query, current_in_block, img))
             });
             let pal_q = *pal;
-            container(inner)
-                .padding(Padding {
-                    top: 2.0,
-                    right: 14.0,
-                    bottom: 2.0,
-                    left: 17.0,
-                })
-                .width(Length::Fill)
-                .style(move |_| container::Style {
-                    border: iced::Border {
-                        color: pal_q.accent,
-                        width: 0.0,
-                        radius: 0.0.into(),
-                    },
-                    shadow: iced::Shadow {
-                        color: pal_q.accent,
-                        offset: iced::Vector::new(-1.5, 0.0),
-                        blur_radius: 0.0,
-                    },
+            // The left rule is a 1.5 px layer over the quote's left edge.
+            // A shadow behind a transparent container looks the same on
+            // wgpu, but tiny-skia fills the whole shadow rectangle.
+            let rule = container(Space::new().width(1.5).height(Length::Fill)).style(move |_| {
+                container::Style {
+                    background: Some(pal_q.accent.into()),
                     ..Default::default()
-                })
-                .into()
+                }
+            });
+            stack![
+                container(inner)
+                    .padding(Padding {
+                        top: 2.0,
+                        right: 14.0,
+                        bottom: 2.0,
+                        left: 17.0,
+                    })
+                    .width(Length::Fill),
+                rule,
+            ]
+            .into()
         }
         Block::Diagram { source, hash, kind } => {
             if matches!(kind, crate::ast::DiagramKind::Math) {

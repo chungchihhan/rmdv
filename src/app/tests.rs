@@ -9432,3 +9432,82 @@ fn cmd_a_drops_the_cross_block_range_for_the_whole_document_select() {
     // reader widgets no longer hold a selection to copy.
     assert_eq!(r.cmd_c(), "");
 }
+
+#[test]
+fn block_quote_draws_a_left_bar_not_a_solid_fill() {
+    // The quote's left rule used to be a 1.5 px shadow behind a transparent
+    // container. wgpu hides the shadow under the quad, but tiny-skia paints
+    // the whole shadow rectangle, so the quote became a solid accent bar.
+    let app = reader_app("before\n\n> A block quote. Readers often want to copy quotes.\n");
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    let quote = rows[1];
+    let px = r.shot();
+    let w = READER_SIZE.width as usize;
+    let at = |x: usize, y: usize| &px[(y * w + x) * 4..(y * w + x) * 4 + 3];
+    let bg_y = (rows[0].y + rows[0].height + 2.0) as usize;
+    let (x0, x1) = (quote.x as usize, (quote.x + quote.width) as usize);
+    let (y0, y1) = (quote.y as usize, (quote.y + quote.height) as usize);
+    let total = (x1 - x0) * (y1 - y0);
+    let changed = (y0..y1)
+        .flat_map(|y| (x0..x1).map(move |x| (x, y)))
+        .filter(|&(x, y)| at(x, y) != at(x, bg_y))
+        .count();
+    assert!(
+        changed * 2 < total,
+        "quote text area must keep the page background, {changed}/{total} px differ"
+    );
+    // The left rule is still there, just left of the quote's padding.
+    let bar = (quote.x as usize).saturating_sub(17)..quote.x as usize;
+    let mid = ((quote.y + quote.height / 2.0) as usize).min(y1 - 1);
+    assert!(
+        bar.clone().any(|x| at(x, mid) != at(x, bg_y)),
+        "quote must keep its left rule"
+    );
+}
+
+#[test]
+#[ignore = "timing report; run with --ignored --nocapture"]
+fn cross_block_drag_cost_per_event_on_300_blocks() {
+    let src: String = (0..300)
+        .map(|i| format!("Paragraph {i} has a few words so the line wraps a little.\n\n"))
+        .collect();
+    let app = reader_app(&src);
+    let mut r = ReaderUi::new(&app);
+    let rows = r.text_bounds();
+    println!("mounted text widgets: {}", rows.len());
+    let from = on_first_line(rows[0], 0.0);
+    let last = *rows
+        .iter()
+        .rev()
+        .find(|b| b.y + b.height < READER_SIZE.height)
+        .unwrap();
+    let to = on_first_line(last, 0.5);
+    let n = 400;
+    let path = |k: usize| {
+        let t = (k % 50) as f32 / 49.0;
+        iced::Point::new(from.x + (to.x - from.x) * t, from.y + (to.y - from.y) * t)
+    };
+    use iced::mouse::{Button, Event};
+    let time = |r: &mut ReaderUi, label: &str| {
+        let t0 = std::time::Instant::now();
+        for k in 0..n {
+            let at = path(k);
+            r.mouse(at, Event::CursorMoved { position: at });
+        }
+        let per = t0.elapsed() / n as u32;
+        println!("{label}: {per:?} per CursorMoved ({n} events)");
+        per
+    };
+    let hover = time(&mut r, "hover, no press");
+    r.mouse(from, Event::CursorMoved { position: from });
+    r.mouse(from, Event::ButtonPressed(Button::Left));
+    let drag = time(&mut r, "cross-block drag");
+    r.mouse(to, Event::ButtonReleased(Button::Left));
+    let held = time(&mut r, "hover, range held");
+    println!(
+        "scope overhead: drag {:?}, held {:?}",
+        drag.saturating_sub(hover),
+        held.saturating_sub(hover)
+    );
+}
