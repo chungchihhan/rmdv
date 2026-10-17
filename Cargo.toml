@@ -115,3 +115,8 @@ lto = "thin"
 codegen-units = 1
 strip = true
 panic = "abort"
+
+# Vendored iced_selection 0.5.0 (MIT) with hooks that let the reader drive one
+# selection across blocks. See vendor/iced_selection/VENDORED.md.
+[patch.crates-io]
+iced_selection = { path = "vendor/iced_selection" }
