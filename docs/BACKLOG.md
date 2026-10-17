@@ -14,7 +14,7 @@ contract passed; code or prose merely existing is not sufficient.
 Roadmap order (owner-approved 2026-10-04, re-confirmed 2026-10-05): phases 0–2,
 the phase-3 visual pass, the Settings page, and releases v0.8.0 and v0.9.0
 have landed. Selectable text and CJK reading (MDV-040) are on `main`; the
-v0.10.0 release (MDV-041) is in progress. The remaining phase-4 items
+v0.10.0 release (MDV-041) is published. The remaining phase-4 items
 (MDV-008, MDV-030) run alongside. Phase 5 tasks (MDV-032 to MDV-035) start with
 a design for the owner, not code. Sources:
 [`MDV-022`](plans/completed/MDV-022-refactor-phases-0-2.md) and
@@ -22,7 +22,6 @@ a design for the owner, not code. Sources:
 
 | ID | Priority | State | Outcome | Acceptance | Plan | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
-| MDV-041 | P1 | in_progress | Release v0.10.0 (selectable text, cross-block copy, CJK reading). | Version bump, tests green, tag pushed with owner authority, Release workflow green, assets verified. | [`MDV-041`](plans/active/MDV-041-release-v0.10.0.md) | Owner authority for tag; website deploy is a separate decision. |
 | MDV-042 | P3 | proposed | After `goto` / `open --section`, the view stops about one block above the target. | Reproduce with the IPC harness, fix or record a bounded limitation. | — | — |
 | MDV-043 | P3 | proposed | The website returns a blank 404 for unknown URLs instead of `404.html`. | Unknown path serves `404.html` with status 404. | — | — |
 | MDV-019b | P2 | proposed | Theme Studio on the Settings page: custom-theme editing, `Import Theme…`, and the website theme gallery/composer (the pre-split candidate is reference only). | Design after MDV-019 lands. | — | — |
@@ -50,6 +49,7 @@ a design for the owner, not code. Sources:
 
 | ID | Outcome | Evidence route |
 | --- | --- | --- |
+| MDV-041 | Published rmdv v0.10.0 (selectable text, cross-block copy, CJK reading); release notes follow the new template. | Tag `v0.10.0` (`9e876c0`), Release run 39039978898, [`docs/plans/completed/MDV-041-release-v0.10.0.md`](plans/completed/MDV-041-release-v0.10.0.md). |
 | MDV-040 | Selectable text: drag, double-click, triple-click, ⌘A and ⌘C in the reader and the data view; one drag can cross blocks (visible range); ⌘C works under non-Latin input sources; CJK reading with bundled Noto Sans TC, taller CJK lines, and squeezed full-width punctuation. Owner-accepted on a trial build. | `main@d53f0a3`; cross-block drag is vendored `iced_selection` plus `src/select_scope.rs` (see `vendor/iced_selection/VENDORED.md`). |
 | MDV-039 | Published rmdv v0.8.0. | [`docs/plans/completed/MDV-039-release-v0.8.0.md`](plans/completed/MDV-039-release-v0.8.0.md) and [`docs/releases/v0.8.0-release-notes.md`](releases/v0.8.0-release-notes.md). |
 | v0.9.0 | Published rmdv v0.9.0 (rounded tables, Notion-like typography and Line spacing, Quick Slot assign and confirm). | Tag `v0.9.0` (`2a78558`), release run 38896180016; [`docs/releases/v0.9.0-content-pack.md`](releases/v0.9.0-content-pack.md). |

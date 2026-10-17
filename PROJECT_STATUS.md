@@ -3,20 +3,19 @@
 Last verified: 2026-10-17 (Asia/Taipei)
 Stale after: 7 days
 Canonical repository: `~/Documents/GitHub/mdv`
-Expected branch / HEAD / PR: start new work from the live `origin/main`
-(`d53f0a3` when verified, before the v0.10.0 docs and version commits). Latest
-published release: `v0.9.0` → `2a78558` (2026-10-16). `v0.10.0` is being
-prepared (`MDV-041`); it is not tagged.
+Expected branch / HEAD / PR: start new work from the live `origin/main`.
+Latest published release: `v0.10.0` → `9e876c0` (2026-10-17, Release run
+39039978898).
 Authority: This is a routing snapshot. Verify Git, GitHub, runtime identity, and
 manual evidence before mutation.
 
 ## Current outcome
 
-- `v0.8.0` (2026-10-09) and `v0.9.0` (2026-10-16) are published. v0.9.0 added
+- `v0.8.0` (2026-10-09), `v0.9.0` (2026-10-16), and `v0.10.0` (2026-10-17) are published. v0.9.0 added
   rounded tables, Notion-like typography with Line spacing, and Quick Slot
   assign and confirm. Record:
   [`docs/releases/v0.9.0-content-pack.md`](docs/releases/v0.9.0-content-pack.md).
-- `main` has since gained `MDV-040`: selectable and copyable text (drag, double
+- `v0.10.0` shipped `MDV-040`: selectable and copyable text (drag, double
   and triple click, ⌘A, ⌘C under any input source, and one drag across blocks
   in the visible range) and CJK reading (bundled Noto Sans TC, taller CJK
   lines, squeezed full-width punctuation). The owner accepted it on a trial
@@ -29,11 +28,8 @@ manual evidence before mutation.
 
 ## Live workstreams
 
-| ID | State | Owner | Outcome | Acceptance | Plan |
-| --- | --- | --- | --- | --- | --- |
-| MDV-041 | in_progress | Claude | Release v0.10.0. | Version bump, tests green, tag with owner authority, Release workflow green, assets verified. | [`MDV-041`](docs/plans/active/MDV-041-release-v0.10.0.md) |
-
-The roadmap order and every other task are in [`docs/BACKLOG.md`](docs/BACKLOG.md).
+No active product workstream. Pick the next task from
+[`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Human decisions / blockers
 
@@ -50,26 +46,29 @@ The roadmap order and every other task are in [`docs/BACKLOG.md`](docs/BACKLOG.m
 
 ## Next safe actions
 
-1. Finish `MDV-041`: bump to `0.10.0`, run the full checks, push, then tag
-   `v0.10.0` with owner authority and watch the Release workflow.
-2. After the release, the owner decides on the website deploy.
-3. Pick the next task from the backlog (`MDV-042` goto offset is the smallest).
+1. Pick the next task from the backlog (`MDV-042` goto offset is the smallest).
+2. Re-run the cold-start and parse perf check on a quiet machine.
 
 ## Verification state
 
 ### Verified now
 
-- `origin/main` was `d53f0a3` after the cross-block merge (owner authority,
-  2026-10-17). That tree passed `cargo fmt --check`, `cargo check
+- `v0.10.0` was tagged at `9e876c0` (owner authority, 2026-10-17); the Release
+  workflow passed every job and the seven installers match `SHA256SUMS`. The
+  `aarch64` dmg and app were also checked by hand: codesign valid, stapled,
+  `spctl` accepted as Notarized Developer ID, version `0.10.0`.
+- Before the tag, the cross-block tree (`d53f0a3`) passed `cargo fmt --check`, `cargo check
   --all-targets` with no warnings, 536 library tests, and all integration
   suites in release mode.
-- v0.9.0 release evidence (assets, signatures, notarization, site) is in the
-  v0.9.0 content pack.
+- v0.9.0 release evidence is in the v0.9.0 content pack; v0.10.0 notes are in
+  [`docs/releases/v0.10.0-release-notes.md`](docs/releases/v0.10.0-release-notes.md).
 
 ### Not verified / follow-up
 
 - Cross-block selection was checked with headless screenshots, unit tests, and
   an owner trial build; there is no automated native-window test.
+- The x86_64, Linux, and Windows v0.10.0 installers were checked by SHA-256
+  only, not opened.
 - `MDV-038`: a table row clipped at the viewport top can render without text
   after `goto` (pre-existing). `MDV-042`: `goto` stops about one block high.
 - `HlCache` is bounded by entry count only (`MDV-002`).

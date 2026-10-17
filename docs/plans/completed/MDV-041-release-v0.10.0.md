@@ -1,6 +1,6 @@
 # MDV-041 — Release rmdv v0.10.0
 
-State: implementing
+State: done (v0.10.0 published 2026-10-17)
 Owner / accountable lead: Claude (gh-rmdv-orch)
 Active writer: Claude
 Created: 2026-10-17
@@ -26,3 +26,5 @@ verified.
 ## Evidence
 
 Release notes: [`docs/releases/v0.10.0-release-notes.md`](../../releases/v0.10.0-release-notes.md).
+Release: <https://github.com/minchenlee/rmdv/releases/tag/v0.10.0>, tag `v0.10.0` at `9e876c0`, Release run 39039978898 (all jobs green).
+Release notes now follow `docs/releases/TEMPLATE.md`; the Release workflow publishes `docs/releases/<tag>-release-notes.md` as the release body.

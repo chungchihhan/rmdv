@@ -362,6 +362,27 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
 
+      # Release notes come from docs/releases/<tag>-release-notes.md when that
+      # file exists (format: docs/releases/TEMPLATE.md); otherwise GitHub
+      # generates them.
+      - name: Check out release notes
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+          sparse-checkout: docs/releases
+          path: notes-src
+
+      - name: Pick release notes
+        id: notes
+        shell: bash
+        run: |
+          FILE="notes-src/docs/releases/${{ steps.tag.outputs.tag }}-release-notes.md"
+          if [ -f "$FILE" ]; then
+            echo "path=$FILE" >> "$GITHUB_OUTPUT"
+          else
+            echo "path=" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Collect artifacts + checksums + manifest
         shell: bash
         run: |
@@ -447,7 +468,8 @@ jobs:
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: ${{ steps.tag.outputs.tag }}
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
           files: |
             out/*.dmg
             out/*.app.tar.gz
