@@ -218,6 +218,7 @@ pub(in crate::app) fn shortcuts_overlay<'a>(pal: Palette) -> Element<'a, Message
             &[
                 ("⌘F", "Find in Document"),
                 ("⌘⇧F", "Search All Files"),
+                ("⌘A ⌘C", "Copy Whole Document"),
                 ("Home / g", "Reader top (outside Zen)"),
                 ("End / G", "Reader bottom (outside Zen)"),
                 ("↑ ↓", "Move outline / tree selection"),

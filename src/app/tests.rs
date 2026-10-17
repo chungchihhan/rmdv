@@ -8873,3 +8873,90 @@ fn non_latin_input_source_shortcuts_resolve_to_physical_latin_key() {
         d
     );
 }
+
+fn select_all_test_app() -> (App, crate::ast::BlockId) {
+    let mut source =
+        String::from("# Intro\n\nfirst paragraph\n\n## Folded\n\nhidden under the fold\n\n");
+    for i in 0..300 {
+        source.push_str(&format!("paragraph {i}\n\n"));
+    }
+    let mut app = App::default();
+    app.ast = crate::parser::parse(&source).0;
+    app.source = source;
+    let folded = app
+        .ast
+        .iter()
+        .find(|(_, b)| matches!(b, Block::Heading { level: 2, .. }))
+        .map(|(id, _)| *id)
+        .expect("folded heading");
+    app.folded.insert(folded);
+    // Only the first blocks are on screen.
+    app.virt_window.active = true;
+    app.virt_window.range = (0, 3);
+    (app, folded)
+}
+
+#[test]
+fn select_all_then_copy_takes_the_whole_document_including_hidden_blocks() {
+    let (mut app, _) = select_all_test_app();
+    let _ = app.update(Message::SelectAllDocument);
+    assert!(app.reader_select_all);
+
+    let copied = app.select_all_text().expect("whole document selected");
+    assert!(copied.starts_with("Intro\n\nfirst paragraph\n\nFolded\n\nhidden under the fold\n\n"));
+    assert!(copied.ends_with("paragraph 298\n\nparagraph 299"));
+
+    let _ = app.update(Message::CopyDocument);
+    assert_eq!(
+        app.toast.as_ref().map(|toast| toast.text.as_str()),
+        Some("Copied the whole document")
+    );
+    // macOS keeps a selection after copying it.
+    assert!(app.reader_select_all);
+}
+
+#[test]
+fn select_all_ends_on_clear_and_outside_the_reader() {
+    let (mut app, _) = select_all_test_app();
+    let _ = app.update(Message::SelectAllDocument);
+    let _ = app.update(Message::ClearSelectAll);
+    assert!(!app.reader_select_all);
+    assert_eq!(app.select_all_text(), None);
+
+    // Not in the rendered reader: ⌘A does nothing.
+    app.view_mode = ViewMode::Mindmap;
+    let _ = app.update(Message::SelectAllDocument);
+    assert!(!app.reader_select_all);
+}
+
+#[test]
+fn reader_select_all_keys_leave_inputs_and_the_editor_alone() {
+    use iced::keyboard::{key::Named, Key, Modifiers};
+    let a = Key::Character("a".into());
+    let c = Key::Character("c".into());
+    let esc = Key::Named(Named::Escape);
+    let cmd = Modifiers::COMMAND;
+
+    assert!(matches!(
+        reader_select_all_key(&a, cmd, true, false),
+        Some(Message::SelectAllDocument)
+    ));
+    // Editor, search field, or overlay owns ⌘A.
+    assert!(reader_select_all_key(&a, cmd, false, false).is_none());
+    assert!(reader_select_all_key(&a, cmd | Modifiers::SHIFT, true, false).is_none());
+    assert!(reader_select_all_key(&a, Modifiers::NONE, true, false).is_none());
+
+    assert!(matches!(
+        reader_select_all_key(&c, cmd, true, true),
+        Some(Message::CopyDocument)
+    ));
+    // Without a whole-document selection ⌘C keeps its old meaning.
+    assert!(reader_select_all_key(&c, cmd, true, false).is_none());
+    assert!(reader_select_all_key(&c, cmd, false, true).is_none());
+
+    assert!(matches!(
+        reader_select_all_key(&esc, Modifiers::NONE, true, true),
+        Some(Message::ClearSelectAll)
+    ));
+    assert!(reader_select_all_key(&esc, Modifiers::NONE, true, false).is_none());
+}

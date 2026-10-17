@@ -641,6 +641,21 @@ impl App {
             Message::HintSelection => {
                 return self.show_toast("Drag over text to select it, then press ⌘C".into());
             }
+            Message::SelectAllDocument => {
+                self.reader_select_all = self.reader_shows_document() && !self.ast.is_empty();
+                Task::none()
+            }
+            Message::CopyDocument => match self.select_all_text() {
+                Some(text) => Task::batch([
+                    iced::clipboard::write::<Message>(text),
+                    self.show_toast("Copied the whole document".into()),
+                ]),
+                None => Task::none(),
+            },
+            Message::ClearSelectAll => {
+                self.reader_select_all = false;
+                Task::none()
+            }
             Message::FoldChordStart => {
                 self.fold_chord_pending = true;
                 return self.show_toast("Fold: press 0-6 …".into());
@@ -833,6 +848,7 @@ impl App {
                 ))
             }
             Message::ToggleViewMode => {
+                self.reader_select_all = false;
                 if self.file.is_none() {
                     return Task::none();
                 }
@@ -845,6 +861,7 @@ impl App {
                 }
             }
             Message::ToggleMindmap => {
+                self.reader_select_all = false;
                 if self.file.is_none() {
                     return Task::none();
                 }
@@ -872,6 +889,7 @@ impl App {
                 Task::batch([checkpoint, restore])
             }
             Message::ToggleFullMindmap => {
+                self.reader_select_all = false;
                 // Manual Full Mindmap navigation supersedes a slot activation
                 // that has not completed yet; stale file/preview results must
                 // not mutate the newly chosen surface.

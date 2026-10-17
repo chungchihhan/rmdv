@@ -285,6 +285,9 @@ pub struct App {
     pub edit_history: crate::history::SnapshotStack,
     pub edit_redo: crate::history::SnapshotStack,
     pub is_data_doc: bool,
+    /// ⌘A in the reader selected the whole document. ⌘C then copies the
+    /// plain text of every block, including folded and off-screen ones.
+    pub reader_select_all: bool,
     pub folded: HashSet<crate::ast::BlockId>,
     pub hovered_heading: Option<crate::ast::BlockId>,
     pub fold_chord_pending: bool,
@@ -548,6 +551,7 @@ impl Default for App {
             edit_history: crate::history::SnapshotStack::default(),
             edit_redo: crate::history::SnapshotStack::default(),
             is_data_doc: false,
+            reader_select_all: false,
             folded: HashSet::new(),
             hovered_heading: None,
             fold_chord_pending: false,
@@ -1043,6 +1047,7 @@ impl App {
         self.dirty = false;
         self.outline_cursor = 0;
         self.is_data_doc = data_lang_for(self.file.as_deref()).is_some();
+        self.reader_select_all = false;
         self.mindmap_collapsed.clear();
         self.mindmap_selected = None;
         self.mindmap_panel_shown = None;
@@ -2089,6 +2094,21 @@ impl App {
         }
     }
 
+    /// Plain text to copy while the whole document is selected.
+    pub(crate) fn select_all_text(&self) -> Option<String> {
+        (self.reader_select_all && self.reader_shows_document())
+            .then(|| crate::plain_text::document(&self.ast))
+    }
+
+    /// The rendered reader is the visible surface: not the editor, a
+    /// Mindmap, or a full-page view drawn over it.
+    fn reader_shows_document(&self) -> bool {
+        self.view_mode == ViewMode::Rendered
+            && self.full_mindmap.is_none()
+            && !self.vault_open
+            && !self.settings_open
+    }
+
     fn reparse_source(&mut self) {
         self.load_ast_from_source();
         self.rebuild_matches();
@@ -2725,12 +2745,11 @@ impl App {
             // so global shortcuts (Cmd+E, Cmd+S, Esc, etc.) still fire while the
             // text_editor is focused. We rely on the sub handler's modifier-aware
             // checks to avoid stealing plain typing keys.
-            // Selectable reader text captures ⌘C when it copied a selection;
-            // skip the "how to select" hint in that case.
-            if crate::selectable::copied_by_reader(&ev, status) {
-                return None;
-            }
-            Some(ev)
+            // Selectable reader text captures ⌘C when it copied a selection.
+            // The map skips the "how to select" hint then, unless the whole
+            // document is selected: that copy replaces the block's.
+            let reader_copied = crate::selectable::copied_by_reader(&ev, status);
+            Some((ev, reader_copied))
         })
         // Std tuples hash only up to 12 fields, so the modal flag nests.
         .with((
@@ -2748,7 +2767,7 @@ impl App {
                 quick_slots_allowed,
                 settings_open,
             ),
-            slot_replace_open,
+            (slot_replace_open, self.reader_select_all),
         ))
         .map(
             |(
@@ -2767,11 +2786,14 @@ impl App {
                         quick_slots_allowed,
                         settings_open,
                     ),
-                    slot_replace_open,
+                    (slot_replace_open, select_all),
                 ),
-                ev,
+                (ev, reader_copied),
             )| {
                 use iced::keyboard::{key::Named, Event as KEv, Key};
+                if reader_copied && !select_all {
+                    return Message::Noop;
+                }
                 if let iced::Event::Keyboard(KEv::ModifiersChanged(modifiers)) = ev {
                     return Message::QuickSlotsModifier(quick_slots_primary_modifier(modifiers));
                 }
@@ -2918,6 +2940,18 @@ impl App {
                         return message;
                     }
                     return Message::FoldChordCancel;
+                }
+                let reader_has_keyboard = !editing
+                    && !focused
+                    && !overlay_open
+                    && !mindmap
+                    && !full_mindmap
+                    && !vault_open
+                    && !settings_open;
+                if let Some(message) =
+                    reader_select_all_key(&key, mods, reader_has_keyboard, select_all)
+                {
+                    return message;
                 }
                 if let Key::Character(c) = &key {
                     // Full Mindmap owns the window but retains the useful
@@ -3166,8 +3200,21 @@ impl App {
             iced::window::Event::Resized(size) => Some(Message::WindowResized(id, size)),
             _ => None,
         });
+        // A click anywhere, including the start of a new drag, ends a
+        // whole-document selection.
+        let select_all_clear = if self.reader_select_all {
+            iced::event::listen_with(|ev, _status, _id| match ev {
+                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)) => {
+                    Some(Message::ClearSelectAll)
+                }
+                _ => None,
+            })
+        } else {
+            iced::Subscription::none()
+        };
         iced::Subscription::batch([
             dnd,
+            select_all_clear,
             watcher,
             theme_watcher,
             keys,
@@ -3434,8 +3481,19 @@ impl App {
                     })
                     .into()
             } else {
-                scrollable(
-                    container(container(body).max_width(READING_MAX).width(Length::Fill))
+                // Whole-document selection: one selection-colored quad behind
+                // the reading column, plus a hint. Cheaper than highlighting
+                // each block, and it covers off-screen blocks as they scroll in.
+                let select_all = self.reader_select_all && self.reader_shows_document();
+                let column = container(body)
+                    .max_width(READING_MAX)
+                    .width(Length::Fill)
+                    .style(move |_| container::Style {
+                        background: select_all.then(|| pal.selection.into()),
+                        ..Default::default()
+                    });
+                let scroll: Element<'_, Message> = scrollable(
+                    container(column)
                         .padding(Padding::from([56, 32]))
                         .center_x(Length::Fill)
                         .width(Length::Fill),
@@ -3445,7 +3503,18 @@ impl App {
                 .on_scroll(Message::BodyScrolled)
                 .direction(slim_scroll_direction())
                 .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled))
-                .into()
+                .into();
+                if select_all {
+                    stack![
+                        scroll,
+                        floating_mindmap_hint(&[("⌘C", "copy all"), ("Esc", "cancel")], pal),
+                    ]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into()
+                } else {
+                    scroll
+                }
             }
         };
 

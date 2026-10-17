@@ -382,3 +382,27 @@ pub(super) fn latin_shortcut_key(
         None => key,
     }
 }
+
+/// Whole-document selection keys in the reader: ⌘A selects all, ⌘C copies
+/// while all is selected, and Esc cancels. `reader_has_keyboard` is false
+/// while the editor, a search field, or an overlay owns the keyboard; those
+/// keep ⌘A and ⌘C for their own text.
+pub(super) fn reader_select_all_key(
+    key: &iced::keyboard::Key,
+    modifiers: iced::keyboard::Modifiers,
+    reader_has_keyboard: bool,
+    select_all: bool,
+) -> Option<Message> {
+    use iced::keyboard::{key::Named, Key};
+    if !reader_has_keyboard {
+        return None;
+    }
+    let cmd =
+        (modifiers.command() || modifiers.control()) && !modifiers.shift() && !modifiers.alt();
+    match key.as_ref() {
+        Key::Character("a") if cmd => Some(Message::SelectAllDocument),
+        Key::Character("c") if cmd && select_all => Some(Message::CopyDocument),
+        Key::Named(Named::Escape) if select_all => Some(Message::ClearSelectAll),
+        _ => None,
+    }
+}

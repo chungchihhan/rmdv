@@ -22,6 +22,7 @@ pub mod parser;
 #[cfg(feature = "pdf")]
 pub mod pdf;
 pub mod picker;
+pub mod plain_text;
 pub mod prefs;
 pub mod quick_slots;
 pub mod recent;

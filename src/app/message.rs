@@ -305,6 +305,12 @@ pub enum Message {
     /// the stashed IPC sender or shows a toast.
     ScreenshotCaptured(iced::window::Screenshot),
     HintSelection,
+    /// ⌘A in the reader: mark the whole document selected.
+    SelectAllDocument,
+    /// ⌘C while the whole document is selected: copy its plain text.
+    CopyDocument,
+    /// Esc, a click, or a new drag ends the whole-document selection.
+    ClearSelectAll,
     FoldChordStart,
     FoldChordCancel,
     FoldToLevel(u8),
