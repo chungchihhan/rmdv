@@ -8960,3 +8960,116 @@ fn reader_select_all_keys_leave_inputs_and_the_editor_alone() {
     ));
     assert!(reader_select_all_key(&esc, Modifiers::NONE, true, false).is_none());
 }
+
+/// Cross-block selection (ticket rmdv-cross-block-select, scope "b"): one
+/// drag that starts in the first paragraph and ends in the third copies the
+/// text in between too. Red until the document-level selection exists.
+#[test]
+fn dragging_across_paragraphs_copies_the_text_in_between() {
+    use iced::advanced::clipboard::{Clipboard, Kind};
+    use iced::advanced::renderer::Headless;
+    use iced::keyboard::{self, Key, Modifiers};
+    use iced::{mouse, Event, Font, Pixels, Point, Size};
+    use iced_runtime::user_interface::{Cache, UserInterface};
+
+    #[derive(Default)]
+    struct Rec(Option<String>);
+    impl Clipboard for Rec {
+        fn read(&self, _kind: Kind) -> Option<String> {
+            self.0.clone()
+        }
+        fn write(&mut self, _kind: Kind, contents: String) {
+            self.0 = Some(contents);
+        }
+    }
+
+    let source = "alpha one two\n\nbravo three four\n\ncharlie five six\n".to_string();
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        std::path::PathBuf::from("/tmp/xblock.md"),
+        source,
+    ))));
+
+    let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+        Font::DEFAULT,
+        Pixels(16.0),
+        Some("tiny-skia"),
+    ))
+    .expect("headless tiny-skia renderer");
+    let mut clipboard = Rec::default();
+    let mut messages: Vec<Message> = Vec::new();
+    let mut ui = UserInterface::build(
+        app.view(),
+        Size::new(1280.0, 800.0),
+        Cache::default(),
+        &mut renderer,
+    );
+
+    // The reading column is centred (max 720 px) under a 56 px top padding;
+    // paragraphs are 24 px lines with an 8 px gap. Start inside the first
+    // paragraph, end inside the third.
+    let start = Point::new(285.0, 66.0);
+    let end = Point::new(330.0, 66.0 + 2.0 * 32.0);
+    let mut send = |at: Point, events: Vec<Event>| {
+        let _ = ui.update(
+            &events,
+            mouse::Cursor::Available(at),
+            &mut renderer,
+            &mut clipboard,
+            &mut messages,
+        );
+    };
+    send(
+        start,
+        vec![Event::Mouse(mouse::Event::CursorMoved { position: start })],
+    );
+    send(
+        start,
+        vec![Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Left,
+        ))],
+    );
+    for step in 1..=8 {
+        let t = step as f32 / 8.0;
+        let at = Point::new(
+            start.x + (end.x - start.x) * t,
+            start.y + (end.y - start.y) * t,
+        );
+        send(
+            at,
+            vec![Event::Mouse(mouse::Event::CursorMoved { position: at })],
+        );
+    }
+    send(
+        end,
+        vec![Event::Mouse(mouse::Event::ButtonReleased(
+            mouse::Button::Left,
+        ))],
+    );
+    let c = Key::Character("c".into());
+    send(
+        end,
+        vec![
+            Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: c.clone(),
+                modified_key: c,
+                physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyC),
+                location: keyboard::Location::Standard,
+                modifiers: Modifiers::COMMAND,
+                text: None,
+                repeat: false,
+            }),
+        ],
+    );
+
+    let copied = clipboard.0.unwrap_or_default();
+    assert!(
+        copied.contains("bravo three four"),
+        "the middle paragraph must be copied, got {copied:?}"
+    );
+    assert!(
+        copied.contains("alpha") && copied.contains("charlie"),
+        "both end paragraphs must contribute text, got {copied:?}"
+    );
+}
