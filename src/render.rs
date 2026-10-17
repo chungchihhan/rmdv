@@ -603,7 +603,11 @@ fn render_block<'a>(
         }
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, &mut ctx);
-            rich_text_spaced(spans, paragraph_line_height(inlines, typ.line_height), pal.selection)
+            rich_text_spaced(
+                spans,
+                paragraph_line_height(inlines, typ.line_height),
+                pal.selection,
+            )
         }
         Block::CodeBlock { code, spans, .. } => {
             let pal_c = *pal;
@@ -1429,7 +1433,11 @@ fn render_block_inner<'a>(
     match b {
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, ctx);
-            rich_text_spaced(spans, paragraph_line_height(inlines, typ.line_height), pal.selection)
+            rich_text_spaced(
+                spans,
+                paragraph_line_height(inlines, typ.line_height),
+                pal.selection,
+            )
         }
         _ => render_block(b, pal, typ, ctx.query, ctx.current_in_block, img),
     }

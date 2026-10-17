@@ -405,13 +405,26 @@ mod tests {
             el,
             vec![
                 (start, vec![moved(start)]),
-                (start, vec![Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]),
+                (
+                    start,
+                    vec![Event::Mouse(mouse::Event::ButtonPressed(
+                        mouse::Button::Left,
+                    ))],
+                ),
                 (end, vec![moved(end)]),
-                (end, vec![Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]),
-                (end, vec![
-                    Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
-                    key_press("c", Modifiers::COMMAND),
-                ]),
+                (
+                    end,
+                    vec![Event::Mouse(mouse::Event::ButtonReleased(
+                        mouse::Button::Left,
+                    ))],
+                ),
+                (
+                    end,
+                    vec![
+                        Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
+                        key_press("c", Modifiers::COMMAND),
+                    ],
+                ),
             ],
         );
         assert_eq!(clipboard.0.as_deref(), Some(raw));
