@@ -356,7 +356,7 @@ fn physical_latin(code: iced::keyboard::key::Code) -> Option<char> {
 /// `Key::Character("b")` never fires. Replace such a key with the Latin
 /// character of the physical key. Latin keys pass through unchanged, so
 /// Dvorak/AZERTY layouts keep their own letters.
-pub(super) fn latin_shortcut_key(
+pub(crate) fn latin_shortcut_key(
     key: iced::keyboard::Key,
     physical: iced::keyboard::key::Physical,
     modifiers: iced::keyboard::Modifiers,

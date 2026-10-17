@@ -49,7 +49,164 @@ fn selectable<'a>(
     if let Some(line_height) = line_height {
         text = text.line_height(line_height);
     }
-    text.into()
+    LatinKeys { content: text.into() }.into()
+}
+
+/// Hands the inner text widget key events whose letter is Latin. Under a
+/// non-Latin input source (Zhuyin, Pinyin, Japanese…) the C key reports a
+/// character such as "ㄏ", and the selection widget only copies on `"c"`.
+struct LatinKeys<'a> {
+    content: Element<'a, Message>,
+}
+
+fn latin_event(event: &iced::Event) -> Option<iced::Event> {
+    use iced::keyboard::Event as KEv;
+    let iced::Event::Keyboard(KEv::KeyPressed {
+        key,
+        modified_key,
+        physical_key,
+        location,
+        modifiers,
+        text,
+        repeat,
+    }) = event
+    else {
+        return None;
+    };
+    if !modifiers.command() {
+        return None;
+    }
+    let latin = crate::app::keys::latin_shortcut_key(key.clone(), *physical_key, *modifiers);
+    if &latin == key {
+        return None;
+    }
+    Some(iced::Event::Keyboard(KEv::KeyPressed {
+        key: latin.clone(),
+        modified_key: latin,
+        physical_key: *physical_key,
+        location: *location,
+        modifiers: *modifiers,
+        text: text.clone(),
+        repeat: *repeat,
+    }))
+}
+
+impl<'a> iced::advanced::Widget<Message, iced::Theme, iced::Renderer> for LatinKeys<'a> {
+    fn tag(&self) -> iced::advanced::widget::tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> iced::advanced::widget::tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> iced::Size<iced::Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> iced::Size<iced::Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &iced::Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &iced::Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::advanced::mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &iced::Rectangle,
+    ) {
+        let latin = latin_event(event);
+        self.content.as_widget_mut().update(
+            tree,
+            latin.as_ref().unwrap_or(event),
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::advanced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+        renderer: &iced::Renderer,
+    ) -> iced::advanced::mouse::Interaction {
+        self.content
+            .as_widget()
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::advanced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+    ) {
+        self.content
+            .as_widget()
+            .draw(tree, renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &iced::Renderer,
+        viewport: &iced::Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, iced::Theme, iced::Renderer>> {
+        self.content
+            .as_widget_mut()
+            .overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
+impl<'a> From<LatinKeys<'a>> for Element<'a, Message> {
+    fn from(w: LatinKeys<'a>) -> Self {
+        Element::new(w)
+    }
 }
 
 /// True when a reader text widget consumed this ⌘C to copy its selection.
@@ -174,6 +331,38 @@ mod tests {
                         key_press("c", Modifiers::COMMAND),
                     ],
                 ),
+            ],
+        );
+        assert_eq!(clipboard.0.as_deref(), Some("Hello world"));
+    }
+
+    /// A Zhuyin (or other non-Latin) input source reports the C key as a
+    /// non-Latin character; ⌘C must still copy the selection.
+    #[test]
+    fn cmd_c_copies_under_a_non_latin_input_source() {
+        let el = rich_text_links(vec![span("Hello world")], iced::Color::BLACK);
+        let start = Point::new(1.0, 8.0);
+        let end = Point::new(700.0, 8.0);
+        let zhuyin_c = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("ㄏ".into()),
+            modified_key: Key::Character("ㄏ".into()),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyC),
+            location: keyboard::Location::Standard,
+            modifiers: Modifiers::COMMAND,
+            text: None,
+            repeat: false,
+        });
+        let (clipboard, _) = run(
+            el,
+            vec![
+                (start, vec![moved(start)]),
+                (start, vec![Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))]),
+                (end, vec![moved(end)]),
+                (end, vec![Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))]),
+                (end, vec![
+                    Event::Keyboard(keyboard::Event::ModifiersChanged(Modifiers::COMMAND)),
+                    zhuyin_c,
+                ]),
             ],
         );
         assert_eq!(clipboard.0.as_deref(), Some("Hello world"));
