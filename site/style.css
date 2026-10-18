@@ -459,7 +459,7 @@ main {
 }
 
 .product-capture img {
-  aspect-ratio: 929 / 780;
+  aspect-ratio: 929 / 735;
   object-fit: cover;
   object-position: top left;
 }
@@ -472,9 +472,9 @@ main {
 }
 
 .product-capture figcaption strong { color: var(--fg); font-weight: 650; }
-.capture-wide img { aspect-ratio: 1296 / 791; }
+.capture-wide img { aspect-ratio: 1966 / 918; }
 .capture-pair .product-capture:first-child img { aspect-ratio: 929 / 640; }
-.capture-pair .product-capture:last-child img { aspect-ratio: 1426 / 922; }
+.capture-pair .product-capture:last-child img { aspect-ratio: 923 / 379; }
 
 .capability-list {
   margin: 24px 0 0;
