@@ -890,3 +890,7 @@ pre.code code { padding: 0; background: transparent; font-size: inherit; }
     animation-iteration-count: 1 !important;
   }
 }
+
+.palette-hint-inline { width: auto; min-height: 0; margin-top: 8px; padding: 2px 0; border-top: 0; gap: 8px; }
+.palette-hint-inline span { margin-right: 0; }
+.palette-hint-inline:hover { background: transparent; }
