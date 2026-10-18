@@ -235,6 +235,18 @@ main {
   align-items: stretch;
 }
 
+.site-hero { padding: 64px 0 24px; }
+.site-hero-body { min-width: 0; }
+.site-hero .hero-copy { padding: 0 0 40px; max-width: 890px; }
+.site-hero .hero-capture { border-top: 0; margin-top: 0; }
+.site-hero .hero-capture figcaption {
+  min-height: 0;
+  padding: 2px 0 0;
+  justify-content: center;
+  gap: 18px;
+  border-top: 0;
+}
+
 .not-found-shell { min-height: min(690px, calc(100vh - 52px)); }
 .not-found-shell .reader-hero { display: flex; flex-direction: column; }
 .not-found-shell .hero-copy { margin: auto 0; }
@@ -815,6 +827,8 @@ pre.code code { padding: 0; background: transparent; font-size: inherit; }
   .workspace-rail { display: none; }
   .reader-hero { border-radius: 10px; }
   .hero-copy { padding: 46px 34px 36px; }
+  .site-hero { padding: 36px 0 12px; }
+  .site-hero .hero-copy { padding: 0 0 32px; }
   .hero-copy h1 { font-size: 46px; }
   .chapter,
   .install-chapter { padding: 76px 0; grid-template-columns: 1fr; gap: 34px; }
@@ -830,6 +844,7 @@ pre.code code { padding: 0; background: transparent; font-size: inherit; }
 @media (max-width: 620px) {
   body { font-size: 15px; }
   .hero-copy { padding: 38px 22px 30px; }
+  .site-hero .hero-copy { padding: 0 0 26px; }
   .hero-copy h1 { font-size: 39px; line-height: 1.05; }
   .hero-copy > p:not(.runtime-note):not(.trust-line) { margin-top: 18px; font-size: 16px; }
   .runtime-note { font-size: 10px; }
