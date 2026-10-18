@@ -310,7 +310,7 @@
       lightbox.classList.remove('in');
       const finish = () => {
         lightbox.hidden = true;
-        lbImg.src = 'assets/shot-hero-960.webp';
+        lbImg.src = 'assets/shot-hero-1x.webp';
         stage.classList.remove('zoomed');
         if (lastFocus && lastFocus.focus) lastFocus.focus();
       };

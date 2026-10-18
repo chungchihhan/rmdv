@@ -399,7 +399,7 @@ main {
   height: auto;
 }
 
-.hero-capture img { aspect-ratio: 2074 / 1326; object-fit: cover; object-position: top left; }
+.hero-capture img { aspect-ratio: 1123 / 856; object-fit: cover; object-position: top left; }
 .hero-capture figcaption {
   min-height: 37px;
   padding: 8px 14px;
@@ -447,7 +447,7 @@ main {
 }
 
 .product-capture img {
-  aspect-ratio: 1728 / 1152;
+  aspect-ratio: 1123 / 796;
   object-fit: cover;
   object-position: top left;
 }
@@ -460,7 +460,7 @@ main {
 }
 
 .product-capture figcaption strong { color: var(--fg); font-weight: 650; }
-.capture-wide img { aspect-ratio: 1321 / 881; }
+.capture-wide img { aspect-ratio: 1123 / 746; }
 
 .capability-list {
   margin: 24px 0 0;
