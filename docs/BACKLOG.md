@@ -1,6 +1,6 @@
 # rmdv project backlog
 
-Last triaged: 2026-10-17
+Last triaged: 2026-10-18
 
 ## State model
 
@@ -22,6 +22,10 @@ a design for the owner, not code. Sources:
 
 | ID | Priority | State | Outcome | Acceptance | Plan | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
+| MDV-044 | P2 | proposed | Full Mindmap: opening a large folder such as `/` shows `More files not indexed` / `More items not indexed` nodes that do nothing on Enter, so later items are unreachable. List direct children with a plain non-recursive `read_dir`, independent of the 10,000-item scan budget; keep a `More… (N left)` node only when one folder has more than ~2,000 children, and load the next batch from it. | Failing test first: with a root over the budget, every direct child folder is selectable and the More node expands; recursive counts still show `N+` / `scan limit reached`. | — | — |
+| MDV-045 | P3 | proposed | Website screenshots: retake as non-full-screen window captures (window frame and shadow, not the whole screen). | Before/after shown to the owner; deploy only with owner approval. | — | A visible window needs the window-slot rule. |
+| MDV-046 | P3 | proposed | Re-test cold start and parse numbers on a quiet machine (v0.8.0 claims). | Recorded numbers next to the v0.8.0 claims; docs flag cleared or corrected. | — | Quiet machine. |
+| MDV-047 | P3 | proposed | Promo videos: README GIF and an agent-scenario short clip. | Owner records with the manual tour; files stored and linked. | — | Owner recording time. |
 | MDV-042 | P3 | proposed | After `goto` / `open --section`, the view stops about one block above the target. | Reproduce with the IPC harness, fix or record a bounded limitation. | — | — |
 | MDV-043 | P3 | proposed | The website returns a blank 404 for unknown URLs instead of `404.html`. | Unknown path serves `404.html` with status 404. | — | — |
 | MDV-019b | P2 | proposed | Theme Studio on the Settings page: custom-theme editing, `Import Theme…`, and the website theme gallery/composer (the pre-split candidate is reference only). | Design after MDV-019 lands. | — | — |

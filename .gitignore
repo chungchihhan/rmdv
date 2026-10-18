@@ -20,3 +20,7 @@ CLAUDE.md
 
 # generative-art design scratch (demos + speed tuner), not shipped
 docs/genart-samples/
+
+# local scratch
+.local-bin/
+.claude/scheduled_tasks.lock
