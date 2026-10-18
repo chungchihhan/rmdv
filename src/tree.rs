@@ -10,6 +10,9 @@ pub const WORKSPACE_MAX_FILES: usize = 5_000;
 /// including unsupported files, prevents a wide non-Markdown tree from
 /// bypassing the file cap and monopolizing the UI or a background worker.
 pub const WORKSPACE_MAX_ENTRIES: usize = 10_000;
+/// Direct children (folders plus files) one Full Mindmap branch shows per page.
+/// Larger folders keep a "More…" node that reveals the next page.
+pub const DIRECT_PAGE: usize = 2_000;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Node {
@@ -56,6 +59,9 @@ pub struct WorkspaceSnapshot {
     /// coverage.
     pub sidebar_files: SidebarFileIndex,
     pub truncated: bool,
+    /// The scan root's own direct listing was cut short. Unlike `truncated`,
+    /// the global budget running out in a descendant does not set this.
+    pub listing_truncated: bool,
 }
 
 /// Immutable, already-grouped sidebar file paths produced with the background
@@ -110,6 +116,8 @@ pub struct ExpandedFolderSnapshot {
     pub files: Vec<PathBuf>,
     pub recursive_supported_file_count: RecursiveFileCount,
     pub truncated: bool,
+    /// See `WorkspaceSnapshot::listing_truncated`.
+    pub listing_truncated: bool,
 }
 
 pub fn load_expanded_folder(
@@ -158,6 +166,7 @@ fn load_expanded_folder_with_limits(
         files,
         recursive_supported_file_count,
         truncated: snapshot.truncated,
+        listing_truncated: snapshot.listing_truncated,
     })
 }
 
@@ -270,6 +279,7 @@ pub(crate) fn build_workspace_with_limits(
         max_files,
         exhausted: false,
         truncated: false,
+        listing_truncated: false,
     };
     fill_bounded(
         &mut root_node,
@@ -292,6 +302,7 @@ pub(crate) fn build_workspace_with_limits(
         files,
         sidebar_files,
         truncated: budget.truncated,
+        listing_truncated: budget.listing_truncated,
     })
 }
 
@@ -304,6 +315,8 @@ struct ScanBudget {
     /// interruption, this stops later sibling walks too.
     exhausted: bool,
     truncated: bool,
+    /// Set only while reading the scan root's own entries (depth 0).
+    listing_truncated: bool,
 }
 
 fn fill_bounded(
@@ -347,6 +360,7 @@ fn fill_bounded(
             budget.exhausted = true;
             budget.truncated = true;
             subtree_incomplete = true;
+            budget.listing_truncated |= depth == 0;
             break;
         }
         budget.examined_entries += 1;
@@ -355,6 +369,7 @@ fn fill_bounded(
             Err(_) => {
                 budget.truncated = true;
                 subtree_incomplete = true;
+                budget.listing_truncated |= depth == 0;
                 continue;
             }
         };
@@ -403,6 +418,7 @@ fn fill_bounded(
                 budget.exhausted = true;
                 budget.truncated = true;
                 subtree_incomplete = true;
+                budget.listing_truncated |= depth == 0;
                 break;
             }
             budget.supported_files += 1;
@@ -412,10 +428,12 @@ fn fill_bounded(
                 indexed_files.push(entry.path.clone());
             }
             if budget.supported_files >= budget.max_files {
+                // The cap is full but nothing was left out yet: keep the
+                // budget closed without claiming this listing is cut. A
+                // further file hits the check above and flags it.
                 budget.exhausted = true;
                 budget.truncated = true;
                 subtree_incomplete = true;
-                break;
             }
         }
     }
@@ -1052,5 +1070,56 @@ mod tests {
         ));
 
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn exhausted_global_budget_keeps_every_root_child_and_a_complete_listing() {
+        let root = test_dir("listing-complete");
+        for i in 0..6 {
+            let dir = root.join(format!("d{i}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            for j in 0..3 {
+                std::fs::write(dir.join(format!("f{j}.md")), "# F\n").unwrap();
+            }
+        }
+        let snapshot = build_workspace_with_limits(&root, false, 12, 8, 5_000, 8).unwrap();
+        assert!(snapshot.truncated, "global budget must run out");
+        assert_eq!(snapshot.root.children.len(), 6);
+        assert!(
+            !snapshot.listing_truncated,
+            "root's direct listing was complete"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn oversized_root_listing_is_flagged() {
+        let root = test_dir("listing-cut");
+        for i in 0..6 {
+            std::fs::create_dir_all(root.join(format!("d{i}"))).unwrap();
+        }
+        let snapshot = build_workspace_with_limits(&root, false, 12, 8, 5_000, 3).unwrap();
+        assert!(snapshot.listing_truncated);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn file_cap_flags_listing_only_when_a_file_is_actually_left_out() {
+        let exact = test_dir("cap-exact");
+        for i in 0..3 {
+            std::fs::write(exact.join(format!("f{i}.md")), "# F\n").unwrap_or_else(|_| {
+                std::fs::create_dir_all(&exact).unwrap();
+                std::fs::write(exact.join(format!("f{i}.md")), "# F\n").unwrap();
+            });
+        }
+        let snapshot = build_workspace_with_limits(&exact, false, 12, 8, 3, 10_000).unwrap();
+        assert!(
+            !snapshot.listing_truncated,
+            "exactly at the cap, none left out"
+        );
+        std::fs::write(exact.join("f3.md"), "# F\n").unwrap();
+        let over = build_workspace_with_limits(&exact, false, 12, 8, 3, 10_000).unwrap();
+        assert!(over.listing_truncated);
+        std::fs::remove_dir_all(exact).unwrap();
     }
 }

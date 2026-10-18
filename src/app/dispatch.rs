@@ -1098,6 +1098,9 @@ impl App {
                         }
                     }
                     let node = graph.node(&selected)?;
+                    if node.kind == WorkspaceNodeKind::More {
+                        return Some(Message::FullMindmapShowMore(selected.path().to_path_buf()));
+                    }
                     match node.kind {
                         WorkspaceNodeKind::Root | WorkspaceNodeKind::Folder => {
                             node.path.clone().map(Message::FullMindmapSetRoot)
@@ -1108,6 +1111,7 @@ impl App {
                         WorkspaceNodeKind::Empty
                         | WorkspaceNodeKind::Error
                         | WorkspaceNodeKind::Truncated
+                        | WorkspaceNodeKind::More
                         | WorkspaceNodeKind::Loading => None,
                     }
                 })();
@@ -1118,6 +1122,13 @@ impl App {
                     .full_mindmap
                     .as_ref()
                     .and_then(|full| full.selected.clone());
+                if let Some(id) = id.as_ref().filter(|id| {
+                    self.full_mindmap_graph()
+                        .and_then(|graph| graph.node(id).map(|node| node.kind.clone()))
+                        == Some(WorkspaceNodeKind::More)
+                }) {
+                    return self.update(Message::FullMindmapShowMore(id.path().to_path_buf()));
+                }
                 let can_toggle = self.full_mindmap_graph().is_some_and(|graph| {
                     id.as_ref().is_some_and(|id| {
                         graph.node(id).is_some_and(|node| {
@@ -1135,6 +1146,7 @@ impl App {
                 }
                 Task::none()
             }
+            Message::FullMindmapShowMore(folder) => self.full_mindmap_show_more(folder),
             Message::FullMindmapSelectRoot => {
                 if let Some(graph) = self.full_mindmap_graph() {
                     return self.update(Message::FullMindmapSelectNode(graph.root_id()));
@@ -1472,6 +1484,18 @@ impl App {
                             snapshot.recursive_supported_file_count,
                             tree::RecursiveFileCount::Exact(0)
                         );
+                        // A deferred file selection (refresh/re-entry) must land
+                        // inside the shown page; widen it in whole pages.
+                        let mut shown = tree::DIRECT_PAGE;
+                        if let Some(index) = self
+                            .full_mindmap
+                            .as_ref()
+                            .and_then(|full| full.deferred_file_selection.as_ref())
+                            .and_then(|path| snapshot.files.iter().position(|f| f == path))
+                        {
+                            let position = snapshot.folders.len() + index + 1;
+                            shown = position.div_ceil(tree::DIRECT_PAGE) * tree::DIRECT_PAGE;
+                        }
                         let folders = std::sync::Arc::new(snapshot.folders);
                         let files = std::sync::Arc::new(snapshot.files);
                         if let Some(full) = self.full_mindmap.as_mut() {
@@ -1483,7 +1507,8 @@ impl App {
                                     files: std::sync::Arc::clone(&files),
                                     recursive_supported_file_count: snapshot
                                         .recursive_supported_file_count,
-                                    truncated: snapshot.truncated,
+                                    truncated: snapshot.listing_truncated,
+                                    shown,
                                 },
                             );
                         }
@@ -2775,7 +2800,7 @@ impl App {
                                 self.workspace_sidebar_files = snapshot.sidebar_files;
                                 self.workspace_tree = Some(snapshot.root);
                                 self.workspace_snapshot_show_hidden = self.show_hidden;
-                                self.workspace_truncated = snapshot.truncated;
+                                self.workspace_truncated = snapshot.listing_truncated;
                                 self.begin_workspace_epoch();
                             }
                             Err(error) => {

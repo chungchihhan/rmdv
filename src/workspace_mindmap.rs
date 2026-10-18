@@ -18,6 +18,7 @@ pub enum WorkspaceStatus {
     Truncated,
     LoadingFiles,
     BranchTruncated,
+    MoreItems,
 }
 
 /// Stable, filesystem-scoped canvas identity. These values never enter the
@@ -48,6 +49,7 @@ pub enum WorkspaceNodeKind {
     Empty,
     Error,
     Truncated,
+    More,
     Loading,
 }
 
@@ -65,6 +67,8 @@ pub enum MaterializedFolder {
         files: Arc<Vec<PathBuf>>,
         recursive_supported_file_count: RecursiveFileCount,
         truncated: bool,
+        /// How many direct children (folders first, then files) are shown.
+        shown: usize,
     },
     Error(String),
 }
@@ -240,6 +244,7 @@ fn status_label(status: WorkspaceStatus, detail: Option<&str>) -> String {
         (WorkspaceStatus::Truncated, _) => "More files not indexed".to_string(),
         (WorkspaceStatus::LoadingFiles, _) => "Loading files…".to_string(),
         (WorkspaceStatus::BranchTruncated, _) => "More items not indexed".to_string(),
+        (WorkspaceStatus::MoreItems, _) => "More…".to_string(),
     }
 }
 
@@ -476,8 +481,44 @@ fn visible_folder_children<'a>(
 ) -> &'a [Node] {
     match materialized.get(&node.path) {
         Some(MaterializedFolder::Verified { .. }) => &node.children,
-        Some(MaterializedFolder::Loaded { folders, .. }) => folders.as_slice(),
+        Some(MaterializedFolder::Loaded { folders, .. }) => {
+            let (shown_folders, _, _) = page_split(&node.path, materialized);
+            &folders[..shown_folders]
+        }
         _ => &node.children,
+    }
+}
+
+/// Split a loaded folder's direct children into the page that is shown:
+/// `(folders shown, files shown, children left)`. Folders come first, then
+/// files. Folders left behind that would not render (exact-empty) are not
+/// counted.
+fn page_split(
+    folder: &Path,
+    materialized: &HashMap<PathBuf, MaterializedFolder>,
+) -> (usize, usize, usize) {
+    match materialized.get(folder) {
+        Some(MaterializedFolder::Loaded {
+            folders,
+            files,
+            shown,
+            ..
+        }) => {
+            let total = folders.len() + files.len();
+            let shown = (*shown).min(total);
+            let shown_folders = shown.min(folders.len());
+            let shown_files = shown - shown_folders;
+            let left_folders = folders[shown_folders..]
+                .iter()
+                .filter(|node| should_show_folder(node, materialized))
+                .count();
+            (
+                shown_folders,
+                shown_files,
+                left_folders + files.len() - shown_files,
+            )
+        }
+        _ => (0, 0, 0),
     }
 }
 
@@ -493,7 +534,8 @@ fn append_materialized_children(
         Some(MaterializedFolder::Loaded {
             files, truncated, ..
         }) => {
-            for path in files.iter() {
+            let (_, shown_files, left) = page_split(folder, materialized);
+            for path in files.iter().take(shown_files) {
                 let label = path
                     .file_name()
                     .map(|name| name.to_string_lossy().into_owned())
@@ -503,6 +545,18 @@ fn append_materialized_children(
                     WorkspaceNodeKind::File,
                     Some(path.clone()),
                     label,
+                    level,
+                    false,
+                );
+                builder.attach(parent, child);
+            }
+            if left > 0 {
+                let status = WorkspaceStatus::MoreItems;
+                let child = builder.push(
+                    WorkspaceNodeId::Status(folder.clone(), status),
+                    WorkspaceNodeKind::More,
+                    None,
+                    format!("More… ({left} left)"),
                     level,
                     false,
                 );
@@ -604,6 +658,7 @@ mod tests {
                         .recursive_supported_file_count
                         .unwrap_or(RecursiveFileCount::Unavailable),
                     truncated: false,
+                    shown: crate::tree::DIRECT_PAGE,
                 },
             );
             for child in node.children.iter().filter(|child| child.is_dir) {
@@ -832,6 +887,7 @@ mod tests {
                 files: Arc::new(vec![PathBuf::from("/vault/notes/a.md")]),
                 recursive_supported_file_count: RecursiveFileCount::Exact(1),
                 truncated: false,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
         let loaded = from_tree(&root, &expanded, &materialized, &HashSet::new(), false);
@@ -858,6 +914,7 @@ mod tests {
                 files: Arc::new(vec![PathBuf::from("/vault/notes/a.md")]),
                 recursive_supported_file_count: RecursiveFileCount::Exact(1),
                 truncated: false,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
         let graph = from_tree(
@@ -971,6 +1028,7 @@ mod tests {
                 files: Arc::new(Vec::new()),
                 recursive_supported_file_count: RecursiveFileCount::Exact(0),
                 truncated: false,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
 
@@ -1003,6 +1061,7 @@ mod tests {
                 files: Arc::new(Vec::new()),
                 recursive_supported_file_count: RecursiveFileCount::Exact(0),
                 truncated: false,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
         let graph = from_tree(
@@ -1028,6 +1087,7 @@ mod tests {
                 files: Arc::new(Vec::new()),
                 recursive_supported_file_count: RecursiveFileCount::Exact(0),
                 truncated: false,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
         let direct_graph = from_tree(
@@ -1057,6 +1117,7 @@ mod tests {
                 files: Arc::new(vec![PathBuf::from("/vault/limited/readme.md")]),
                 recursive_supported_file_count: RecursiveFileCount::LowerBound(2),
                 truncated: true,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
 
@@ -1099,6 +1160,7 @@ mod tests {
                 files: Arc::new(vec![PathBuf::from("/vault/notes/readme.md")]),
                 recursive_supported_file_count: RecursiveFileCount::Exact(2),
                 truncated: false,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
         let graph = from_tree(
@@ -1133,6 +1195,7 @@ mod tests {
                 files: Arc::new(Vec::new()),
                 recursive_supported_file_count: RecursiveFileCount::LowerBound(0),
                 truncated: true,
+                shown: crate::tree::DIRECT_PAGE,
             },
         )]);
 
@@ -1153,6 +1216,131 @@ mod tests {
                 .and_then(|index| graph.nodes.get(index))
                 .map(|node| node.full_label.as_str()),
             Some("More items not indexed")
+        );
+    }
+
+    #[test]
+    fn direct_children_beyond_the_page_collapse_into_a_counted_more_node() {
+        let root = node("/vault", true, vec![]);
+        let files: Vec<PathBuf> = (0..5)
+            .map(|i| PathBuf::from(format!("/vault/n{i}.md")))
+            .collect();
+        let materialized = HashMap::from([(
+            PathBuf::from("/vault"),
+            MaterializedFolder::Loaded {
+                folders: Arc::new(Vec::new()),
+                files: Arc::new(files.clone()),
+                recursive_supported_file_count: RecursiveFileCount::Exact(5),
+                truncated: false,
+                shown: 2,
+            },
+        )]);
+        let graph = from_tree(
+            &root,
+            &HashSet::from([PathBuf::from("/vault")]),
+            &materialized,
+            &HashSet::new(),
+            false,
+        );
+        assert!(graph
+            .node(&WorkspaceNodeId::File(files[1].clone()))
+            .is_some());
+        assert!(graph
+            .node(&WorkspaceNodeId::File(files[2].clone()))
+            .is_none());
+        let more = WorkspaceNodeId::Status(PathBuf::from("/vault"), WorkspaceStatus::MoreItems);
+        assert_eq!(
+            graph
+                .index_of(&more)
+                .and_then(|index| graph.nodes.get(index))
+                .map(|node| node.full_label.as_str()),
+            Some("More… (3 left)")
+        );
+        assert_eq!(
+            graph.node(&more).map(|n| n.kind.clone()),
+            Some(WorkspaceNodeKind::More)
+        );
+    }
+
+    #[test]
+    fn page_counts_folders_before_files() {
+        let folders: Vec<Node> = (0..3)
+            .map(|i| {
+                let mut folder = node(&format!("/vault/d{i}"), true, vec![]);
+                folder.recursive_supported_file_count = Some(RecursiveFileCount::Exact(1));
+                folder
+            })
+            .collect();
+        let root = node("/vault", true, vec![]);
+        let files = vec![PathBuf::from("/vault/a.md")];
+        let materialized = HashMap::from([(
+            PathBuf::from("/vault"),
+            MaterializedFolder::Loaded {
+                folders: Arc::new(folders),
+                files: Arc::new(files.clone()),
+                recursive_supported_file_count: RecursiveFileCount::Exact(1),
+                truncated: false,
+                shown: 3,
+            },
+        )]);
+        let graph = from_tree(
+            &root,
+            &HashSet::from([PathBuf::from("/vault")]),
+            &materialized,
+            &HashSet::new(),
+            false,
+        );
+        assert!(graph
+            .node(&WorkspaceNodeId::Folder(PathBuf::from("/vault/d2")))
+            .is_some());
+        assert!(graph
+            .node(&WorkspaceNodeId::File(files[0].clone()))
+            .is_none());
+        assert!(graph
+            .node(&WorkspaceNodeId::Status(
+                PathBuf::from("/vault"),
+                WorkspaceStatus::MoreItems
+            ))
+            .is_some());
+    }
+
+    #[test]
+    fn more_count_excludes_exact_empty_folders() {
+        let mk = |name: &str, count| {
+            let mut folder = node(&format!("/vault/{name}"), true, vec![]);
+            folder.recursive_supported_file_count = Some(count);
+            folder
+        };
+        let folders = vec![
+            mk("a", RecursiveFileCount::Exact(1)),
+            mk("empty", RecursiveFileCount::Exact(0)),
+            mk("c", RecursiveFileCount::Exact(1)),
+        ];
+        let root = node("/vault", true, vec![]);
+        let materialized = HashMap::from([(
+            PathBuf::from("/vault"),
+            MaterializedFolder::Loaded {
+                folders: Arc::new(folders),
+                files: Arc::new(Vec::new()),
+                recursive_supported_file_count: RecursiveFileCount::Exact(2),
+                truncated: false,
+                shown: 1,
+            },
+        )]);
+        let graph = from_tree(
+            &root,
+            &HashSet::from([PathBuf::from("/vault")]),
+            &materialized,
+            &HashSet::new(),
+            false,
+        );
+        let more = WorkspaceNodeId::Status(PathBuf::from("/vault"), WorkspaceStatus::MoreItems);
+        assert_eq!(
+            graph
+                .index_of(&more)
+                .and_then(|index| graph.nodes.get(index))
+                .map(|node| node.full_label.as_str()),
+            Some("More… (1 left)")
         );
     }
 }

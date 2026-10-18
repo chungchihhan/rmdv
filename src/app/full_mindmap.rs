@@ -903,6 +903,7 @@ impl App {
                     files,
                     recursive_supported_file_count,
                     truncated: false,
+                    listing_truncated: false,
                 },
             ));
             Task::done(Message::FullMindmapFolderLoaded { request, result })
@@ -1020,6 +1021,48 @@ impl App {
     /// Select a workspace node and independently settle a bounded, read-only
     /// preview when it is a file. Preview loads deliberately bypass the dirty
     /// guard because they never alter the current document.
+    /// Show the next page of a loaded folder's direct children and move the
+    /// selection to the first newly revealed one. Pure state: the entries were
+    /// already read by the branch scan, so nothing blocks the UI thread.
+    pub(super) fn full_mindmap_show_more(&mut self, folder: PathBuf) -> Task<Message> {
+        let Some(full) = self.full_mindmap.as_mut() else {
+            return Task::none();
+        };
+        let Some(workspace_mindmap::MaterializedFolder::Loaded {
+            folders,
+            files,
+            shown,
+            ..
+        }) = full.materialized_folders.get_mut(&folder)
+        else {
+            return Task::none();
+        };
+        let old_shown = *shown;
+        *shown = old_shown.saturating_add(tree::DIRECT_PAGE);
+        let revealed: Vec<WorkspaceNodeId> = folders
+            .iter()
+            .map(|node| WorkspaceNodeId::Folder(node.path.clone()))
+            .chain(files.iter().map(|path| WorkspaceNodeId::File(path.clone())))
+            .skip(old_shown)
+            .take(tree::DIRECT_PAGE)
+            .collect();
+        self.invalidate_full_mindmap_layout();
+        let followup = self.schedule_full_mindmap_verification_followup();
+        // Verification may hide a revealed shell for now; select the first
+        // item that is actually in the graph.
+        let target = self
+            .full_mindmap_graph()
+            .and_then(|graph| revealed.into_iter().find(|id| graph.node(id).is_some()))
+            .unwrap_or_else(|| {
+                if self.workspace.as_ref() == Some(&folder) {
+                    WorkspaceNodeId::Root(folder)
+                } else {
+                    WorkspaceNodeId::Folder(folder)
+                }
+            });
+        Task::batch([followup, self.select_full_mindmap_node(target)])
+    }
+
     pub(super) fn select_full_mindmap_node(&mut self, id: WorkspaceNodeId) -> Task<Message> {
         let checkpoint = self.checkpoint_active_quick_slot();
         self.invalidate_pending_quick_slot_restore();
