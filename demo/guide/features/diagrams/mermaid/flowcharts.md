@@ -3,6 +3,7 @@
 [← back to README](../../../../README.md)
 
 rmdv renders ```mermaid fences natively (no browser).
+Diagrams are parsed, laid out, and rasterized in-process, so they appear instantly and work offline. Flowcharts, sequence diagrams, and state machines share one renderer, and the result follows the active theme. Copy any diagram to the clipboard with one click, or switch to edit mode to change the source.
 
 ## Flowchart
 
