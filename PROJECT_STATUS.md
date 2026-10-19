@@ -1,11 +1,12 @@
 # rmdv — project status
 
-Last verified: 2026-10-17 (Asia/Taipei)
+Last verified: 2026-10-19 (Asia/Taipei; local MDV-049 trial)
 Stale after: 7 days
-Canonical repository: `~/Documents/GitHub/mdv`
-Expected branch / HEAD / PR: start new work from the live `origin/main`.
-Latest published release: `v0.10.0` → `9e876c0` (2026-10-17, Release run
-39039978898).
+Current checkout: `/Users/harry_chung/Developer/Personal/rmdv`.
+Trial base: `main@09d6394`; branch: `codex/mermaid-rs-renderer`.
+Remotes: owner fork `chungchihhan/rmdv` as origin; minchenlee/rmdv as upstream.
+Latest published upstream release: v0.10.1 (GitHub API, 2026-10-19).
+Historical release evidence below was not re-run.
 Authority: This is a routing snapshot. Verify Git, GitHub, runtime identity, and
 manual evidence before mutation.
 
@@ -28,8 +29,11 @@ manual evidence before mutation.
 
 ## Live workstreams
 
-No active product workstream. Pick the next task from
-[`docs/BACKLOG.md`](docs/BACKLOG.md).
+Owner-requested local trial: [MDV-049](docs/plans/active/MDV-049-upstream-mermaid-renderer-trial.md)
+switches Zed's fork to original upstream `1jehuang/mermaid-rs-renderer`, pinned
+at `3726ccb`. It carries the alpha-compositing fix and comparison cases from
+the separately preserved `codex/merman-renderer@190d76a`. No native-window
+acceptance has been given. Local rustc is 1.98.1 on macOS arm64.
 
 ## Human decisions / blockers
 
@@ -50,12 +54,20 @@ No active product workstream. Pick the next task from
 
 ## Next safe actions
 
-1. Pick the next task from the backlog (`MDV-042` goto offset is the smallest).
-2. Re-run the cold-start and parse perf check on a quiet machine.
+1. Inspect the MDV-049 release build in the native window.
+2. Inspect `tests/fixtures/renderer_trial.md` and compare against the Merman
+   branch before selecting a renderer.
 
 ## Verification state
 
 ### Verified now
+
+- MDV-049: 627 tests passed, 2 ignored; cargo check, formatting, and diff
+  checks passed. Exported light/dark PNGs were visually inspected. CJK,
+  flowchart/sequence/class/state/mindmap, palette alpha blending, user init,
+  and error/size handling passed through the SVG/RGBA path. Native-window
+  acceptance remains pending. The updated release build passed and reports
+  `rmdv 0.10.1`; no installation or publication was performed.
 
 - `v0.10.0` was tagged at `9e876c0` (owner authority, 2026-10-17); the Release
   workflow passed every job and the seven installers match `SHA256SUMS`. The

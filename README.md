@@ -85,9 +85,13 @@ action. This creates `~/.local/bin/rmdv`, pointing to the AppImage. Keep
     cargo build --release
     ./target/release/rmdv path/to/file.md
 
-Requires Rust 1.80+. On Windows, build with `cargo build --release
+This local renderer trial requires Rust 1.88+ (tested with 1.98.1). On Windows, build with `cargo build --release
 --no-default-features`; PDF text extraction is currently available on macOS and
 Linux only.
+
+This checkout trials the upstream `1jehuang/mermaid-rs-renderer` at `3726ccb`,
+with CLI and PNG features disabled; rmdv uses its existing raster pipeline.
+Open `tests/fixtures/renderer_trial.md` to inspect the trial.
 
 ## CLI / agent control
 
