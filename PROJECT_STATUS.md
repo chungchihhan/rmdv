@@ -1,11 +1,12 @@
 # rmdv — project status
 
-Last verified: 2026-10-17 (Asia/Taipei)
+Last verified: 2026-10-19 (Asia/Taipei; local MDV-048 trial)
 Stale after: 7 days
-Canonical repository: `~/Documents/GitHub/mdv`
-Expected branch / HEAD / PR: start new work from the live `origin/main`.
-Latest published release: `v0.10.0` → `9e876c0` (2026-10-17, Release run
-39039978898).
+Current checkout: `/Users/harry_chung/Developer/Personal/rmdv` (owner's fork).
+Trial base: `main@09d6394`; work branch: `codex/merman-renderer` (MDV-048).
+Remotes: `origin` = `chungchihhan/rmdv`, `upstream` = `minchenlee/rmdv`.
+Latest published upstream release: `v0.10.1` (verified via GitHub API on
+2026-10-19). Historical release evidence below was not re-run.
 Authority: This is a routing snapshot. Verify Git, GitHub, runtime identity, and
 manual evidence before mutation.
 
@@ -28,8 +29,10 @@ manual evidence before mutation.
 
 ## Live workstreams
 
-No active product workstream. Pick the next task from
-[`docs/BACKLOG.md`](docs/BACKLOG.md).
+Local owner-requested trial: [`MDV-048`](docs/plans/active/MDV-048-merman-renderer-trial.md)
+replaces the Mermaid renderer with Merman 0.9.1. It raises the declared Rust
+minimum to 1.95; local rustc is 1.98.1. This is a local branch trial with no owner
+visual acceptance yet. No installed `rmdv` command was found at trial start.
 
 ## Human decisions / blockers
 
@@ -50,13 +53,23 @@ No active product workstream. Pick the next task from
 
 ## Next safe actions
 
-1. Pick the next task from the backlog (`MDV-042` goto offset is the smallest).
-2. Re-run the cold-start and parse perf check on a quiet machine.
+1. Inspect the MDV-048 release build with `tests/fixtures/merman_trial.md`
+   in a native window with light/dark themes and diagram zoom.
+2. Decide whether to keep the Merman trial after owner visual acceptance.
 
 ## Verification state
 
 ### Verified now
 
+- MDV-048 local trial: 627 tests passed, 2 ignored (`cargo test --locked
+  --lib --tests`); `cargo check --locked`, formatting and diff checks passed.
+  The SVG/RGBA pipeline passed CJK flowchart, sequence, class, state, mindmap,
+  both palettes, user init, and error/size checks. Semi-transparent Mermaid
+  theme colors are composited onto their backdrop before RGB encoding, with
+  regression coverage for light/dark node borders. Exported light/dark PNGs
+  were visually inspected; native-window acceptance remains pending.
+  `cargo build --locked --release --bin rmdv` passed; the local binary reports
+  `rmdv 0.10.1` and has not been installed or published.
 - `v0.10.0` was tagged at `9e876c0` (owner authority, 2026-10-17); the Release
   workflow passed every job and the seven installers match `SHA256SUMS`. The
   `aarch64` dmg and app were also checked by hand: codesign valid, stapled,

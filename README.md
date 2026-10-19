@@ -85,9 +85,15 @@ action. This creates `~/.local/bin/rmdv`, pointing to the AppImage. Keep
     cargo build --release
     ./target/release/rmdv path/to/file.md
 
-Requires Rust 1.80+. On Windows, build with `cargo build --release
+Requires Rust 1.95+ (the local Merman renderer trial). On Windows, build with `cargo build --release
 --no-default-features`; PDF text extraction is currently available on macOS and
 Linux only.
+
+This checkout trials Merman 0.9.1 for native Mermaid rendering. Open
+`tests/fixtures/merman_trial.md` to compare diagram families and light/dark
+themes. Optional ELK layout and Mermaid math labels are not enabled; standalone
+LaTeX blocks still use `iced_math`. Export a sample through the same SVG/RGBA
+path with `cargo run --example merman_smoke -- /tmp/rmdv-merman`.
 
 ## CLI / agent control
 
@@ -191,7 +197,7 @@ Rust, with [Iced](https://iced.rs/) for the GUI (pure native widgets, no webview
 | GUI | [iced](https://iced.rs/) |
 | Markdown | [pulldown-cmark](https://github.com/raphlinus/pulldown-cmark) |
 | Syntax highlighting | [tree-sitter](https://tree-sitter.github.io/) + per-language grammars (rust, python, js, ts, go, c, cpp, java, sql, bash, json, html, md, yaml, toml) |
-| Mermaid diagrams | [mermaid-rs-renderer](https://crates.io/crates/mermaid-rs-renderer) + [layout-rs](https://crates.io/crates/layout-rs) |
+| Mermaid diagrams | [merman](https://crates.io/crates/merman) (local trial); DOT uses [layout-rs](https://crates.io/crates/layout-rs) |
 | LaTeX math | [iced_math](https://crates.io/crates/iced_math) (pure-Rust layout engine) |
 | SVG rasterization | [resvg](https://github.com/RazrFalcon/resvg) |
 | PDF text extraction | [liteparse](https://crates.io/crates/liteparse) (PDFium) |
@@ -210,7 +216,7 @@ Rust, with [Iced](https://iced.rs/) for the GUI (pure native widgets, no webview
 
 - [Iced](https://iced.rs/) — the pure-Rust GUI toolkit rmdv is built on
 - [tree-sitter](https://tree-sitter.github.io/) and its grammar authors — real-parser syntax highlighting
-- [pulldown-cmark](https://github.com/raphlinus/pulldown-cmark), [mermaid-rs-renderer](https://crates.io/crates/mermaid-rs-renderer), [resvg](https://github.com/RazrFalcon/resvg), [liteparse](https://crates.io/crates/liteparse) — rendering and parsing
+- [pulldown-cmark](https://github.com/raphlinus/pulldown-cmark), [merman](https://crates.io/crates/merman), [resvg](https://github.com/RazrFalcon/resvg), [liteparse](https://crates.io/crates/liteparse) — rendering and parsing
 - [Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) — bundled fonts
 - [Claude](https://anthropic.com) via [Claude Code](https://claude.com/claude-code) — AI-assisted implementation
 - [Ferrite](https://github.com/OlaProeis/Ferrite) — a fellow AI-built Rust editor whose README inspired the disclosure here
