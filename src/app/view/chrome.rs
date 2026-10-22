@@ -546,8 +546,8 @@ pub(in crate::app) fn search_bar_view<'a>(
                 })
                 .width(Length::Fill),
             text(counter).color(pal.muted).size(12),
-            ghost_lu(ic::CHEVRON_LEFT, pal).on_press(Message::PrevMatch),
-            ghost_lu(ic::CHEVRON_RIGHT, pal).on_press(Message::NextMatch),
+            ghost_lu(ic::CHEVRON_LEFT, pal).on_press(Message::FindStepClicked(false)),
+            ghost_lu(ic::CHEVRON_RIGHT, pal).on_press(Message::FindStepClicked(true)),
             ghost_lu(ic::X, pal).on_press(Message::ToggleSearch),
         ]
         .padding(Padding::from([8, 14]))

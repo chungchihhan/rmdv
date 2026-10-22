@@ -3051,6 +3051,19 @@ impl App {
                 }
                 self.scroll_to_current_match()
             }
+            Message::FindStepClicked(next) => {
+                let step = self.update(if next {
+                    Message::NextMatch
+                } else {
+                    Message::PrevMatch
+                });
+                // The click moved focus to the chevron; typing and Enter
+                // belong to the query field.
+                Task::batch([
+                    step,
+                    iced::widget::operation::focus(Self::search_input_id()),
+                ])
+            }
             Message::TreeScrolled(v) => {
                 self.tree_viewport = Some(v);
                 self.last_scroll_at = Some(std::time::Instant::now());

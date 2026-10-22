@@ -146,6 +146,9 @@ pub enum Message {
     SearchDebounced(u64),
     NextMatch,
     PrevMatch,
+    /// A find-bar chevron click: step to the next (`true`) or previous
+    /// match, then give the search input its focus back.
+    FindStepClicked(bool),
     TreeScrolled(iced::widget::scrollable::Viewport),
     OutlineScrolled(iced::widget::scrollable::Viewport),
     OverlayScrolled(iced::widget::scrollable::Viewport),

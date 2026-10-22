@@ -647,6 +647,7 @@ fn file_finder_more_label_counts_hidden_results() {
 
 mod group2 {
     use super::*;
+    use crate::icon::ic;
     use iced::advanced::widget::operation::Focusable;
     use iced::keyboard;
 
@@ -745,6 +746,11 @@ mod group2 {
         }
     }
 
+    fn glyph_bounds(ui: &mut PointerUi, app: &App, glyph: char) -> Rectangle {
+        ui.text_bounds(app, &glyph.to_string())
+            .unwrap_or_else(|| panic!("glyph {glyph:?} is rendered"))
+    }
+
     // --- 1. Edit mode focuses the editor ------------------------------------
 
     #[test]
@@ -779,5 +785,38 @@ mod group2 {
         apply_ui(&mut app, &mut ui, messages);
 
         assert_eq!(ui.focused(&app, "zen-editor"), Some(true));
+    }
+
+    // --- 2. Find bar keeps the input focused after chevron clicks -----------
+
+    #[test]
+    fn find_chevron_clicks_return_focus_to_the_search_input() {
+        let mut app = long_doc_app();
+        let mut ui = PointerUi::new();
+        let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+        apply_ui(
+            &mut app,
+            &mut ui,
+            vec![
+                Message::ToggleSearch,
+                Message::QueryChanged("Paragraph".into()),
+            ],
+        );
+        assert_eq!(ui.focused(&app, "search-input"), Some(true));
+
+        for glyph in [ic::CHEVRON_RIGHT, ic::CHEVRON_LEFT] {
+            let bounds = glyph_bounds(&mut ui, &app, glyph);
+            let messages = ui.click(&app, center(bounds));
+            assert!(
+                has(&messages, |m| matches!(m, Message::FindStepClicked(_))),
+                "{messages:?}"
+            );
+            apply_ui(&mut app, &mut ui, messages);
+            assert_eq!(
+                ui.focused(&app, "search-input"),
+                Some(true),
+                "after the {glyph:?} chevron, typing and Enter go to the input"
+            );
+        }
     }
 }
