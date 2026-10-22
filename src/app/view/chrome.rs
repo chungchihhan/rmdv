@@ -368,8 +368,9 @@ pub(in crate::app) fn welcome_view<'a>(pal: Palette) -> Element<'a, Message> {
             kbd("Toggle Sidebar", "⌘B", Message::ToggleSidebar),
             kbd("Find in Document", "⌘F", Message::ToggleSearch),
             kbd("Cycle Theme", "⌘T", Message::ToggleTheme),
-            kbd("Edit / Select Text", "⌘E", Message::ToggleViewMode),
-            kbd("Fold to Level (then 0–6)", "⌘K", Message::FoldChordStart),
+            // Edit and Fold act on an open document; here they explain that.
+            kbd("Edit / Select Text", "⌘E", Message::WelcomeNeedsFile),
+            kbd("Fold to Level (then 0–6)", "⌘K", Message::WelcomeNeedsFile),
             kbd("Full Mindmap Mode", "⌘⇧M", Message::ToggleFullMindmap),
         ]
         .spacing(8)

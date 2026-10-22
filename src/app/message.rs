@@ -20,6 +20,9 @@ pub enum Message {
     RevealPath(PathBuf),
     /// Close the error card and show what is beneath it.
     DismissError,
+    /// A welcome-page row whose command acts on an open document: say why it
+    /// does nothing yet.
+    WelcomeNeedsFile,
     CopyFilePath,
     VaultQueryChanged(String),
     /// Run the search for the current query (Enter when the query has changed).

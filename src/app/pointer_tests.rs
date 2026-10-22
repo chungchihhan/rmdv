@@ -546,8 +546,8 @@ fn welcome_shortcut_rows_send_their_shortcut_message() {
         ("Toggle Sidebar", "⌘B", Message::ToggleSidebar),
         ("Find in Document", "⌘F", Message::ToggleSearch),
         ("Cycle Theme", "⌘T", Message::ToggleTheme),
-        ("Edit / Select Text", "⌘E", Message::ToggleViewMode),
-        ("Fold to Level (then 0–6)", "⌘K", Message::FoldChordStart),
+        ("Edit / Select Text", "⌘E", Message::WelcomeNeedsFile),
+        ("Fold to Level (then 0–6)", "⌘K", Message::WelcomeNeedsFile),
         ("Full Mindmap Mode", "⌘⇧M", Message::ToggleFullMindmap),
     ];
     let app = App::default();
@@ -641,6 +641,26 @@ fn file_finder_more_label_counts_hidden_results() {
         file_finder_more_label(FILE_FINDER_RESULT_CAP).as_deref(),
         Some("120+ more — keep typing to narrow")
     );
+}
+
+#[test]
+fn welcome_rows_that_need_a_file_say_so() {
+    // Edit and Fold act on an open document; the welcome page has none.
+    for label in ["Edit / Select Text", "Fold to Level (then 0–6)"] {
+        let mut app = App::default();
+        let mut ui = PointerUi::new();
+        let bounds = ui.text_bounds(&app, label).expect("welcome row label");
+        let messages = ui.click(&app, center(bounds));
+        apply(&mut app, messages);
+        assert!(
+            app.toast
+                .as_ref()
+                .is_some_and(|t| t.text == "Open a file first"),
+            "{label} must explain why it does nothing, got {:?}",
+            app.toast.as_ref().map(|t| &t.text)
+        );
+        assert!(!app.fold_chord_pending, "{label} arms no fold chord");
+    }
 }
 
 // --- Group 2: find bar, toasts, error card, edit focus, file drop -----------

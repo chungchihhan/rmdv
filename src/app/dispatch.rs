@@ -680,6 +680,7 @@ impl App {
                 self.reader_select_all = false;
                 Task::none()
             }
+            Message::WelcomeNeedsFile => self.show_toast("Open a file first".into()),
             Message::FoldChordStart => {
                 self.fold_chord_pending = true;
                 return self.show_toast("Fold: press 0-6 …".into());
