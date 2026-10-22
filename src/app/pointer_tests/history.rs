@@ -183,6 +183,48 @@ fn back_to_a_file_left_at_the_top_lands_at_the_top() {
 }
 
 #[test]
+fn a_second_back_before_the_first_lands_keeps_the_stop_position() {
+    let (mut app, dir) = fixture("quick");
+    let mut ui = PointerUi::new();
+    let (a, b, c, doc) = (
+        dir.join("a.md"),
+        dir.join("b.md"),
+        dir.join("c.md"),
+        dir.join("doc.md"),
+    );
+    open(&mut app, &mut ui, &c);
+    open(&mut app, &mut ui, &a);
+    scroll_down(&mut app, &mut ui, 12);
+    let saved = offset(&app);
+    assert!(saved > 400.0, "a.md scrolled: {saved}");
+    open(&mut app, &mut ui, &b);
+    open(&mut app, &mut ui, &doc);
+    back(&mut app, &mut ui);
+    assert_eq!(app.file.as_deref(), Some(b.as_path()));
+
+    // Two quick presses: the second comes before a.md reports its viewport.
+    send(&mut app, &mut ui, Message::HistoryGo(HistoryDir::Back));
+    assert_eq!(app.file.as_deref(), Some(a.as_path()));
+    back(&mut app, &mut ui);
+    assert_eq!(app.file.as_deref(), Some(c.as_path()));
+    // Positions are a fraction of the scroll range.
+    let kept = app.history.forward.last().map(|e| e.position);
+    assert!(
+        kept.is_some_and(|p| p > 0.05),
+        "a.md waits on Forward below the top: {kept:?}"
+    );
+
+    forward(&mut app, &mut ui);
+    assert_eq!(app.file.as_deref(), Some(a.as_path()));
+    let again = offset(&app);
+    assert!(
+        (again - saved).abs() < 40.0,
+        "Forward lands where a.md was read: saved {saved}, again {again}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn back_restores_the_mind_map_view_a_file_was_left_in() {
     let (mut app, dir) = fixture("mode");
     let mut ui = PointerUi::new();

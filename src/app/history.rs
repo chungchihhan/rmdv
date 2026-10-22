@@ -17,9 +17,15 @@ impl App {
         } else {
             ViewMode::Rendered
         };
+        // A restore still on its way (a quick second Back, before the
+        // reader reports the new file's viewport) is where the reader is.
+        let position = self
+            .quick_slot_body_restore
+            .or(self.history.arriving)
+            .unwrap_or_else(|| Self::slot_position(self.body_viewport.as_ref()));
         Some(HistoryEntry {
             path,
-            position: Self::slot_position(self.body_viewport.as_ref()),
+            position,
             mode,
         })
     }
@@ -27,7 +33,12 @@ impl App {
     /// A new navigation leaves the current stop: it goes on Back, and
     /// Forward no longer applies.
     pub(super) fn record_history(&mut self) {
-        if let Some(here) = self.history_here() {
+        let here = self.history_here();
+        self.record_stop(here);
+    }
+
+    fn record_stop(&mut self, here: Option<HistoryEntry>) {
+        if let Some(here) = here {
             NavHistory::push(&mut self.history.back, here);
         }
         self.history.forward.clear();
@@ -38,6 +49,8 @@ impl App {
     /// stop to restore; any other open records an ordinary navigation.
     pub(super) fn history_on_file_switch(&mut self, path: &Path) -> Option<HistoryEntry> {
         let here = self.history_here();
+        // The new file starts without a restore of its own.
+        self.history.arriving = None;
         if let Some((dir, target)) = self.history.pending.take() {
             let same = |entry: &HistoryEntry| {
                 entry.path == path
@@ -54,7 +67,7 @@ impl App {
                 return entry;
             }
         }
-        self.record_history();
+        self.record_stop(here);
         None
     }
 
@@ -72,6 +85,7 @@ impl App {
         if entry.position > 0.0 {
             self.quick_slot_body_restore = Some(entry.position);
         }
+        self.history.arriving = Some(entry.position.max(0.0));
         // It also reports a viewport only when it changes. Coming back past
         // a file too short to scroll, the old viewport repeats exactly and
         // no report would come, so start from the top: that change always
@@ -92,6 +106,7 @@ impl App {
         if entry.mode == ViewMode::Mindmap {
             return Task::none();
         }
+        self.history.arriving = Some(entry.position);
         let max = self.body_viewport.as_ref().map_or(0.0, |viewport| {
             (viewport.content_bounds().height - viewport.bounds().height).max(0.0)
         });

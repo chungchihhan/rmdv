@@ -271,6 +271,10 @@ pub(super) struct NavHistory {
     /// when that load lands, so a newer open that supersedes it records as
     /// an ordinary navigation.
     pub(super) pending: Option<(HistoryDir, PathBuf)>,
+    /// The reader position a Back or Forward is scrolling the open file
+    /// to, until the reader reports a viewport of its own. A stop left
+    /// before then keeps this position, not the top.
+    pub(super) arriving: Option<f32>,
 }
 
 impl NavHistory {

@@ -3331,6 +3331,11 @@ impl App {
                 }
                 self.body_viewport = Some(v);
                 self.last_scroll_at = Some(std::time::Instant::now());
+                if self.quick_slot_body_restore.is_none() {
+                    // No restore waits on this report: the viewport is
+                    // where the reader is.
+                    self.history.arriving = None;
+                }
                 let checkpoint = if self.quick_slot_body_restore.is_some() {
                     Task::none()
                 } else {
