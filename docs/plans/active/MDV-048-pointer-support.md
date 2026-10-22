@@ -82,6 +82,7 @@ Per phase:
 ## Progress
 
 - 2026-10-22: audit done; owner decisions recorded; P1 started.
+- 2026-10-23: P1 done on `feat/pointer-p1` (PR #70): 17 items, 5 review fixes; lib 591 passed, all integration tests passed. Trial build: Release dry run 39814478737. P2 started on `feat/pointer-p2`.
 
 ## Decision log
 
