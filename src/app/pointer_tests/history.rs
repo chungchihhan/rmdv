@@ -619,3 +619,18 @@ fn toolbar_chevrons_show_disabled_without_history() {
         assert!(!moves_window(&messages), "{messages:?}");
     }
 }
+
+#[test]
+fn back_from_full_mindmap_leaves_it_for_the_previous_file() {
+    let (mut app, dir) = fixture("full");
+    let mut ui = PointerUi::new();
+    let (a, b) = (dir.join("a.md"), dir.join("b.md"));
+    open(&mut app, &mut ui, &a);
+    open(&mut app, &mut ui, &b);
+    send(&mut app, &mut ui, Message::ToggleFullMindmap);
+    assert!(app.full_mindmap.is_some());
+    back(&mut app, &mut ui);
+    assert!(app.full_mindmap.is_none(), "Back leaves Full Mindmap");
+    assert_eq!(app.file.as_deref(), Some(a.as_path()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
