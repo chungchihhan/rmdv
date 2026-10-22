@@ -3008,6 +3008,7 @@ impl App {
                 Task::none()
             }
             Message::CopyTreePath => {
+                self.tree_cursor_shown = true;
                 let Some(root) = &self.workspace_tree else {
                     return Task::none();
                 };

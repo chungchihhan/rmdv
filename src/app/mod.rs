@@ -2760,7 +2760,9 @@ impl App {
             return Some(path.clone());
         }
 
+        // A hidden tree cursor is not a visible target: the open file is.
         let files_sidebar_active = self.sidebar_open
+            && self.tree_cursor_shown
             && self.workspace.is_some()
             && self.sidebar_tab == SidebarTab::Files
             && self.full_mindmap.is_none();

@@ -1070,6 +1070,8 @@ mod group3 {
             "cursor follows the click"
         );
         assert!(!app.tree_cursor_shown, "a click hides the keyboard cursor");
+        // The click's open completes; Reveal/Copy follow the open file.
+        let _ = app.update(Message::FileLoaded(Ok((beta.clone(), "# Beta\n".into()))));
         assert_eq!(app.focused_file_path(), Some(beta), "Reveal/Copy act on it");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -1431,6 +1433,36 @@ mod group3 {
                 "the canvas still owns {probe:?}"
             );
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // --- Review fixes ------------------------------------------------------
+
+    #[test]
+    fn a_hidden_tree_cursor_leaves_reveal_and_copy_on_the_open_file() {
+        let (mut app, dir) = tree_fixture("hidden-cursor");
+        let alpha = dir.join("alpha.md");
+        let beta = dir.join("beta.md");
+        let _ = app.update(Message::TreeRowClicked {
+            path: alpha.clone(),
+            is_dir: false,
+        });
+        assert_eq!(app.tree_cursor, tree_index(&app, &alpha));
+        assert!(!app.tree_cursor_shown);
+        // beta opens some other way (finder, link, Quick Slot).
+        let _ = app.update(Message::FileLoaded(Ok((beta.clone(), "# Beta\n".into()))));
+        assert_eq!(app.file.as_deref(), Some(beta.as_path()));
+        assert!(app.sidebar_open && app.sidebar_tab == SidebarTab::Files);
+
+        assert_eq!(
+            app.focused_file_path(),
+            Some(beta),
+            "Reveal/Copy act on the open file, not the hidden cursor row"
+        );
+
+        // Copy Tree Path shows the row it copied.
+        let _ = app.update(Message::CopyTreePath);
+        assert!(app.tree_cursor_shown, "the copied row is shown");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
