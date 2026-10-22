@@ -423,3 +423,19 @@ pub(super) fn reader_select_all_key(
         _ => None,
     }
 }
+
+/// The mouse side buttons go Back and Forward in navigation history.
+/// Presses only: the release would act a second time. `App::history_go`
+/// ignores them while a modal is open.
+pub(super) fn mouse_history_message(event: &iced::Event) -> Option<Message> {
+    use iced::mouse::{Button, Event};
+    match event {
+        iced::Event::Mouse(Event::ButtonPressed(Button::Back)) => {
+            Some(Message::HistoryGo(super::HistoryDir::Back))
+        }
+        iced::Event::Mouse(Event::ButtonPressed(Button::Forward)) => {
+            Some(Message::HistoryGo(super::HistoryDir::Forward))
+        }
+        _ => None,
+    }
+}

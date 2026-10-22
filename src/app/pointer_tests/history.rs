@@ -390,3 +390,67 @@ fn opening_another_workspace_clears_history() {
     assert!(app.history.back.is_empty() && app.history.forward.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- 2. Mouse side buttons -----------------------------------------------------
+
+#[test]
+fn mouse_side_buttons_go_back_and_forward() {
+    let press = |button| iced::Event::Mouse(mouse::Event::ButtonPressed(button));
+    assert!(matches!(
+        mouse_history_message(&press(mouse::Button::Back)),
+        Some(Message::HistoryGo(HistoryDir::Back))
+    ));
+    assert!(matches!(
+        mouse_history_message(&press(mouse::Button::Forward)),
+        Some(Message::HistoryGo(HistoryDir::Forward))
+    ));
+    for other in [
+        press(mouse::Button::Left),
+        press(mouse::Button::Right),
+        press(mouse::Button::Middle),
+        press(mouse::Button::Other(7)),
+        iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Back)),
+    ] {
+        assert!(mouse_history_message(&other).is_none(), "{other:?}");
+    }
+}
+
+#[test]
+fn back_waits_while_a_modal_is_open() {
+    let (mut app, dir) = fixture("modal");
+    let mut ui = PointerUi::new();
+    let (a, b) = (dir.join("a.md"), dir.join("b.md"));
+    open(&mut app, &mut ui, &a);
+    open(&mut app, &mut ui, &b);
+
+    send(&mut app, &mut ui, Message::OpenCommandPalette);
+    back(&mut app, &mut ui);
+    assert_eq!(
+        app.file.as_deref(),
+        Some(b.as_path()),
+        "the palette is open"
+    );
+    assert_eq!(app.overlay, Overlay::Command, "and stays open");
+    send(&mut app, &mut ui, Message::CloseOverlay);
+
+    // Slot 1 holds b.md; assigning a.md to it asks first.
+    send(&mut app, &mut ui, Message::QuickSlotAssign(0));
+    open(&mut app, &mut ui, &a);
+    send(&mut app, &mut ui, Message::QuickSlotAssign(0));
+    assert!(app.quick_slot_replace.is_some(), "the replace confirmation");
+    back(&mut app, &mut ui);
+    assert_eq!(
+        app.file.as_deref(),
+        Some(a.as_path()),
+        "it owns the pointer"
+    );
+    send(&mut app, &mut ui, Message::QuickSlotReplaceCancel);
+
+    back(&mut app, &mut ui);
+    assert_eq!(
+        app.file.as_deref(),
+        Some(b.as_path()),
+        "no modal: Back works"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

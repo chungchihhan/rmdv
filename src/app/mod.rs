@@ -3389,6 +3389,9 @@ impl App {
         } else {
             iced::Subscription::none()
         };
+        // The mouse side buttons. The closure returns `None` for every
+        // other event, so it adds no messages and no redraws.
+        let mouse_history = iced::event::listen_with(|ev, _status, _id| mouse_history_message(&ev));
         let ipc = iced::Subscription::run(ipc_subscription_stream);
         let native_pinch = crate::native_pinch::subscription().map(Message::MindmapNativePinch);
         let macos_open = crate::macos_open::subscription().map(Message::OpenFileFinderPath);
@@ -3417,6 +3420,7 @@ impl App {
         };
         iced::Subscription::batch([
             dnd,
+            mouse_history,
             select_all_clear,
             watcher,
             theme_watcher,
