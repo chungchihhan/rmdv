@@ -699,3 +699,42 @@ pub(in crate::app) fn floating_mindmap_hint<'a>(
         .align_y(iced::alignment::Vertical::Bottom)
         .into()
 }
+
+/// The frame shown while files are dragged over the window: a thin accent
+/// border around the window and a centered "Open in rmdv" label. It draws
+/// only; the pointer passes through it.
+pub(in crate::app) fn drop_highlight<'a>(pal: Palette) -> Element<'a, Message> {
+    let label = container(text("Open in rmdv").size(13).color(pal.accent_fg))
+        .padding(Padding::from([6, 14]))
+        .style(move |_| container::Style {
+            background: Some(pal.accent.into()),
+            border: Border {
+                radius: theme::radius::PILL.into(),
+                ..Default::default()
+            },
+            shadow: theme::shadow::HINT,
+            ..Default::default()
+        });
+    container(label)
+        .id(iced::widget::Id::new("drop-highlight"))
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .style(move |_| container::Style {
+            background: Some(
+                Color {
+                    a: 0.06,
+                    ..pal.accent
+                }
+                .into(),
+            ),
+            border: Border {
+                color: pal.accent,
+                width: 2.0,
+                radius: theme::radius::MD.into(),
+            },
+            ..Default::default()
+        })
+        .into()
+}

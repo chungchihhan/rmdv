@@ -459,6 +459,8 @@ pub struct App {
     close_after_save: Option<CloseAfterSave>,
     /// The window close was sent; no further close request applies.
     window_closing: bool,
+    /// Files are being dragged over the window: the drop highlight shows.
+    drop_hover: bool,
     pub quick_slots_modifier_held: bool,
     quick_slots_rail_revealed: bool,
     quick_slots_modifier_generation: u64,
@@ -647,6 +649,7 @@ impl Default for App {
             close_confirm: None,
             close_after_save: None,
             window_closing: false,
+            drop_hover: false,
             quick_slots_modifier_held: false,
             quick_slots_rail_revealed: false,
             quick_slots_modifier_generation: 0,
@@ -2826,9 +2829,7 @@ impl App {
 
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let dnd = iced::event::listen_with(|ev, _status, _id| match ev {
-            iced::Event::Window(iced::window::Event::FileDropped(path)) => {
-                Some(dropped_path_message(path))
-            }
+            iced::Event::Window(event) => file_drag_message(event),
             _ => None,
         });
         let watcher = crate::watch::watch_subscription(self.file.clone()).map(Message::FileChanged);
@@ -3957,6 +3958,11 @@ impl App {
             }
             _ => Space::new().into(),
         };
+        let drop_layer: Element<'_, Message> = if self.drop_hover {
+            drop_highlight(pal)
+        } else {
+            Space::new().into()
+        };
         let update_layer: Element<'_, Message> = match &self.pending_update {
             Some(u) => update_banner(&u.version, pal),
             None => Space::new().into(),
@@ -3967,7 +3973,8 @@ impl App {
             close_confirm_layer,
             progress_layer,
             toast_layer,
-            update_layer
+            update_layer,
+            drop_layer
         ]
         .into()
     }
@@ -4040,7 +4047,19 @@ fn toast_duration(toast: &Toast) -> std::time::Duration {
 /// Finder open path: a folder opens as the workspace, a file honors Full
 /// Mindmap and the unsaved-edits guard, and an open overlay closes.
 fn dropped_path_message(path: PathBuf) -> Message {
-    Message::OpenFileFinderPath(path)
+    Message::FileDropped(path)
+}
+
+/// The message a file drag over the window sends: entering shows the drop
+/// highlight; leaving or dropping removes it. Each arrives once per file, not
+/// per pointer move.
+fn file_drag_message(event: iced::window::Event) -> Option<Message> {
+    match event {
+        iced::window::Event::FileHovered(_) => Some(Message::DropHover(true)),
+        iced::window::Event::FilesHoveredLeft => Some(Message::DropHover(false)),
+        iced::window::Event::FileDropped(path) => Some(dropped_path_message(path)),
+        _ => None,
+    }
 }
 
 /// The path Finder can reveal for `path`: the path itself, or its nearest

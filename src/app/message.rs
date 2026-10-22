@@ -345,6 +345,10 @@ pub enum Message {
         result: Result<(PathBuf, tree::ExpandedFolderSnapshot), String>,
     },
     WindowResized(iced::window::Id, iced::Size),
+    /// Files are dragged over the window (true) or left it (false).
+    DropHover(bool),
+    /// A file or folder was dropped on the window.
+    FileDropped(PathBuf),
     /// The red close button (or the platform's close) asked to close.
     WindowCloseRequested(iced::window::Id),
     /// ⌘Q (the app menu's Quit) asked to quit; macOS only.

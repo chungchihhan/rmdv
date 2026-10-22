@@ -319,3 +319,63 @@ fn close_confirmation_buttons_and_backdrop() {
     );
     assert!(messages.is_empty(), "{messages:?}");
 }
+
+// --- 4. Drop highlight ----------------------------------------------------------
+
+#[test]
+fn dragging_files_over_the_window_shows_the_drop_highlight() {
+    use iced::window::Event as W;
+    let hovered = file_drag_message(W::FileHovered(PathBuf::from("/tmp/a.md")));
+    assert!(
+        matches!(hovered, Some(Message::DropHover(true))),
+        "{hovered:?}"
+    );
+    let left = file_drag_message(W::FilesHoveredLeft);
+    assert!(matches!(left, Some(Message::DropHover(false))), "{left:?}");
+    assert!(file_drag_message(W::Focused).is_none());
+
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    assert!(ui.text_bounds(&app, "Open in rmdv").is_none());
+    let _ = app.update(Message::DropHover(true));
+    assert!(app.drop_hover);
+    let label = ui
+        .text_bounds(&app, "Open in rmdv")
+        .expect("the drop label shows");
+    assert!(
+        (label.center_x() - WINDOW.width / 2.0).abs() < 2.0,
+        "centered: {label:?}"
+    );
+    let frame = ui.id_bounds(&app, "drop-highlight").expect("drop frame");
+    assert_eq!(frame.size(), WINDOW, "the frame covers the window");
+
+    let _ = app.update(Message::DropHover(false));
+    assert!(!app.drop_hover);
+    let mut ui = PointerUi::new();
+    assert!(ui.text_bounds(&app, "Open in rmdv").is_none());
+}
+
+#[test]
+fn dropping_a_file_clears_the_drop_highlight() {
+    let dir = std::env::temp_dir().join(format!("rmdv-drop-clear-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = App::default();
+    app.drop_hover = true;
+    apply(&mut app, vec![dropped_path_message(dir.clone())]);
+    assert!(!app.drop_hover);
+    assert!(app.workspace.is_some(), "the drop still opens the folder");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn drop_highlight_takes_no_pointer_input() {
+    let mut app = long_doc_app();
+    app.drop_hover = true;
+    let mut ui = PointerUi::new();
+    let text_cursor = (0..20).any(|step| {
+        let at = Point::new(400.0 + step as f32 * 20.0, 300.0);
+        ui.move_to(&app, at).1 == mouse::Interaction::Text
+    });
+    assert!(text_cursor, "the reader keeps its cursor under the frame");
+}

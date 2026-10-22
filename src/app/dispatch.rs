@@ -397,6 +397,14 @@ impl App {
             }
             Message::QuickSlotClose => self.close_active_quick_slot(),
             Message::QuickSlotCloseWindow => self.close_quick_slot_window(),
+            Message::DropHover(hovered) => {
+                self.drop_hover = hovered;
+                Task::none()
+            }
+            Message::FileDropped(path) => {
+                self.drop_hover = false;
+                self.update(Message::OpenFileFinderPath(path))
+            }
             Message::WindowCloseRequested(id) => self.request_window_close(Some(id)),
             Message::QuitRequested => self.request_window_close(None),
             Message::CloseConfirmSave => self.close_confirm_save(),
