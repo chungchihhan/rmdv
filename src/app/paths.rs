@@ -32,6 +32,28 @@ pub(super) fn data_lang_for(path: Option<&std::path::Path>) -> Option<&'static s
     }
 }
 
+/// Whether a link to `path` opens inside rmdv: the sidebar's own test
+/// ([`crate::picker::is_markdown_path`]), so a file the tree lists opens
+/// from a link too. The extension's case does not matter (`README.MD`).
+pub(super) fn link_opens_in_app(path: &std::path::Path) -> bool {
+    let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
+        return false;
+    };
+    crate::picker::is_markdown_path(&path.with_extension(ext.to_ascii_lowercase()))
+}
+
+/// `open -g <url>`: opens a link without bringing its app to the front.
+/// `None` for a target that `open` would read as an option.
+#[cfg(target_os = "macos")]
+pub(super) fn background_open_command(target: &str) -> Option<std::process::Command> {
+    if !target.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let mut command = std::process::Command::new("open");
+    command.arg("-g").arg(target);
+    Some(command)
+}
+
 pub fn is_remote_url(s: &str) -> bool {
     s.starts_with("http://") || s.starts_with("https://")
 }

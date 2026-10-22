@@ -478,6 +478,10 @@ pub struct App {
     quick_slot_body_restore: Option<f32>,
     /// Back and Forward navigation history.
     history: NavHistory,
+    /// Links handed to the OS, with whether they open in the background.
+    /// Tests record them here instead of launching a browser.
+    #[cfg(test)]
+    pub(super) external_opens: Vec<(String, bool)>,
     quick_slot_preview_restore: Option<f32>,
     quick_slots_persistence_path: Option<PathBuf>,
     watcher_generation: u64,
@@ -689,6 +693,8 @@ impl Default for App {
             quick_slot_preview_restore_guard: None,
             quick_slot_body_restore: None,
             history: NavHistory::default(),
+            #[cfg(test)]
+            external_opens: Vec::new(),
             quick_slot_preview_restore: None,
             quick_slots_persistence_path: {
                 #[cfg(test)]
@@ -1597,6 +1603,32 @@ impl App {
 
     fn show_toast(&mut self, text: String) -> Task<Message> {
         self.show_toast_with_action(text, None)
+    }
+
+    /// Hands a link target to the OS: a URL to the browser, a local file
+    /// to its default app. `background` keeps rmdv in front.
+    fn open_externally(&mut self, target: String, background: bool) {
+        #[cfg(test)]
+        {
+            self.external_opens.push((target, background));
+        }
+        #[cfg(not(test))]
+        {
+            #[cfg(target_os = "macos")]
+            if background {
+                if let Some(mut child) =
+                    background_open_command(&target).and_then(|mut c| c.spawn().ok())
+                {
+                    // Reap `open` when it exits; it returns at once.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return;
+                }
+            }
+            let _ = background;
+            let _ = open::that_detached(&target);
+        }
     }
 
     fn show_cli_install_prompt(&mut self) -> Task<Message> {

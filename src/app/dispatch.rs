@@ -2647,45 +2647,56 @@ impl App {
                     }
                     return Task::none();
                 }
-                // Local markdown file: open it in-app, then navigate to the
-                // fragment (if any) once it has loaded.
-                if !is_external_link(target) {
-                    if let Some(path) = resolve_image_path(target, self.file.as_deref()) {
-                        let is_md = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                            e.eq_ignore_ascii_case("md")
-                                || e.eq_ignore_ascii_case("markdown")
-                                || e.eq_ignore_ascii_case("tex")
-                        });
-                        if is_md && path.is_file() {
-                            // `this.md#part` from inside this.md jumps in
-                            // place, like a bare `#part`.
-                            let same_file = self.file.as_ref().is_some_and(|current| {
-                                canonicalize_existing_path(current.clone())
-                                    == canonicalize_existing_path(path.clone())
-                            });
-                            if same_file {
-                                let is_tex = is_tex_path(self.file.as_deref());
-                                if let Some(line) = fragment
-                                    .and_then(|f| line_for_fragment(&self.source, f, is_tex))
-                                {
-                                    self.record_history();
-                                    return Task::done(goto_line_message(line));
-                                }
-                            }
-                            if let Some(blocked) = self.block_file_open_if_dirty(&path) {
-                                return blocked;
-                            }
-                            if let Some(f) = fragment {
-                                self.pending_nav = Some(PendingNav {
-                                    fragment: Some(f.to_string()),
-                                    ..Default::default()
-                                });
-                            }
-                            return Task::done(Message::Open(path));
+                // ⌘-click opens a web link behind rmdv (macOS `open -g`).
+                if is_external_link(target) {
+                    let background = cfg!(target_os = "macos") && self.quick_slots_modifier_held;
+                    self.open_externally(url, background);
+                    return Task::none();
+                }
+                let Some(path) = resolve_image_path(target, self.file.as_deref()) else {
+                    // A relative link with no open file to resolve it from.
+                    self.open_externally(url, false);
+                    return Task::none();
+                };
+                if !path.exists() {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| target.to_string());
+                    return self.show_toast(format!("File not found: {name}"));
+                }
+                // A file the sidebar would open: open it in-app, then
+                // navigate to the fragment (if any) once it has loaded.
+                if link_opens_in_app(&path) && path.is_file() {
+                    // `this.md#part` from inside this.md jumps in place,
+                    // like a bare `#part`.
+                    let same_file = self.file.as_ref().is_some_and(|current| {
+                        canonicalize_existing_path(current.clone())
+                            == canonicalize_existing_path(path.clone())
+                    });
+                    if same_file {
+                        let is_tex = is_tex_path(self.file.as_deref());
+                        if let Some(line) =
+                            fragment.and_then(|f| line_for_fragment(&self.source, f, is_tex))
+                        {
+                            self.record_history();
+                            return Task::done(goto_line_message(line));
                         }
                     }
+                    if let Some(blocked) = self.block_file_open_if_dirty(&path) {
+                        return blocked;
+                    }
+                    if let Some(f) = fragment {
+                        self.pending_nav = Some(PendingNav {
+                            fragment: Some(f.to_string()),
+                            ..Default::default()
+                        });
+                    }
+                    return Task::done(Message::Open(path));
                 }
-                let _ = open::that_detached(&url);
+                // A local file rmdv cannot show (an image, a folder): its
+                // default app opens it by the resolved path.
+                self.open_externally(path.to_string_lossy().into_owned(), false);
                 Task::none()
             }
             Message::FileLoaded(Err(e)) => {
