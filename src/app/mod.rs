@@ -4147,7 +4147,10 @@ fn block_text_bytes(block: &Block) -> usize {
             .chain(rows.iter().flat_map(|row| row.iter()))
             .map(|cells| inline_text_bytes(cells))
             .sum(),
-        Block::Image { url, alt } => url.len().saturating_add(alt.len()),
+        Block::Image { url, alt, link } => url
+            .len()
+            .saturating_add(alt.len())
+            .saturating_add(link.as_ref().map_or(0, String::len)),
         Block::Diagram { source, .. } => source.len(),
         Block::Rule => 0,
     }

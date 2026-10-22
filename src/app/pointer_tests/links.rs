@@ -356,3 +356,85 @@ fn scrolling_or_navigating_hides_the_link_pill() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- 3. Images wrapped in links ------------------------------------------------
+
+fn image_block_bounds(ui: &mut PointerUi, app: &App, linked: bool) -> Rectangle {
+    let id = app
+        .ast
+        .iter()
+        .find(|(_, block)| {
+            matches!(block, crate::ast::Block::Image { link, .. } if link.is_some() == linked)
+        })
+        .map(|(id, _)| *id)
+        .expect("image block");
+    ui.find(
+        app,
+        Find {
+            text: None,
+            contains: None,
+            id: Some(crate::render::block_anchor_id(id)),
+            found: None,
+            found_text: None,
+        },
+    )
+    .expect("image block anchor")
+    .0
+}
+
+#[test]
+fn a_linked_image_follows_its_link_and_an_unlinked_one_zooms() {
+    let badge = "https://example.com/badge.png";
+    let plain = "https://example.com/plain.png";
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        PathBuf::from("/tmp/pointer-badge.md"),
+        format!(
+            "Intro\n\n[![build]({badge})](https://ci.example.com)\n\n![plain]({plain})\n\nOutro\n"
+        ),
+    ))));
+    for url in [badge, plain] {
+        let handle = iced::widget::image::Handle::from_rgba(200, 100, vec![200u8; 200 * 100 * 4]);
+        app.image_cache
+            .insert(url.to_string(), ImageState::Loaded(handle));
+    }
+    let mut ui = PointerUi::new();
+
+    let bounds = image_block_bounds(&mut ui, &app, true);
+    let over = Point::new(bounds.x + 20.0, bounds.center_y());
+    let (entered, cursor) = ui.move_to(&app, over);
+    assert_eq!(cursor, mouse::Interaction::Pointer, "a linked image points");
+    assert!(
+        has(
+            &entered,
+            |m| matches!(m, Message::LinkHovered(u) if u == "https://ci.example.com")
+        ),
+        "its destination shows: {entered:?}"
+    );
+    let messages = ui.click(&app, over);
+    assert!(
+        has(
+            &messages,
+            |m| matches!(m, Message::OpenLink(u) if u == "https://ci.example.com")
+        ),
+        "a click follows the link: {messages:?}"
+    );
+    assert!(
+        !has(&messages, |m| matches!(m, Message::OpenImageZoom(_))),
+        "{messages:?}"
+    );
+
+    let bounds = image_block_bounds(&mut ui, &app, false);
+    let over = Point::new(bounds.x + 20.0, bounds.center_y());
+    let (_, cursor) = ui.move_to(&app, over);
+    assert_eq!(
+        cursor,
+        mouse::Interaction::ZoomIn,
+        "an unlinked image zooms"
+    );
+    let messages = ui.click(&app, over);
+    assert!(has(&messages, |m| matches!(
+        m,
+        Message::OpenImageZoom(u) if u == plain
+    )));
+}

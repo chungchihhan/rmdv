@@ -719,7 +719,7 @@ fn render_block<'a>(
         }
         Block::List { ordered, items } => render_list(*ordered, items, pal, typ, &mut ctx, img),
         Block::Table { headers, rows } => render_table(headers, rows, pal, typ, &mut ctx),
-        Block::Image { url, alt } => render_image(url, alt, pal, img),
+        Block::Image { url, alt, link } => render_image(url, alt, link.as_deref(), pal, img),
         Block::Rule => {
             let pal_r = *pal;
             container(Space::new().height(1.0))
@@ -1096,16 +1096,30 @@ fn push_span<'a>(
 fn render_image<'a>(
     url: &'a str,
     alt: &'a str,
+    link: Option<&'a str>,
     pal: &Palette,
     img: &ImgCtx<'a>,
 ) -> Element<'a, Message> {
     use crate::app::{is_remote_url, resolve_image_path};
-    let placeholder = |msg: String| -> Element<'a, Message> { text(msg).color(pal.muted).into() };
+    // A badge's placeholder still follows its link.
+    let placeholder = |msg: String| -> Element<'a, Message> {
+        let shown: Element<'a, Message> = text(msg).color(pal.muted).into();
+        match link {
+            Some(link) => linked_image(shown, link),
+            None => shown,
+        }
+    };
+    let clickable = |image: Element<'a, Message>, key: String| match link {
+        Some(link) => linked_image(image, link),
+        None => zoomable(image, key),
+    };
     if is_remote_url(url) {
         match img.cache.get(url) {
-            Some(ImageState::Loaded(h)) => zoomable(image_widget(h.clone()), url.to_string()),
+            Some(ImageState::Loaded(h)) => {
+                clickable(image_widget(h.clone()).into(), url.to_string())
+            }
             Some(ImageState::LoadedSvg { svg, .. }) => {
-                zoomable(svg_widget(svg.clone()), url.to_string())
+                clickable(svg_widget(svg.clone()).into(), url.to_string())
             }
             Some(ImageState::Failed) => placeholder(format!("[image failed: {alt} ({url})]")),
             _ => placeholder(format!("[loading: {alt} ({url})]")),
@@ -1118,8 +1132,10 @@ fn render_image<'a>(
         };
         let key = p.to_string_lossy().into_owned();
         match img.cache.get(&key) {
-            Some(ImageState::Loaded(h)) => zoomable(image_widget(h.clone()), key),
-            Some(ImageState::LoadedSvg { svg, .. }) => zoomable(svg_widget(svg.clone()), key),
+            Some(ImageState::Loaded(h)) => clickable(image_widget(h.clone()).into(), key),
+            Some(ImageState::LoadedSvg { svg, .. }) => {
+                clickable(svg_widget(svg.clone()).into(), key)
+            }
             Some(ImageState::Failed) => placeholder(format!("[image missing: {alt} ({url})]")),
             Some(ImageState::Loading) => placeholder(format!("[loading: {alt} ({url})]")),
             // Not read ahead (an image added while editing, or a preview of
@@ -1130,13 +1146,27 @@ fn render_image<'a>(
                     .and_then(|e| e.to_str())
                     .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
                 if is_svg {
-                    zoomable(svg_widget(iced::widget::svg::Handle::from_path(p)), key)
+                    clickable(
+                        svg_widget(iced::widget::svg::Handle::from_path(p)).into(),
+                        key,
+                    )
                 } else {
-                    zoomable(image_widget(p), key)
+                    clickable(image_widget(p).into(), key)
                 }
             }
         }
     }
+}
+
+/// An image wrapped in a link (a badge): a click follows the link instead
+/// of opening the image viewer, and the pointer shows the destination.
+fn linked_image<'a>(image: Element<'a, Message>, link: &str) -> Element<'a, Message> {
+    mouse_area(image)
+        .interaction(iced::mouse::Interaction::Pointer)
+        .on_press(Message::OpenLink(link.to_string()))
+        .on_enter(Message::LinkHovered(link.to_string()))
+        .on_exit(Message::LinkLeft(link.to_string()))
+        .into()
 }
 
 /// An image that opens the image viewer on click, with the zoom-in cursor
