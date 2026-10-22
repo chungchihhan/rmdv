@@ -358,6 +358,10 @@ pub struct MindmapState<Id = BlockId> {
     /// chevron. Its action runs on release, and only when the pointer did
     /// not move past [`CLICK_SLOP`].
     pressed: Option<(Id, bool)>,
+    /// The node the pointer last clicked. When the app then focuses it, the
+    /// canvas keeps it where it is on screen instead of centering it. A key
+    /// press or a click on empty canvas hands focus back to centering.
+    pointer_focus: Option<Id>,
     touch_points: Vec<(touch::Finger, Point)>,
     touch_span: Option<f32>,
     native_pinch_log: Option<f64>,
@@ -384,6 +388,7 @@ impl<Id> Default for MindmapState<Id> {
             anim_nodes: None,
             hovered_idx: None,
             pressed: None,
+            pointer_focus: None,
             touch_points: Vec::new(),
             touch_span: None,
             native_pinch_log: None,
@@ -789,6 +794,39 @@ where
         // deliberate: stale/partial graph frames cannot make a later accepted
         // materialization fall through to the workspace root.
         state.last_focus = focus.cloned();
+        if state.pointer_focus.as_ref() == Some(sel) {
+            let effective_w =
+                self.effective_width(bounds, prev_bounds_w, panel_just_opened, panel_just_closed);
+            if let Some(target) = self.keep_in_place_target(state, idx, effective_w, bounds.height)
+            {
+                // No jump on click: the node stays under the pointer. When a
+                // relayout moves it, pan along with its node animation (same
+                // start, duration, and easing) so its screen position holds.
+                if (target.x - state.pan.x).abs() < 0.5 && (target.y - state.pan.y).abs() < 0.5 {
+                    return;
+                }
+                let start_at = self.nodes[idx]
+                    .id
+                    .as_ref()
+                    .and_then(|id| state.anim.get(id))
+                    .filter(|anim| !anim.done)
+                    .map(|anim| anim.start_at);
+                match start_at {
+                    Some(start_at) => {
+                        state.pan_anim = Some(PanAnim {
+                            start: state.pan,
+                            target,
+                            start_at,
+                        });
+                    }
+                    None => {
+                        state.pan = target;
+                        state.pan_anim = None;
+                    }
+                }
+                return;
+            }
+        }
         let target = self.focus_target_for_node(
             state,
             idx,
@@ -819,12 +857,49 @@ where
         }
     }
 
-    fn snap_focus_to_node(&self, state: &mut MindmapState<Id>, idx: usize, bounds: Rectangle) {
-        let future_open = !self.panel_open;
-        let target =
-            self.focus_target_for_node(state, idx, bounds, bounds.width, future_open, false, false);
-        state.pan = target;
-        state.pan_anim = None;
+    /// The canvas width once a panel change has landed. A panel toggle may
+    /// reach the canvas one frame before its narrower (or wider) bounds do.
+    fn effective_width(
+        &self,
+        bounds: Rectangle,
+        prev_bounds_w: f32,
+        panel_just_opened: bool,
+        panel_just_closed: bool,
+    ) -> f32 {
+        let panel_span = self.panel_width + PANEL_HANDLE_W;
+        if panel_just_opened && (bounds.width - prev_bounds_w).abs() <= 0.5 {
+            (bounds.width - panel_span).max(1.0)
+        } else if panel_just_closed && (bounds.width - prev_bounds_w).abs() <= 0.5 {
+            bounds.width + panel_span
+        } else {
+            bounds.width
+        }
+    }
+
+    /// The pan that keeps a clicked node where it is on screen while it
+    /// moves to its layout position, or `None` when it is not fully visible
+    /// in `effective_w` (for example under a panel that is opening).
+    fn keep_in_place_target(
+        &self,
+        state: &MindmapState<Id>,
+        idx: usize,
+        effective_w: f32,
+        height: f32,
+    ) -> Option<Vector> {
+        let (cx, cy) = self.pos(state, idx);
+        let z = state.zoom;
+        let sx = cx * z + state.pan.x;
+        let sy = cy * z + state.pan.y;
+        let visible =
+            sx >= 0.0 && sy >= 0.0 && sx + NODE_W * z <= effective_w && sy + NODE_H * z <= height;
+        if !visible {
+            return None;
+        }
+        let node = &self.nodes[idx];
+        Some(Vector::new(
+            state.pan.x + (cx - node.x) * z,
+            state.pan.y + (cy - node.y) * z,
+        ))
     }
 
     fn focus_target_for_node(
@@ -837,14 +912,8 @@ where
         panel_just_closed: bool,
         prefer_layout_position: bool,
     ) -> Vector {
-        let panel_span = self.panel_width + PANEL_HANDLE_W;
-        let effective_w = if panel_just_opened && (bounds.width - prev_bounds_w).abs() <= 0.5 {
-            (bounds.width - panel_span).max(1.0)
-        } else if panel_just_closed && (bounds.width - prev_bounds_w).abs() <= 0.5 {
-            bounds.width + panel_span
-        } else {
-            bounds.width
-        };
+        let effective_w =
+            self.effective_width(bounds, prev_bounds_w, panel_just_opened, panel_just_closed);
 
         // For a rebuilt graph, use the node's final layout position. New
         // children are seeded from their parent for the 220 ms node animation;
@@ -1047,6 +1116,17 @@ where
             state.zoom = 1.0;
             state.initialized = true;
         }
+        if let iced::Event::Keyboard(keyboard::Event::KeyPressed { key, .. }) = event {
+            // Keyboard navigation centers its node again. Modifier keys
+            // alone (for example holding ⌘) navigate nowhere.
+            use keyboard::key::Named;
+            if !matches!(
+                key,
+                keyboard::Key::Named(Named::Shift | Named::Control | Named::Alt | Named::Super)
+            ) {
+                state.pointer_focus = None;
+            }
+        }
         match event {
             iced::Event::Keyboard(_) if self.keyboard_zoom_enabled => {
                 let Some(action) = keyboard_zoom(event) else {
@@ -1140,6 +1220,7 @@ where
                 }
                 let Some((id, chevron)) = pressed else {
                     // A still click on empty canvas.
+                    state.pointer_focus = None;
                     if self.selected.is_some() {
                         return Some(
                             canvas::Action::publish(self.on_deselect.clone()).and_capture(),
@@ -1147,17 +1228,17 @@ where
                     }
                     return Some(canvas::Action::capture());
                 };
-                let Some(i) = self.nodes.iter().position(|n| n.id.as_ref() == Some(&id)) else {
+                if !self.nodes.iter().any(|n| n.id.as_ref() == Some(&id)) {
                     return Some(canvas::Action::capture());
-                };
+                }
                 // The chevron folds a branch; the rest of a node selects it
-                // (and the app opens the panel), as the arrow keys do.
+                // (and the app opens the panel), as the arrow keys do. The
+                // focus sync on the next redraw keeps the node in place, or
+                // brings it into view if the panel would cover it.
+                state.pointer_focus = Some(id.clone());
                 let msg = if chevron {
                     (self.on_toggle)(id)
                 } else {
-                    if self.autocenter {
-                        self.snap_focus_to_node(state, i, bounds);
-                    }
                     (self.on_select)(id)
                 };
                 Some(canvas::Action::publish(msg).and_capture())
@@ -2556,6 +2637,144 @@ mod tests {
         assert_eq!(
             click_at(&program, &mut state, edge),
             Some(Ev::Toggle(documents))
+        );
+    }
+
+    /// A canvas state as after its first event: zoom 1, no pan.
+    fn live_state() -> MindmapState<PathId> {
+        MindmapState {
+            zoom: 1.0,
+            initialized: true,
+            ..MindmapState::default()
+        }
+    }
+
+    /// Runs the redraw-time sync and finishes every animation.
+    fn settle(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        bounds: Rectangle,
+    ) {
+        program.sync_anim(state);
+        program.sync_focus_pan(state, bounds);
+        let done = Instant::now() - Duration::from_millis(1000);
+        for anim in state.anim.values_mut() {
+            anim.start_at = done;
+        }
+        if let Some(pan) = state.pan_anim.as_mut() {
+            pan.start_at = done;
+        }
+        program.step_anim(state);
+        program.step_pan_anim(state);
+    }
+
+    /// The program the app builds after a click selected `selected` and
+    /// opened the panel.
+    fn after_click(
+        nodes: Vec<MNode<PathId>>,
+        selected: &str,
+        generation: u64,
+    ) -> MindmapProgram<'static, PathId, Ev> {
+        let mut program = pointer_program(nodes, Some(PathId(selected.into())));
+        program.panel_open = true;
+        program.layout_generation = Some(generation);
+        program
+    }
+
+    /// Canvas bounds once the 360 px panel and its handle take their share.
+    const NARROWED: Rectangle = Rectangle {
+        x: 0.0,
+        y: 0.0,
+        width: 1000.0 - 360.0 - PANEL_HANDLE_W,
+        height: 800.0,
+    };
+
+    fn screen_of(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &MindmapState<PathId>,
+        path: &str,
+    ) -> Point {
+        let (x, y) = program.pos(state, node_idx(program, path));
+        Point::new(x * state.zoom + state.pan.x, y * state.zoom + state.pan.y)
+    }
+
+    #[test]
+    fn a_click_on_a_visible_node_keeps_the_canvas_still() {
+        let before = pointer_program(notes_graph(), None);
+        let mut state = live_state();
+        settle(&before, &mut state, POINTER_BOUNDS);
+        let pan = state.pan;
+
+        let leaf = node_center(&before, DOWNLOADS);
+        assert!(click_at(&before, &mut state, leaf).is_some());
+        // The app selects the node and opens the panel, which narrows the
+        // canvas. The node stays where it was clicked.
+        let after = after_click(notes_graph(), DOWNLOADS, 1);
+        settle(&after, &mut state, NARROWED);
+        assert_eq!(state.pan, pan, "no jump on click");
+
+        // Keyboard navigation still centers its node.
+        let key = iced::Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+            modified_key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+            physical_key: keyboard::key::Physical::Code(keyboard::key::Code::ArrowUp),
+            location: keyboard::Location::Standard,
+            modifiers: keyboard::Modifiers::NONE,
+            text: None,
+            repeat: false,
+        });
+        let _ = pointer_send(&after, &mut state, key, leaf);
+        let keyed = after_click(notes_graph(), DOCUMENTS, 1);
+        settle(&keyed, &mut state, NARROWED);
+        let center = screen_of(&keyed, &state, DOCUMENTS);
+        assert!(
+            (center.x + NODE_W / 2.0 - NARROWED.width / 2.0).abs() < 0.5,
+            "keyboard selection centers: {center:?}"
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_node_the_panel_would_cover_brings_it_into_view() {
+        let before = pointer_program(notes_graph(), None);
+        let mut state = live_state();
+        settle(&before, &mut state, POINTER_BOUNDS);
+        // Push Downloads toward the right edge, where the panel opens.
+        state.pan = Vector::new(250.0, 0.0);
+        let leaf = screen_of(&before, &state, DOWNLOADS);
+        let at = Point::new(leaf.x + 20.0, leaf.y + NODE_H / 2.0);
+        assert!(click_at(&before, &mut state, at).is_some());
+        let after = after_click(notes_graph(), DOWNLOADS, 1);
+        settle(&after, &mut state, NARROWED);
+        let shown = screen_of(&after, &state, DOWNLOADS);
+        assert!(
+            shown.x >= 0.0 && shown.x + NODE_W <= NARROWED.width,
+            "the node is fully visible beside the panel: {shown:?}"
+        );
+    }
+
+    #[test]
+    fn folding_from_the_chevron_keeps_the_node_under_the_pointer() {
+        let before = pointer_program(notes_graph(), None);
+        let mut state = live_state();
+        settle(&before, &mut state, POINTER_BOUNDS);
+        let clicked = screen_of(&before, &state, DOCUMENTS);
+        let chevron = chevron_point(&before, DOCUMENTS);
+        assert_eq!(
+            click_at(&before, &mut state, chevron),
+            Some(Ev::Toggle(PathId(DOCUMENTS.into())))
+        );
+        // Folding Documents moves it in the rebuilt layout.
+        let mut folded = folder_graph(None);
+        folded[1].has_hidden_children = true;
+        let after = after_click(folded, DOCUMENTS, 2);
+        after.sync_anim(&mut state);
+        let moved = &after.nodes[node_idx(&after, DOCUMENTS)];
+        assert_ne!(moved.y, clicked.y, "the fixture must move the node");
+        settle(&after, &mut state, NARROWED);
+        let shown = screen_of(&after, &state, DOCUMENTS);
+        assert!(
+            (shown.x - clicked.x).abs() < 0.5 && (shown.y - clicked.y).abs() < 0.5,
+            "the folded node stays put: {clicked:?} -> {shown:?}"
         );
     }
 
