@@ -9,6 +9,15 @@ pub enum ViewMode {
     Mindmap,
 }
 
+/// The views the toolbar's segmented control switches between.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolbarView {
+    Read,
+    Edit,
+    Mindmap,
+    FullMindmap,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarTab {
     Files,

@@ -257,6 +257,13 @@ pub enum Message {
     ToggleMindmapPanel,
     MindmapCyclePanelWidth,
     ToggleFullMindmap,
+    /// The pointer entered (true) or left (false) the toolbar's top band.
+    ToolbarHover(bool),
+    /// The hide delay after the pointer left the toolbar band ran out; the
+    /// number is the hover generation that started it.
+    ToolbarHideAfter(u64),
+    /// A toolbar segment: show this view.
+    ToolbarView(ToolbarView),
     ExitFullMindmap,
     FullMindmapToggleNode(WorkspaceNodeId),
     FullMindmapSelectNode(WorkspaceNodeId),

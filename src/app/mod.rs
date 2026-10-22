@@ -38,6 +38,8 @@ const FILE_FINDER_ROW_CAP: usize = 80;
 const READING_MAX: f32 = theme::READING_MAX_PX;
 /// Radius of the reader panel's top-left corner next to the sidebar.
 const READER_CORNER_RADIUS: f32 = 24.0;
+/// Space above the first line of the reader.
+const READER_TOP_PAD: f32 = 56.0;
 const KEYBOARD_BUTTON_HEIGHT: f32 = 26.0; // 14px text at 1.3 line-height + 4px vertical padding on each side.
 const KEYBOARD_BUTTON_BOTTOM_PAD: f32 = 12.0;
 const KEYBOARD_BUTTON_FOOTER_BOTTOM_PAD: f32 = 44.0;
@@ -129,7 +131,8 @@ use settings::*;
 use types::*;
 pub use types::{
     MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
-    PendingWatcherReload, SidebarTab, ThemeEntry, Toast, ToastAction, ViewMode, ZenRestoreState,
+    PendingWatcherReload, SidebarTab, ThemeEntry, Toast, ToastAction, ToolbarView, ViewMode,
+    ZenRestoreState,
 };
 use view::*;
 pub(crate) use view::{reader_tip, sleek_scrollable_style};
@@ -294,6 +297,13 @@ pub struct App {
     /// again. Cleared wherever `editor` is replaced.
     pub editor_text: Option<String>,
     pub zen_restore: Option<ZenRestoreState>,
+    /// The pointer is in the toolbar's top band (Toolbar: On hover).
+    toolbar_hovered: bool,
+    /// The hover toolbar is shown: while hovered, and for a short delay after.
+    toolbar_revealed: bool,
+    /// Bumped on every band enter and leave; a hide delay that started under
+    /// an older generation does nothing.
+    toolbar_hover_generation: u64,
     /// Last document text known to have been persisted successfully. `source`
     /// may contain an unsaved Zen edit after switching back to rendered mode.
     pub saved_source: String,
@@ -566,6 +576,9 @@ impl Default for App {
             editor: None,
             editor_text: None,
             zen_restore: None,
+            toolbar_hovered: false,
+            toolbar_revealed: false,
+            toolbar_hover_generation: 0,
             saved_source: String::new(),
             dirty: false,
             edit_history: crate::history::SnapshotStack::default(),
@@ -3354,6 +3367,14 @@ impl App {
             && self.file.is_some()
             && self.view_mode != ViewMode::Mindmap;
 
+        let toolbar_always = self.prefs.toolbar == crate::prefs::ToolbarMode::Always;
+        // The text starts at the same height in both toolbar modes: Always
+        // reserves the toolbar's height above the reader.
+        let reader_top_pad = if toolbar_always {
+            READER_TOP_PAD - TOOLBAR_H
+        } else {
+            READER_TOP_PAD
+        };
         let reader: Element<'_, Message> = if self.settings_open {
             // Drawn over whatever view is open, which stays untouched below.
             settings_page(self, pal, reader_fill)
@@ -3589,6 +3610,7 @@ impl App {
                 // each block, and it covers off-screen blocks as they scroll in.
                 let select_all = self.reader_select_all && self.reader_shows_document();
                 let column = container(body)
+                    .id(iced::widget::Id::new("reader-column"))
                     .max_width(READING_MAX)
                     .width(Length::Fill)
                     .style(move |_| container::Style {
@@ -3597,7 +3619,12 @@ impl App {
                     });
                 let scroll: Element<'_, Message> = scrollable(
                     container(column)
-                        .padding(Padding::from([56, 32]))
+                        .padding(Padding {
+                            top: reader_top_pad,
+                            right: 32.0,
+                            bottom: 56.0,
+                            left: 32.0,
+                        })
                         .center_x(Length::Fill)
                         .width(Length::Fill),
                 )
@@ -3621,7 +3648,38 @@ impl App {
             }
         };
 
-        let reader_with_search: Element<'_, Message> = if self.search_open && !full_mindmap {
+        let find_bar_open = self.search_open && !full_mindmap;
+        let sidebar_visible = !full_mindmap && self.sidebar_open && self.workspace.is_some();
+        // On hover, the toolbar's band lies over the top of the reader, under
+        // the find bar when that is open.
+        let reader: Element<'_, Message> = if toolbar_always {
+            reader
+        } else {
+            let revealed = self.toolbar_revealed.then(|| {
+                toolbar(
+                    self,
+                    pal,
+                    ToolbarLook {
+                        fill: reader_ground,
+                        left_inset: toolbar_left_inset(
+                            !sidebar_visible && !find_bar_open,
+                            self.window_fullscreen,
+                        ),
+                        corner_radius: if sidebar_visible && !find_bar_open {
+                            READER_CORNER_RADIUS
+                        } else {
+                            0.0
+                        },
+                        hairline: true,
+                    },
+                )
+            });
+            stack![reader, toolbar_band(revealed)]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        };
+        let reader_with_search: Element<'_, Message> = if find_bar_open {
             column![
                 search_bar_view(
                     &self.query,
@@ -3637,6 +3695,26 @@ impl App {
             reader.into()
         };
 
+        // Always: the toolbar sits above everything in the reader panel; the
+        // panel's own fill shows through it.
+        let reader_with_search: Element<'_, Message> = if toolbar_always {
+            column![
+                toolbar(
+                    self,
+                    pal,
+                    ToolbarLook {
+                        fill: Color::TRANSPARENT,
+                        left_inset: toolbar_left_inset(!sidebar_visible, self.window_fullscreen),
+                        corner_radius: 0.0,
+                        hairline: false,
+                    },
+                ),
+                reader_with_search,
+            ]
+            .into()
+        } else {
+            reader_with_search
+        };
         let main_area: Element<'_, Message> =
             if !full_mindmap && self.sidebar_open && self.workspace.is_some() {
                 // View panel paints its own rounded background. iced 0.14 doesn't

@@ -1115,7 +1115,7 @@ mod group3 {
 
     /// A workspace with two files and a folder holding a third, opened with
     /// the Files sidebar showing.
-    fn tree_fixture(tag: &str) -> (App, PathBuf) {
+    pub(super) fn tree_fixture(tag: &str) -> (App, PathBuf) {
         let dir = std::env::temp_dir().join(format!("rmdv-tree-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("sub")).expect("fixture dir");
@@ -1220,13 +1220,13 @@ mod group3 {
     // --- 4. Icon-button tooltips name the action and its shortcut ----------
 
     /// Tooltip labels built for the current `view`.
-    fn tips(ui: &mut PointerUi, app: &App) -> Vec<String> {
+    pub(super) fn tips(ui: &mut PointerUi, app: &App) -> Vec<String> {
         let _ = tip_log::take();
         let _ = ui.text_bounds(app, "\u{0}");
         tip_log::take()
     }
 
-    fn assert_tips(tips: &[String], expected: &[&str]) {
+    pub(super) fn assert_tips(tips: &[String], expected: &[&str]) {
         for label in expected {
             assert!(
                 tips.iter().any(|tip| tip == label),
@@ -1423,7 +1423,7 @@ mod group3 {
     // --- 5. Full Mindmap Back, parent-folder, and panel buttons ----------------
 
     /// The tree fixture in Full Mindmap with its workspace graph loaded.
-    fn full_mindmap_app(tag: &str) -> (App, PathBuf) {
+    pub(super) fn full_mindmap_app(tag: &str) -> (App, PathBuf) {
         let (mut app, dir) = tree_fixture(tag);
         let _ = app.update(Message::ToggleFullMindmap);
         // The open workspace's snapshot may be reused without a new index.

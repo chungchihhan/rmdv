@@ -590,7 +590,7 @@ pub(in crate::app) fn search_bar_view<'a>(
 /// events.
 pub(in crate::app) fn full_mindmap_nav<'a>(
     panel_open: bool,
-    fullscreen: bool,
+    top: f32,
     pal: Palette,
 ) -> Element<'a, Message> {
     let back = button(
@@ -656,8 +656,7 @@ pub(in crate::app) fn full_mindmap_nav<'a>(
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(Padding {
-            // Clear of the traffic lights while windowed.
-            top: sidebar_titlebar_reserve_for_fullscreen(fullscreen) + 10.0,
+            top,
             right: 0.0,
             bottom: 0.0,
             left: 16.0,
