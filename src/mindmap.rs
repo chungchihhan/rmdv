@@ -27,6 +27,14 @@ const ZOOM_ANIM_DURATION: Duration = Duration::from_millis(140);
 /// How far (screen px) the pointer may move between press and release and
 /// still count as a click. Beyond it the press becomes a pan.
 const CLICK_SLOP: f32 = 4.0;
+/// World distance from a branch node's right edge to its chevron center.
+const CHEVRON_INSET: f32 = 12.0;
+/// World half-size of the drawn chevron.
+const CHEVRON_HALF: f32 = 4.0;
+/// Side of the chevron's square hit zone: world units, but never smaller
+/// than `CHEVRON_HIT_MIN` screen px, so it stays clickable zoomed out.
+const CHEVRON_HIT: f32 = 24.0;
+const CHEVRON_HIT_MIN: f32 = 16.0;
 
 #[derive(Debug, Clone, Copy)]
 struct Anim {
@@ -346,9 +354,10 @@ pub struct MindmapState<Id = BlockId> {
     /// A `Weak` keeps the allocation from being reused by a different list.
     anim_nodes: Option<std::sync::Weak<Vec<MNode<Id>>>>,
     hovered_idx: Option<usize>,
-    /// The node under the left-button press. Its action runs on release,
-    /// and only when the pointer did not move past [`CLICK_SLOP`].
-    pressed: Option<Id>,
+    /// The node under the left-button press, and whether the press hit its
+    /// chevron. Its action runs on release, and only when the pointer did
+    /// not move past [`CLICK_SLOP`].
+    pressed: Option<(Id, bool)>,
     touch_points: Vec<(touch::Finger, Point)>,
     touch_span: Option<f32>,
     native_pinch_log: Option<f64>,
@@ -470,6 +479,21 @@ fn keyboard_zoom(event: &iced::Event) -> Option<KeyboardZoom> {
             _ => None,
         },
     }
+}
+
+/// The current zoom; 1 before the canvas has seen its first event.
+fn zoom_of<Id>(state: &MindmapState<Id>) -> f32 {
+    if state.initialized {
+        state.zoom
+    } else {
+        1.0
+    }
+}
+
+/// A branch node carries a chevron that folds and unfolds it. Leaves and the
+/// document's unselectable root have none.
+fn has_chevron<Id>(node: &MNode<Id>) -> bool {
+    node.id.is_some() && (!node.children.is_empty() || node.has_hidden_children)
 }
 
 fn canvas_center(bounds: Rectangle) -> Point {
@@ -866,13 +890,44 @@ where
     /// The node whose box contains the canvas point `pos`, at its rendered
     /// (animated) position.
     fn node_at(&self, state: &MindmapState<Id>, pos: Point) -> Option<usize> {
-        let z = if state.initialized { state.zoom } else { 1.0 };
+        let z = zoom_of(state);
         let wx = (pos.x - state.pan.x) / z;
         let wy = (pos.y - state.pan.y) / z;
         (0..self.nodes.len()).find(|&i| {
             let (nx, ny) = self.pos(state, i);
             wx >= nx && wx <= nx + NODE_W && wy >= ny && wy <= ny + NODE_H
         })
+    }
+
+    /// Screen center of node `i`'s chevron.
+    fn chevron_center(&self, state: &MindmapState<Id>, i: usize) -> Point {
+        let (nx, ny) = self.pos(state, i);
+        let z = zoom_of(state);
+        Point::new(
+            (nx + NODE_W - CHEVRON_INSET) * z + state.pan.x,
+            (ny + NODE_H / 2.0) * z + state.pan.y,
+        )
+    }
+
+    fn on_chevron(&self, state: &MindmapState<Id>, i: usize, pos: Point) -> bool {
+        if !has_chevron(&self.nodes[i]) {
+            return false;
+        }
+        let center = self.chevron_center(state, i);
+        let half = (CHEVRON_HIT * zoom_of(state)).max(CHEVRON_HIT_MIN) / 2.0;
+        (pos.x - center.x).abs() <= half && (pos.y - center.y).abs() <= half
+    }
+
+    /// What a pointer at `pos` targets: a node, and whether it is that
+    /// node's chevron. A node's own box wins over a neighbor's chevron zone,
+    /// which may reach past its node when zoomed far out.
+    fn hit(&self, state: &MindmapState<Id>, pos: Point) -> Option<(usize, bool)> {
+        if let Some(i) = self.node_at(state, pos) {
+            return Some((i, self.on_chevron(state, i, pos)));
+        }
+        (0..self.nodes.len())
+            .find(|&i| self.on_chevron(state, i, pos))
+            .map(|i| (i, true))
     }
 
     /// Get rendered (animated) position for a node.
@@ -1032,8 +1087,8 @@ where
                 // Every press may become a drag, even on a node. The node's
                 // action waits for a release without movement.
                 state.pressed = self
-                    .node_at(state, pos)
-                    .and_then(|i| self.nodes[i].id.clone());
+                    .hit(state, pos)
+                    .and_then(|(i, chevron)| self.nodes[i].id.clone().map(|id| (id, chevron)));
                 state.drag_origin = Some(pos);
                 state.drag_pan_origin = state.pan;
                 state.drag_moved = false;
@@ -1083,7 +1138,7 @@ where
                 if moved {
                     return Some(canvas::Action::capture());
                 }
-                let Some(id) = pressed else {
+                let Some((id, chevron)) = pressed else {
                     // A still click on empty canvas.
                     if self.selected.is_some() {
                         return Some(
@@ -1095,14 +1150,15 @@ where
                 let Some(i) = self.nodes.iter().position(|n| n.id.as_ref() == Some(&id)) else {
                     return Some(canvas::Action::capture());
                 };
-                let n = &self.nodes[i];
-                let msg = if n.children.is_empty() && !n.has_hidden_children {
+                // The chevron folds a branch; the rest of a node selects it
+                // (and the app opens the panel), as the arrow keys do.
+                let msg = if chevron {
+                    (self.on_toggle)(id)
+                } else {
                     if self.autocenter {
                         self.snap_focus_to_node(state, i, bounds);
                     }
                     (self.on_select)(id)
-                } else {
-                    (self.on_toggle)(id)
                 };
                 Some(canvas::Action::publish(msg).and_capture())
             }
@@ -1159,8 +1215,8 @@ where
         let s_w = NODE_W * z;
         let s_h = NODE_H * z;
         let radius = (8.0 * z).min(s_w.min(s_h) * 0.5).max(0.0);
-        let dot_r = (3.0 * z).max(1.0);
-        let dot_offset = 10.0 * z;
+        let chevron_half = (CHEVRON_HALF * z).max(2.5);
+        let chevron_inset = CHEVRON_INSET * z;
 
         // View-frustum culling: skip nodes fully outside bounds. Use a small
         // margin so partly-visible nodes still render.
@@ -1220,16 +1276,17 @@ where
             .with_color(self.palette.subtle)
             .with_width(1.0);
 
-        // One pass over nodes feeding all five paths (was five full passes).
-        // Per-path append order is preserved. Dots share the node's cull test:
-        // the dot center sits 10·z inside the right edge with radius
-        // max(3·z, 1) ≤ 10·z for all z ≥ ZOOM_MIN, so the dot always lies
-        // inside the node's AABB and culling it with the node is exact.
+        // One pass over nodes feeding all six paths. Per-path append order
+        // is preserved. Chevrons share the node's cull test: the chevron
+        // center sits 12·z inside the right edge and reaches at most
+        // max(4·z, 2.5) from it, so it lies within the 1 px cull margin.
         let mut accent_bg_b = path::Builder::new();
         let mut surface_bg_b = path::Builder::new();
         let mut accent_border_b = path::Builder::new();
         let mut subtle_border_b = path::Builder::new();
-        let mut hidden_dots_b = path::Builder::new();
+        // Folded branches show "›" in the accent color; open ones a muted "⌄".
+        let mut folded_chevrons_b = path::Builder::new();
+        let mut open_chevrons_b = path::Builder::new();
         for (i, n) in self.nodes.iter().enumerate() {
             let (nx, ny) = positions[i];
             let sx = proj_x(nx);
@@ -1237,11 +1294,19 @@ where
             if !visible(sx, sy) {
                 continue;
             }
-            if n.has_hidden_children {
-                let cx = proj_x(nx + NODE_W) - dot_offset;
-                let cy = proj_y(ny + NODE_H / 2.0);
-                hidden_dots_b.circle(Point::new(cx, cy), dot_r);
-                hidden_dots_b.close();
+            if has_chevron(n) {
+                let cx = sx + s_w - chevron_inset;
+                let cy = sy + s_h / 2.0;
+                let h = chevron_half;
+                if n.has_hidden_children {
+                    folded_chevrons_b.move_to(Point::new(cx - h / 2.0, cy - h));
+                    folded_chevrons_b.line_to(Point::new(cx + h / 2.0, cy));
+                    folded_chevrons_b.line_to(Point::new(cx - h / 2.0, cy + h));
+                } else {
+                    open_chevrons_b.move_to(Point::new(cx - h, cy - h / 2.0));
+                    open_chevrons_b.line_to(Point::new(cx, cy + h / 2.0));
+                    open_chevrons_b.line_to(Point::new(cx + h, cy - h / 2.0));
+                }
             }
             if n.level == 0 {
                 append_rounded_rect(&mut accent_bg_b, sx, sy, s_w, s_h, radius);
@@ -1258,7 +1323,8 @@ where
         let surface_backgrounds = surface_bg_b.build();
         let accent_borders = accent_border_b.build();
         let subtle_borders = subtle_border_b.build();
-        let hidden_dots = hidden_dots_b.build();
+        let folded_chevrons = folded_chevrons_b.build();
+        let open_chevrons = open_chevrons_b.build();
 
         // Nodes.
         frame.fill(&surface_backgrounds, surface_fill);
@@ -1323,7 +1389,15 @@ where
                 });
             }
         }
-        frame.fill(&hidden_dots, accent_fill);
+        let chevron_stroke = |color| {
+            Stroke::default()
+                .with_color(color)
+                .with_width(1.5)
+                .with_line_cap(canvas::LineCap::Round)
+                .with_line_join(canvas::LineJoin::Round)
+        };
+        frame.stroke(&folded_chevrons, chevron_stroke(self.palette.accent));
+        frame.stroke(&open_chevrons, chevron_stroke(self.palette.muted));
 
         // Tooltip: show full label only when hovering a truncated node.
         if let Some(idx) = state.hovered_idx {
@@ -1383,8 +1457,8 @@ where
             return mouse::Interaction::default();
         };
         if self
-            .node_at(state, pos)
-            .is_some_and(|i| self.nodes[i].id.is_some())
+            .hit(state, pos)
+            .is_some_and(|(i, _)| self.nodes[i].id.is_some())
         {
             return mouse::Interaction::Pointer;
         }
@@ -2418,6 +2492,70 @@ mod tests {
         assert_eq!(
             state.pan,
             Vector::new(pan_before.x + 40.0, pan_before.y + 10.0)
+        );
+    }
+
+    /// Screen center of a branch node's chevron at zoom 1 and no pan.
+    fn chevron_point(program: &MindmapProgram<'static, PathId, Ev>, path: &str) -> Point {
+        let node = &program.nodes[node_idx(program, path)];
+        Point::new(node.x + NODE_W - CHEVRON_INSET, node.y + NODE_H / 2.0)
+    }
+
+    fn click_at(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        at: Point,
+    ) -> Option<Ev> {
+        assert_eq!(press_at(program, state, at), None);
+        release_at(program, state, at)
+    }
+
+    #[test]
+    fn a_click_selects_a_branch_and_its_chevron_toggles_it() {
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        let mut state = MindmapState::default();
+        let documents = PathId(DOCUMENTS.into());
+
+        let body = node_center(&program, DOCUMENTS);
+        assert_eq!(
+            click_at(&program, &mut state, body),
+            Some(Ev::Select(documents.clone())),
+            "the node body selects a branch"
+        );
+        let chevron = chevron_point(&program, DOCUMENTS);
+        assert_eq!(
+            click_at(&program, &mut state, chevron),
+            Some(Ev::Toggle(documents.clone())),
+            "the chevron folds it"
+        );
+        // Leaves have no chevron: the same spot selects.
+        let leaf = chevron_point(&program, DOWNLOADS);
+        assert_eq!(
+            click_at(&program, &mut state, leaf),
+            Some(Ev::Select(PathId(DOWNLOADS.into())))
+        );
+        assert_eq!(
+            canvas::Program::mouse_interaction(
+                &program,
+                &state,
+                POINTER_BOUNDS,
+                mouse::Cursor::Available(chevron)
+            ),
+            mouse::Interaction::Pointer
+        );
+
+        // Zoomed far out, the chevron keeps a 16 px target.
+        state.zoom = ZOOM_MIN;
+        let node = &program.nodes[node_idx(&program, DOCUMENTS)];
+        let center = Point::new(
+            (node.x + NODE_W - CHEVRON_INSET) * ZOOM_MIN,
+            (node.y + NODE_H / 2.0) * ZOOM_MIN,
+        );
+        let edge = Point::new(center.x, center.y + 7.5);
+        assert_eq!(
+            click_at(&program, &mut state, edge),
+            Some(Ev::Toggle(documents))
         );
     }
 

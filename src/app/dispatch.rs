@@ -1060,6 +1060,14 @@ impl App {
                 }
             }
             Message::FullMindmapSelectNode(id) => self.select_full_mindmap_node(id),
+            Message::FullMindmapPointerSelect(id) => {
+                // A click shows what it selected, as a document mind map
+                // click does. Keyboard selection leaves the panel as it is.
+                if let Some(full) = self.full_mindmap.as_mut() {
+                    full.panel_open = true;
+                }
+                self.select_full_mindmap_node(id)
+            }
             Message::FullMindmapDeselect => {
                 let checkpoint = self.checkpoint_active_quick_slot();
                 self.invalidate_pending_quick_slot_restore();

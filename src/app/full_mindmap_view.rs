@@ -91,7 +91,7 @@ impl App {
             keyboard_zoom_enabled: self.overlay == Overlay::None,
             native_pinch_log: self.full_mindmap_native_pinch_log,
             on_toggle: Box::new(Message::FullMindmapToggleNode),
-            on_select: Box::new(Message::FullMindmapSelectNode),
+            on_select: Box::new(Message::FullMindmapPointerSelect),
             on_deselect: Message::FullMindmapDeselect,
         };
         let canvas: Element<'_, Message> = iced::widget::canvas(program)

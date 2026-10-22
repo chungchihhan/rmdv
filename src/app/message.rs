@@ -292,6 +292,8 @@ pub enum Message {
     ExitFullMindmap,
     FullMindmapToggleNode(WorkspaceNodeId),
     FullMindmapSelectNode(WorkspaceNodeId),
+    /// A pointer click on a node: select it and show the panel.
+    FullMindmapPointerSelect(WorkspaceNodeId),
     FullMindmapDeselect,
     FullMindmapNavigate(MindmapDir),
     FullMindmapDiveWorkspace(WorkspaceNodeId),
