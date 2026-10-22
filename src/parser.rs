@@ -835,7 +835,10 @@ impl ParseState {
                 mut blocks,
                 loose_inlines,
             } => {
-                if !loose_inlines.is_empty() {
+                // The spaces after the last of a row of badges are not a
+                // paragraph of their own.
+                let trailing_spaces = !blocks.is_empty() && is_blank(&loose_inlines);
+                if !loose_inlines.is_empty() && !trailing_spaces {
                     blocks.push(Block::Paragraph(loose_inlines));
                 }
                 if let Some(Frame::List { items, .. }) = self.stack.last_mut() {
@@ -941,8 +944,10 @@ impl ParseState {
                 loose_inlines,
                 ..
             }) => {
-                if !loose_inlines.is_empty() {
-                    blocks.push(Block::Paragraph(std::mem::take(loose_inlines)));
+                // The spaces between badges in a tight item are dropped.
+                let inlines = std::mem::take(loose_inlines);
+                if !inlines.is_empty() && !is_blank(&inlines) {
+                    blocks.push(Block::Paragraph(inlines));
                 }
                 blocks.push(b);
             }
@@ -1536,6 +1541,29 @@ mod tests {
                 Block::Heading { id, .. } if id == "logo-title"
             )),
             "the anchor stays logo-title: {blocks:?}"
+        );
+    }
+
+    #[test]
+    fn a_row_of_badges_in_a_list_item_leaves_no_blank_paragraph() {
+        let blocks = blocks_of("- [![a](a.svg)](u1) [![b](b.svg)](u2)\n- two\n");
+        let Some(Block::List { items, .. }) = blocks.first() else {
+            panic!("a list: {blocks:?}");
+        };
+        assert_eq!(
+            items[0].blocks,
+            vec![
+                Block::Image {
+                    url: "a.svg".into(),
+                    alt: "a".into(),
+                    link: Some("u1".into()),
+                },
+                Block::Image {
+                    url: "b.svg".into(),
+                    alt: "b".into(),
+                    link: Some("u2".into()),
+                },
+            ]
         );
     }
 
