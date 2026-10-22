@@ -308,6 +308,22 @@ pub(in crate::app) fn list_pointer_tracker<'a>() -> Element<'a, Message> {
         .into()
 }
 
+/// A list row that reports pointer hovers. The selected row reports none:
+/// a hover there changes nothing, so moves inside it publish no message.
+pub(in crate::app) fn hover_row<'a>(
+    row: impl Into<Element<'a, Message>>,
+    selected: bool,
+    on_hover: Message,
+) -> Element<'a, Message> {
+    // Always a MouseArea, so selection changes keep the row's widget state.
+    let area = mouse_area(row);
+    if selected {
+        area.into()
+    } else {
+        area.on_move(move |_| on_hover.clone()).into()
+    }
+}
+
 /// Background for a list row: only the keyboard selection is filled, so
 /// hover and selection show as one highlighted row.
 pub(in crate::app) fn list_row_style(

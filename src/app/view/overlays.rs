@@ -86,7 +86,7 @@ pub(in crate::app) fn folder_picker_overlay<'a>(
                 .height(Length::Fixed(32.0))
                 .style(list_row_style(is_sel, pal))
                 .on_press(on_press);
-                list = list.push(mouse_area(row).on_move(move |_| Message::OverlayHover(i)));
+                list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
             }
         }
         let body = scrollable(list)
@@ -156,7 +156,7 @@ pub(in crate::app) fn file_finder_overlay<'a>(
                 .height(Length::Fixed(32.0))
                 .style(list_row_style(is_sel, pal))
                 .on_press(Message::OpenFileFinderPath(path_clone));
-            list = list.push(mouse_area(row).on_move(move |_| Message::OverlayHover(i)));
+            list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
         }
     }
     if let Some(more) = more {
@@ -441,7 +441,7 @@ pub(in crate::app) fn command_overlay<'a>(
                 .height(Length::Fixed(32.0))
                 .style(list_row_style(is_sel, pal))
                 .on_press(Message::OverlayPick(i));
-            list = list.push(mouse_area(row).on_move(move |_| Message::OverlayHover(i)));
+            list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
         }
     }
 
@@ -541,7 +541,7 @@ pub(in crate::app) fn theme_overlay<'a>(
         .width(Length::Fill)
         .style(list_row_style(is_sel, pal))
         .on_press(Message::OverlayPick(i));
-        list = list.push(mouse_area(row).on_move(move |_| Message::OverlayHover(i)));
+        list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
     }
 
     let body = scrollable(list)

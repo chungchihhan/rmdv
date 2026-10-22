@@ -273,7 +273,7 @@ pub(in crate::app) fn vault_search_page<'a>(
                         .style(list_row_style(is_cursor, pal))
                         .on_press(Message::VaultOpenHit(hi));
                     let vis_idx = *vis_idx;
-                    let row = mouse_area(row).on_move(move |_| Message::VaultHover(vis_idx));
+                    let row = hover_row(row, is_cursor, Message::VaultHover(vis_idx));
                     // Stable id so cursor-follow can scroll by measured bounds.
                     let row = container(row)
                         .id(App::vault_match_anchor_id(vis_idx))

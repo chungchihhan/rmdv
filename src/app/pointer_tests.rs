@@ -710,6 +710,32 @@ fn narrowing_an_overlay_query_does_not_take_the_selection_from_a_still_pointer()
     assert_eq!(app.overlay_selected, 0, "the first match stays selected");
 }
 
+#[test]
+fn moving_inside_the_selected_row_publishes_no_row_hover() {
+    let mut app = App::default();
+    let _ = app.update(Message::OpenCommandPalette);
+    let first = app.filtered_commands()[0].0.to_string();
+    let mut ui = PointerUi::new();
+    let row = ui.text_bounds(&app, &first).expect("first palette row");
+    assert_eq!(app.overlay_selected, 0);
+
+    let mut messages = ui.move_to(&app, center(row)).0;
+    messages.extend(
+        ui.move_to(&app, Point::new(row.center_x() + 4.0, row.center_y()))
+            .0,
+    );
+    assert!(
+        !has(&messages, |m| matches!(m, Message::OverlayHover(_))),
+        "the selected row needs no hover report, got {messages:?}"
+    );
+
+    // Other rows still report hovers.
+    let second = app.filtered_commands()[1].0.to_string();
+    let row = ui.text_bounds(&app, &second).expect("second palette row");
+    let messages = ui.move_to(&app, center(row)).0;
+    assert!(has(&messages, |m| matches!(m, Message::OverlayHover(1))));
+}
+
 // --- Group 2: find bar, toasts, error card, edit focus, file drop -----------
 
 mod group2 {
