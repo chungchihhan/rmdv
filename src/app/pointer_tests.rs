@@ -663,6 +663,53 @@ fn welcome_rows_that_need_a_file_say_so() {
     }
 }
 
+fn nudge_list_pointer(app: &mut App) {
+    // Baseline, then real motion that no row consumed (blank list space).
+    let _ = app.update(Message::ListPointerMoved(Point::new(40.0, 300.0)));
+    let _ = app.update(Message::ListPointerMoved(Point::new(40.0, 304.0)));
+}
+
+#[test]
+fn new_vault_results_do_not_take_the_cursor_from_a_still_pointer() {
+    let mut app = App::default();
+    app.workspace = Some(std::path::PathBuf::from("/w"));
+    let _ = app.update(Message::OpenVaultSearch);
+    nudge_list_pointer(&mut app);
+
+    let _ = app.update(Message::VaultQueryChanged("a".into()));
+    let _ = app.update(Message::VaultRunSearch);
+    let hits = (1..=3)
+        .map(|line| crate::vault_search::VaultHit {
+            path: std::path::PathBuf::from("/w/a.md"),
+            line,
+            col_start: 0,
+            col_end: 1,
+            context: Vec::new(),
+        })
+        .collect();
+    let _ = app.update(Message::VaultSearchDone(
+        crate::vault_search::VaultResults {
+            seq: app.vault_seq,
+            hits,
+            truncated: false,
+        },
+    ));
+    // The new row under the parked pointer reports a hover with no motion.
+    let _ = app.update(Message::VaultHover(2));
+    assert_eq!(app.vault_cursor, 0, "Enter still opens the first match");
+}
+
+#[test]
+fn narrowing_an_overlay_query_does_not_take_the_selection_from_a_still_pointer() {
+    let mut app = App::default();
+    let _ = app.update(Message::OpenCommandPalette);
+    nudge_list_pointer(&mut app);
+
+    let _ = app.update(Message::OverlayQueryChanged("t".into()));
+    let _ = app.update(Message::OverlayHover(1));
+    assert_eq!(app.overlay_selected, 0, "the first match stays selected");
+}
+
 // --- Group 2: find bar, toasts, error card, edit focus, file drop -----------
 
 mod group2 {

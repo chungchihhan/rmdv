@@ -197,6 +197,8 @@ impl App {
             }
             Message::VaultRunSearch => {
                 self.vault_cursor = 0;
+                // A new list under a still pointer is not motion.
+                self.list_pointer.settle();
                 self.vault_seq += 1;
                 self.vault_searched_query = Some(self.vault_query.clone());
                 let seq = self.vault_seq;
@@ -224,6 +226,7 @@ impl App {
                     self.vault_file_count = n;
                     self.vault_truncated = r.truncated;
                     self.vault_cursor = 0;
+                    self.list_pointer.settle();
                     // New result set: drop the stale viewport so virtualization
                     // renders from the top, and scroll the list back to 0.
                     self.vault_viewport = None;
@@ -272,6 +275,8 @@ impl App {
                         // Anchored hit is now hidden: clamp to the last visible.
                         self.vault_cursor.min(visible.len().saturating_sub(1))
                     });
+                // Rows shift under the pointer; that is not motion.
+                self.list_pointer.settle();
                 Task::none()
             }
             Message::VaultOpenSelected => {
@@ -2259,6 +2264,7 @@ impl App {
                     if p.is_dir() {
                         pk.navigate_to(p);
                         self.overlay_selected = 0;
+                        self.list_pointer.settle();
                         // Leaf folder (no subfolders, readable): treat the
                         // navigation as a workspace pick. Saves the user an
                         // extra Space/Enter on dead-end folders.
@@ -2276,6 +2282,7 @@ impl App {
                 if let Some(pk) = self.picker.as_mut() {
                     pk.parent();
                     self.overlay_selected = 0;
+                    self.list_pointer.settle();
                 }
                 Task::none()
             }
@@ -2341,6 +2348,8 @@ impl App {
             Message::OverlayQueryChanged(q) => {
                 self.overlay_query = q;
                 self.overlay_selected = 0;
+                // A new list under a still pointer is not motion.
+                self.list_pointer.settle();
                 Task::none()
             }
             Message::OverlayMove(d) => {
@@ -2425,6 +2434,7 @@ impl App {
                             if e.is_dir {
                                 pk.navigate_to(e.path);
                                 self.overlay_selected = 0;
+                                self.list_pointer.settle();
                                 // Leaf folder: auto-open as workspace.
                                 if pk.entries.is_empty() && pk.error.is_none() {
                                     let cwd = pk.cwd.clone();
