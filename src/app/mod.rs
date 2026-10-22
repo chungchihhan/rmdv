@@ -74,6 +74,17 @@ fn zen_editor_bottom_inset(footer_visible: bool) -> f32 {
     shortcut_bottom_pad + KEYBOARD_BUTTON_HEIGHT + ZEN_EDITOR_OVERLAY_CLEARANCE
 }
 
+/// Space above the raw editor's first line: it clears the hover toolbar's
+/// band, so reaching for the first line does not reveal the toolbar over it.
+/// Always mode lays the editor out below the toolbar, so the line stays put
+/// when the mode changes.
+fn zen_editor_top_inset(mode: crate::prefs::ToolbarMode) -> f32 {
+    match mode {
+        crate::prefs::ToolbarMode::OnHover => TOOLBAR_BAND_H,
+        crate::prefs::ToolbarMode::Always => TOOLBAR_BAND_H - TOOLBAR_H,
+    }
+}
+
 fn mindmap_panel_width_for_step(step: usize, window_size: Option<iced::Size>) -> f32 {
     window_size
         .map(|size| size.width * MIND_PANEL_FRACS[step % MIND_PANEL_FRACS.len()])
@@ -3503,7 +3514,7 @@ impl App {
                         .line_height(iced::widget::text::LineHeight::Relative(1.55))
                         .height(Length::Fill)
                         .padding(iced::Padding {
-                            top: 0.0,
+                            top: zen_editor_top_inset(self.prefs.toolbar),
                             right: 32.0,
                             bottom: zen_editor_bottom_inset(footer_visible),
                             left: 64.0,
@@ -3675,7 +3686,15 @@ impl App {
                     },
                 )
             });
-            stack![reader, toolbar_band(revealed)]
+            // The vault search page keeps its own bar (query, Search, Close)
+            // in the top band; the band would cover it.
+            let vault_page = self.vault_open && !self.settings_open && !full_mindmap;
+            let band: Element<'_, Message> = if vault_page {
+                Space::new().into()
+            } else {
+                toolbar_band(revealed)
+            };
+            stack![reader, band]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into()

@@ -617,3 +617,41 @@ fn toolbar_screenshots() {
     );
     let _ = std::fs::remove_dir_all(&ws);
 }
+
+// --- Review fixes: the band must not cover top controls ------------------------
+
+#[test]
+fn hover_band_leaves_the_vault_search_bar_its_controls() {
+    let (mut app, dir) = tree_fixture("toolbar-vault");
+    let _ = app.update(Message::OpenVaultSearch);
+    assert!(app.vault_open);
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+    let close = ui
+        .id_bounds(&app, "vault-close-button")
+        .expect("vault close button");
+    assert!(close.y < TOOLBAR_BAND_H, "the vault bar sits at the top");
+    let (messages, _) = ui.move_to(&app, center(close));
+    assert!(
+        !has(&messages, |m| matches!(m, Message::ToolbarHover(true))),
+        "reaching for the vault's own Close does not reveal the toolbar: {messages:?}"
+    );
+    let messages = ui.click(&app, center(close));
+    assert!(has(&messages, |m| matches!(m, Message::VaultClose)));
+    apply(&mut app, messages);
+    assert!(!app.vault_open);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn zen_editor_text_starts_below_the_toolbar_in_both_modes() {
+    use crate::prefs::ToolbarMode;
+    // On hover the band lies over the editor; Always lays the editor out
+    // below the toolbar. Either way the first line clears the band.
+    assert!(zen_editor_top_inset(ToolbarMode::OnHover) >= TOOLBAR_BAND_H);
+    assert_eq!(
+        zen_editor_top_inset(ToolbarMode::Always) + TOOLBAR_H,
+        zen_editor_top_inset(ToolbarMode::OnHover),
+        "switching modes does not move the editor text"
+    );
+}
