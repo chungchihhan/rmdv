@@ -642,3 +642,142 @@ fn file_finder_more_label_counts_hidden_results() {
         Some("120+ more — keep typing to narrow")
     );
 }
+
+// --- Group 2: find bar, toasts, error card, edit focus, file drop -----------
+
+mod group2 {
+    use super::*;
+    use iced::advanced::widget::operation::Focusable;
+    use iced::keyboard;
+
+    /// Reports whether the focusable widget with `id` is focused.
+    struct FocusProbe {
+        id: Id,
+        focused: Option<bool>,
+    }
+
+    impl Operation for FocusProbe {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+
+        fn focusable(&mut self, id: Option<&Id>, _bounds: Rectangle, state: &mut dyn Focusable) {
+            if id == Some(&self.id) {
+                self.focused = Some(state.is_focused());
+            }
+        }
+    }
+
+    impl PointerUi {
+        fn operate(&mut self, app: &App, operation: &mut dyn Operation) {
+            let cache = self.cache.take().unwrap_or_default();
+            let mut ui = UserInterface::build(app.view(), WINDOW, cache, &mut self.renderer);
+            ui.operate(&self.renderer, operation);
+            self.cache = Some(ui.into_cache());
+        }
+
+        fn focused(&mut self, app: &App, id: &'static str) -> Option<bool> {
+            let mut probe = FocusProbe {
+                id: Id::new(id),
+                focused: None,
+            };
+            self.operate(app, &mut probe);
+            probe.focused
+        }
+
+        fn type_char(&mut self, app: &App, c: char) -> Vec<Message> {
+            let event = Event::Keyboard(keyboard::Event::KeyPressed {
+                key: keyboard::Key::Character(c.to_string().into()),
+                modified_key: keyboard::Key::Character(c.to_string().into()),
+                physical_key: keyboard::key::Physical::Code(keyboard::key::Code::KeyX),
+                location: keyboard::Location::Standard,
+                modifiers: keyboard::Modifiers::default(),
+                text: Some(c.to_string().into()),
+                repeat: false,
+            });
+            self.send(app, Point::new(640.0, 400.0), vec![event]).0
+        }
+    }
+
+    /// Messages and widget operations a task yields without waiting.
+    fn drain(task: Task<Message>) -> (Vec<Message>, Vec<Box<dyn Operation>>) {
+        use iced::futures::task::{noop_waker, Context, Poll};
+        use iced::futures::StreamExt;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()
+            .expect("tokio runtime");
+        let _guard = runtime.enter();
+        let mut messages = Vec::new();
+        let mut operations = Vec::new();
+        let Some(mut stream) = iced_runtime::task::into_stream(task) else {
+            return (messages, operations);
+        };
+        let waker = noop_waker();
+        let mut cx = Context::from_waker(&waker);
+        for _ in 0..8 {
+            match stream.poll_next_unpin(&mut cx) {
+                Poll::Ready(Some(iced_runtime::Action::Output(message))) => messages.push(message),
+                Poll::Ready(Some(iced_runtime::Action::Widget(operation))) => {
+                    operations.push(operation)
+                }
+                Poll::Ready(Some(_)) | Poll::Pending => {}
+                Poll::Ready(None) => break,
+            }
+        }
+        (messages, operations)
+    }
+
+    /// Like `apply`, and also runs the widget operations (focus, scroll) the
+    /// tasks ask for on `ui`, as the runtime does after an update.
+    fn apply_ui(app: &mut App, ui: &mut PointerUi, messages: Vec<Message>) {
+        for message in messages {
+            let (follow_ups, operations) = drain(app.update(message));
+            for mut operation in operations {
+                ui.operate(app, operation.as_mut());
+            }
+            for follow_up in follow_ups {
+                let (_, operations) = drain(app.update(follow_up));
+                for mut operation in operations {
+                    ui.operate(app, operation.as_mut());
+                }
+            }
+        }
+    }
+
+    // --- 1. Edit mode focuses the editor ------------------------------------
+
+    #[test]
+    fn entering_edit_mode_focuses_the_editor_so_typing_works() {
+        let mut app = long_doc_app();
+        let mut ui = PointerUi::new();
+        let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+
+        apply_ui(&mut app, &mut ui, vec![Message::ToggleViewMode]);
+        assert!(app.editor.is_some(), "⌘E enters edit mode");
+        assert_eq!(ui.focused(&app, "zen-editor"), Some(true));
+
+        let typed = ui.type_char(&app, 'x');
+        assert!(
+            has(&typed, |m| matches!(m, Message::EditorAction(_))),
+            "a key typed right after ⌘E reaches the editor: {typed:?}"
+        );
+    }
+
+    #[test]
+    fn clicking_the_margin_beside_the_editor_focuses_it() {
+        let mut app = long_doc_app();
+        let mut ui = PointerUi::new();
+        let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+        let _ = app.update(Message::ToggleViewMode);
+        assert!(app.editor.is_some());
+        // The editor column is READING_MAX wide and centered; x = 24 is in
+        // the empty left margin.
+        assert!(WINDOW.width - READING_MAX > 48.0);
+
+        let messages = ui.click(&app, Point::new(24.0, 400.0));
+        apply_ui(&mut app, &mut ui, messages);
+
+        assert_eq!(ui.focused(&app, "zen-editor"), Some(true));
+    }
+}

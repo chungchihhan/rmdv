@@ -853,7 +853,9 @@ impl App {
         self.edit_history.clear();
         self.edit_redo.clear();
         self.view_mode = ViewMode::Raw;
-        Task::none()
+        // The editor handles keys only while focused; focus it so typing
+        // works right after ⌘E.
+        iced::widget::operation::focus(Self::editor_id())
     }
 
     fn leave_zen_edit_mode(&mut self, sync_editor: bool) {
@@ -1517,6 +1519,9 @@ impl App {
     }
     fn overlay_scroll_id() -> iced::widget::Id {
         iced::widget::Id::new("overlay")
+    }
+    fn editor_id() -> iced::widget::Id {
+        iced::widget::Id::new("zen-editor")
     }
     fn search_input_id() -> iced::widget::Id {
         iced::widget::Id::new("search-input")
@@ -3388,6 +3393,7 @@ impl App {
             } else if self.view_mode == ViewMode::Raw {
                 if let Some(ed) = self.editor.as_ref() {
                     let editor = iced::widget::text_editor(ed)
+                        .id(Self::editor_id())
                         .on_action(Message::EditorAction)
                         // Filter cmd/ctrl combos so global shortcuts (⌘B, ⌘T,
                         // ⌘E, ⌘K, ⌘M, ⌘P, ⌘O, etc.) don't ALSO get inserted
@@ -3421,15 +3427,21 @@ impl App {
                             selection: pal.selection,
                         })
                         .height(Length::Fill);
-                    container(
-                        container(editor)
-                            .width(Length::Fill)
-                            .height(Length::Fill)
-                            .max_width(READING_MAX),
+                    // A click in the empty margin beside the editor column
+                    // focuses the editor; clicks inside it are captured by the
+                    // editor and never reach this area.
+                    iced::widget::mouse_area(
+                        container(
+                            container(editor)
+                                .width(Length::Fill)
+                                .height(Length::Fill)
+                                .max_width(READING_MAX),
+                        )
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .center_x(Length::Fill),
                     )
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
+                    .on_press(Message::FocusEditor)
                     .into()
                 } else {
                     let fallback = text(self.source.as_str())

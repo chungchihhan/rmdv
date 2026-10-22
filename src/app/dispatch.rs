@@ -2098,6 +2098,7 @@ impl App {
                 }
                 Task::none()
             }
+            Message::FocusEditor => iced::widget::operation::focus(Self::editor_id()),
             Message::EditorUndo => {
                 let mut changed = false;
                 if let Some(ed) = self.editor.as_mut() {

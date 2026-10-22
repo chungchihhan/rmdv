@@ -333,6 +333,8 @@ pub enum Message {
     HeadingHoverEnter(crate::ast::BlockId),
     HeadingHoverExit(crate::ast::BlockId),
     EditorAction(iced::widget::text_editor::Action),
+    /// Focus the Zen editor (a click in the margin beside it).
+    FocusEditor,
     SaveFile,
     FileSaved {
         result: Result<(), String>,
