@@ -522,3 +522,100 @@ fn palette_and_shortcut_sheet_list_go_back_and_go_forward() {
     let back = ui.text_bounds(&app, "[").expect("the [ key cap");
     assert!(back.y + back.height < 800.0, "on screen: {back:?}");
 }
+
+// --- 4. Toolbar chevrons -----------------------------------------------------------
+
+/// Bounds of `code` drawn in the toolbar strip (the reader may draw the
+/// same glyph lower down).
+fn toolbar_glyph(ui: &mut PointerUi, app: &App, code: char) -> Option<Rectangle> {
+    struct All {
+        text: String,
+        found: Vec<Rectangle>,
+    }
+    impl Operation for All {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn text(&mut self, _id: Option<&Id>, bounds: Rectangle, text: &str) {
+            if text == self.text {
+                self.found.push(bounds);
+            }
+        }
+    }
+    let mut all = All {
+        text: code.to_string(),
+        found: Vec::new(),
+    };
+    ui.operate(app, &mut all);
+    all.found.into_iter().find(|b| b.y < TOOLBAR_H)
+}
+
+fn history_clicks(messages: &[Message]) -> Option<HistoryDir> {
+    messages.iter().find_map(|m| match m {
+        Message::HistoryGo(dir) => Some(*dir),
+        _ => None,
+    })
+}
+
+fn moves_window(messages: &[Message]) -> bool {
+    has(messages, |m| {
+        matches!(m, Message::WindowDrag | Message::WindowTitlebarDoubleClick)
+    })
+}
+
+#[test]
+fn toolbar_chevrons_go_back_and_forward_and_name_their_shortcuts() {
+    use super::group3::{assert_tips, tips};
+    use crate::icon::ic;
+    let (mut app, dir) = fixture("toolbar");
+    let mut ui = PointerUi::new();
+    let _ = app.update(Message::SetToolbarMode(crate::prefs::ToolbarMode::Always));
+    let (a, b) = (dir.join("a.md"), dir.join("b.md"));
+    open(&mut app, &mut ui, &a);
+    open(&mut app, &mut ui, &b);
+    assert_tips(&tips(&mut ui, &app), &["Go Back  ⌘[", "Go Forward  ⌘]"]);
+    let back_at = toolbar_glyph(&mut ui, &app, ic::CHEVRON_LEFT).expect("a Back chevron");
+    let forward_at = toolbar_glyph(&mut ui, &app, ic::CHEVRON_RIGHT).expect("a Forward chevron");
+    assert!(back_at.x < forward_at.x, "Back sits left of Forward");
+
+    // Nothing ahead: Forward is disabled and does not move the window.
+    let mut messages = ui.click(&app, center(forward_at));
+    messages.extend(ui.click(&app, center(forward_at)));
+    assert_eq!(history_clicks(&messages), None, "{messages:?}");
+    assert!(!moves_window(&messages), "{messages:?}");
+
+    let messages = ui.click(&app, center(back_at));
+    assert_eq!(history_clicks(&messages), Some(HistoryDir::Back));
+    assert!(!moves_window(&messages), "{messages:?}");
+    for message in messages {
+        send(&mut app, &mut ui, message);
+    }
+    settle(&mut app, &mut ui);
+    assert_eq!(app.file.as_deref(), Some(a.as_path()));
+
+    // Now Back is the disabled one.
+    let back_at = toolbar_glyph(&mut ui, &app, ic::CHEVRON_LEFT).expect("Back");
+    let forward_at = toolbar_glyph(&mut ui, &app, ic::CHEVRON_RIGHT).expect("Forward");
+    let mut messages = ui.click(&app, center(back_at));
+    messages.extend(ui.click(&app, center(back_at)));
+    assert_eq!(history_clicks(&messages), None, "{messages:?}");
+    assert!(!moves_window(&messages), "{messages:?}");
+    let messages = ui.click(&app, center(forward_at));
+    assert_eq!(history_clicks(&messages), Some(HistoryDir::Forward));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn toolbar_chevrons_show_disabled_without_history() {
+    use crate::icon::ic;
+    let mut app = App::default();
+    let _ = app.update(Message::SetToolbarMode(crate::prefs::ToolbarMode::Always));
+    let mut ui = PointerUi::new();
+    for code in [ic::CHEVRON_LEFT, ic::CHEVRON_RIGHT] {
+        let at = toolbar_glyph(&mut ui, &app, code).expect("chevron shown");
+        let mut messages = ui.click(&app, center(at));
+        messages.extend(ui.click(&app, center(at)));
+        assert_eq!(history_clicks(&messages), None, "{messages:?}");
+        assert!(!moves_window(&messages), "{messages:?}");
+    }
+}
