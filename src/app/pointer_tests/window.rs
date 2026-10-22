@@ -469,6 +469,31 @@ fn welcome_page_without_recent_items_shows_no_recent_section() {
 // --- Review fixes ---------------------------------------------------------------
 
 #[test]
+fn disabled_toolbar_controls_do_not_move_or_zoom_the_window() {
+    // A clean file: Save is disabled.
+    let app = always(long_doc_app());
+    let mut ui = PointerUi::new();
+    let save = ui
+        .text_bounds(&app, &ic::SAVE.to_string())
+        .expect("Save button");
+    let mut messages = ui.click(&app, center(save));
+    messages.extend(ui.click(&app, center(save)));
+    assert!(!drags(&messages), "{messages:?}");
+    assert!(!zooms(&messages), "{messages:?}");
+
+    // No file: Read, Edit, and Mind Map are disabled.
+    let app = always(App::default());
+    let mut ui = PointerUi::new();
+    for label in ["Read", "Edit", "Mind Map"] {
+        let at = center(ui.text_bounds(&app, label).expect("segment"));
+        let mut messages = ui.click(&app, at);
+        messages.extend(ui.click(&app, at));
+        assert!(!drags(&messages), "{label}: {messages:?}");
+        assert!(!zooms(&messages), "{label}: {messages:?}");
+    }
+}
+
+#[test]
 fn installing_an_update_with_unsaved_edits_asks_to_save_first() {
     let mut app = dirty_app();
     app.pending_update = Some(crate::update::ReadyUpdate {

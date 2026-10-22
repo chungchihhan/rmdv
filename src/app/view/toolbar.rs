@@ -319,32 +319,41 @@ pub(in crate::app) fn toolbar_band<'a>(
     .into()
 }
 
+/// A toolbar control takes every press on it, even while disabled: a
+/// disabled button lets presses through, and the toolbar's blank space
+/// under it would start a window drag or zoom.
+fn control<'a>(button: button::Button<'a, Message>) -> Element<'a, Message> {
+    iced::widget::opaque(button)
+}
+
 /// An icon button; `on_press` `None` draws it disabled, `active` filled.
 fn tool_button<'a>(
     code: char,
     on_press: Option<Message>,
     active: bool,
     pal: Palette,
-) -> button::Button<'a, Message> {
+) -> Element<'a, Message> {
     let enabled = on_press.is_some();
     let color = if enabled { pal.muted } else { pal.subtle };
-    button(icon::glyph(code, 14.0, color))
-        .padding(Padding::from([4, 8]))
-        .on_press_maybe(on_press)
-        .style(move |_, status| button::Style {
-            background: match status {
-                _ if active => Some(Background::Color(pal.active())),
-                button::Status::Hovered => Some(Background::Color(pal.hover())),
-                button::Status::Pressed => Some(Background::Color(pal.active())),
-                _ => None,
-            },
-            text_color: color,
-            border: Border {
-                radius: theme::radius::PILL.into(),
+    control(
+        button(icon::glyph(code, 14.0, color))
+            .padding(Padding::from([4, 8]))
+            .on_press_maybe(on_press)
+            .style(move |_, status| button::Style {
+                background: match status {
+                    _ if active => Some(Background::Color(pal.active())),
+                    button::Status::Hovered => Some(Background::Color(pal.hover())),
+                    button::Status::Pressed => Some(Background::Color(pal.active())),
+                    _ => None,
+                },
+                text_color: color,
+                border: Border {
+                    radius: theme::radius::PILL.into(),
+                    ..Default::default()
+                },
                 ..Default::default()
-            },
-            ..Default::default()
-        })
+            }),
+    )
 }
 
 /// One segment of the view switch.
@@ -353,30 +362,32 @@ fn view_segment<'a>(
     selected: bool,
     on_press: Option<Message>,
     pal: Palette,
-) -> button::Button<'a, Message> {
+) -> Element<'a, Message> {
     let enabled = on_press.is_some();
-    button(content)
-        .padding(Padding::from([3, 10]))
-        .on_press_maybe(on_press)
-        .style(move |_, status| button::Style {
-            background: if selected {
-                Some(pal.surface_alt.into())
-            } else if enabled && matches!(status, button::Status::Hovered) {
-                Some(pal.hover().into())
-            } else {
-                None
-            },
-            text_color: if selected {
-                pal.fg
-            } else if enabled {
-                pal.muted
-            } else {
-                pal.subtle
-            },
-            border: Border {
-                radius: theme::radius::SM.into(),
+    control(
+        button(content)
+            .padding(Padding::from([3, 10]))
+            .on_press_maybe(on_press)
+            .style(move |_, status| button::Style {
+                background: if selected {
+                    Some(pal.surface_alt.into())
+                } else if enabled && matches!(status, button::Status::Hovered) {
+                    Some(pal.hover().into())
+                } else {
+                    None
+                },
+                text_color: if selected {
+                    pal.fg
+                } else if enabled {
+                    pal.muted
+                } else {
+                    pal.subtle
+                },
+                border: Border {
+                    radius: theme::radius::SM.into(),
+                    ..Default::default()
+                },
                 ..Default::default()
-            },
-            ..Default::default()
-        })
+            }),
+    )
 }
