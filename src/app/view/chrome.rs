@@ -309,9 +309,34 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
 }
 
 pub(in crate::app) fn welcome_view<'a>(
-    recent: &crate::recent::Recent,
+    recent: &'a crate::recent::Recent,
     pal: Palette,
 ) -> Element<'a, Message> {
+    // A narrow reader (a small window beside the sidebar) puts Recent below
+    // the shortcuts, and a short one scrolls. The card stays centered while
+    // it fits: the scrollable is exactly as tall as the reader, so the card's
+    // container is at least that tall.
+    iced::widget::responsive(move |size| {
+        let content: Element<'a, Message> = match welcome_recent(recent, pal) {
+            Some(recent) => irow![welcome_shortcuts(pal), recent]
+                .spacing(40)
+                .wrap()
+                .vertical_spacing(28)
+                .into(),
+            None => welcome_shortcuts(pal),
+        };
+        scrollable(centered_card(content, pal))
+            .width(Length::Fill)
+            .height(Length::Fixed(size.height))
+            .direction(slim_scroll_direction())
+            .style(move |_, status| sleek_scrollable_style(status, pal, false))
+            .into()
+    })
+    .into()
+}
+
+/// The welcome page's title, tagline, and shortcut rows.
+fn welcome_shortcuts<'a>(pal: Palette) -> Element<'a, Message> {
     // Each row is a button that sends its shortcut's message; the key cap
     // stays visible as the hint.
     let kbd = |label: &'static str, key: &'static str, message: Message| {
@@ -377,12 +402,7 @@ pub(in crate::app) fn welcome_view<'a>(
     ]
     .spacing(8)
     .align_x(iced::Alignment::Start);
-    let content: Element<'a, Message> = match welcome_recent(recent, pal) {
-        // Beside the shortcuts, so the card stays as tall as it was.
-        Some(recent) => irow![start, recent].spacing(40).into(),
-        None => start.into(),
-    };
-    centered_card(content, pal)
+    start.into()
 }
 
 /// The welcome page's Recent Folders and Recent Files: one row per entry,

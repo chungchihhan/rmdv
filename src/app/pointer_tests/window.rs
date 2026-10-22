@@ -4,8 +4,10 @@
 
 use super::group3::tree_fixture;
 use super::*;
+use crate::app::lifecycle::WINDOW_MIN_SIZE;
 use crate::icon::ic;
 use crate::prefs::ToolbarMode;
+use iced::advanced::widget::{Id, Operation};
 
 fn always(mut app: App) -> App {
     let _ = app.update(Message::SetToolbarMode(ToolbarMode::Always));
@@ -581,6 +583,106 @@ fn ipc_close_asks_before_dropping_unsaved_edits() {
     assert!(response.ok, "{response:?}");
     assert!(clean.close_confirm.is_none());
     assert!(clean.window_closing);
+}
+
+/// The scroll translation of the scrollable that holds `target`; operations
+/// see unscrolled bounds.
+fn scroll_translation(ui: &mut PointerUi, app: &App, target: Rectangle) -> iced::Vector {
+    use iced::advanced::widget::operation::Scrollable;
+    struct Probe {
+        target: Rectangle,
+        found: iced::Vector,
+    }
+    impl Operation for Probe {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+
+        fn scrollable(
+            &mut self,
+            _id: Option<&Id>,
+            _bounds: Rectangle,
+            content_bounds: Rectangle,
+            translation: iced::Vector,
+            _state: &mut dyn Scrollable,
+        ) {
+            if content_bounds.contains(self.target.center()) {
+                self.found = translation;
+            }
+        }
+    }
+    let mut probe = Probe {
+        target,
+        found: iced::Vector::ZERO,
+    };
+    ui.operate(app, &mut probe);
+    probe.found
+}
+
+#[test]
+fn welcome_recent_rows_stay_reachable_in_the_smallest_window() {
+    let (mut app, dir) = tree_fixture("welcome-min");
+    // Outside the workspace, so the sidebar tree does not list the name.
+    let elsewhere =
+        std::env::temp_dir().join(format!("rmdv-welcome-min-recent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&elsewhere);
+    std::fs::create_dir_all(elsewhere.join("recent-folder-row")).unwrap();
+    let elsewhere = canonicalize_existing_path(elsewhere);
+    let file = elsewhere.join("recent-file-row.md");
+    std::fs::write(&file, "# Recent\n").unwrap();
+    app.remember_recent_folder(&elsewhere.join("recent-folder-row"));
+    app.remember_recent_file(&file);
+    assert!(
+        app.file.is_none() && app.sidebar_open,
+        "welcome beside the sidebar"
+    );
+    let natural = PointerUi::new()
+        .text_bounds(&app, "recent-file-row.md")
+        .expect("recent file row in a large window");
+    let mut ui = PointerUi::sized(WINDOW_MIN_SIZE);
+    let reader_x = app.sidebar_width;
+    let probe = Point::new((reader_x + WINDOW_MIN_SIZE.width) / 2.0, 200.0);
+    let _ = ui.move_to(&app, probe);
+    let inside = |b: Rectangle| {
+        b.x >= reader_x
+            && b.x + b.width <= WINDOW_MIN_SIZE.width
+            && b.y >= 0.0
+            && b.y + b.height <= WINDOW_MIN_SIZE.height
+    };
+    let shown = |ui: &mut PointerUi| {
+        let row = ui
+            .text_bounds(&app, "recent-file-row.md")
+            .expect("recent file row");
+        let scrolled = scroll_translation(ui, &app, row);
+        Rectangle {
+            x: row.x - scrolled.x,
+            y: row.y - scrolled.y,
+            ..row
+        }
+    };
+    let mut row = shown(&mut ui);
+    for _ in 0..12 {
+        if inside(row) {
+            break;
+        }
+        let _ = ui.wheel(&app, probe);
+        row = shown(&mut ui);
+    }
+    assert!(inside(row), "the row scrolls into the reader: {row:?}");
+    assert!(
+        (row.width - natural.width).abs() < 1.0,
+        "the name is not squeezed: {row:?} vs {natural:?}"
+    );
+    let messages = ui.click(&app, center(row));
+    assert!(
+        has(
+            &messages,
+            |m| matches!(m, Message::OpenFileFinderPath(p) if *p == file)
+        ),
+        "{messages:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&elsewhere);
 }
 
 // --- Review screenshots ---------------------------------------------------------
