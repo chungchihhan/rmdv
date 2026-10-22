@@ -161,6 +161,28 @@ fn back_returns_to_the_previous_file_at_its_scroll_offset_and_forward_undoes_it(
 }
 
 #[test]
+fn back_to_a_file_left_at_the_top_lands_at_the_top() {
+    let (mut app, dir) = fixture("top");
+    let mut ui = PointerUi::new();
+    let (a, doc) = (dir.join("a.md"), dir.join("doc.md"));
+    open(&mut app, &mut ui, &a);
+    assert!(offset(&app) < 1.0, "a.md at the top");
+    open(&mut app, &mut ui, &doc);
+    scroll_down(&mut app, &mut ui, 12);
+    let scrolled = offset(&app);
+    assert!(scrolled > 400.0, "doc.md scrolled: {scrolled}");
+
+    back(&mut app, &mut ui);
+    assert_eq!(app.file.as_deref(), Some(a.as_path()), "Back opens a.md");
+    let restored = offset(&app);
+    assert!(
+        restored < 40.0,
+        "Back lands at the top a.md was left at, not doc.md's offset: {restored}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn back_restores_the_mind_map_view_a_file_was_left_in() {
     let (mut app, dir) = fixture("mode");
     let mut ui = PointerUi::new();

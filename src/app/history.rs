@@ -67,14 +67,15 @@ impl App {
             self.mindmap_focus_first_child();
             return Task::none();
         }
-        if entry.position <= 0.0 {
-            return Task::none();
+        // The body scrollable keeps its offset across files, so a stop saved
+        // at the top still needs the scroll to the top.
+        if entry.position > 0.0 {
+            self.quick_slot_body_restore = Some(entry.position);
         }
-        self.quick_slot_body_restore = Some(entry.position);
-        // The body scrollable keeps its offset across files and reports a
-        // viewport only when it changes. Coming back past a file too short
-        // to scroll, the old viewport repeats exactly and no report would
-        // come, so start from the top: that change always reports.
+        // It also reports a viewport only when it changes. Coming back past
+        // a file too short to scroll, the old viewport repeats exactly and
+        // no report would come, so start from the top: that change always
+        // reports, and then the restore applies.
         iced::widget::operation::scroll_to(
             Self::scroll_id(),
             iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: 0.0 },
