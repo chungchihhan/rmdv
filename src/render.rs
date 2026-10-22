@@ -1104,12 +1104,10 @@ fn render_image<'a>(
     let placeholder = |msg: String| -> Element<'a, Message> { text(msg).color(pal.muted).into() };
     if is_remote_url(url) {
         match img.cache.get(url) {
-            Some(ImageState::Loaded(h)) => mouse_area(image_widget(h.clone()))
-                .on_press(Message::OpenImageZoom(url.to_string()))
-                .into(),
-            Some(ImageState::LoadedSvg { svg, .. }) => mouse_area(svg_widget(svg.clone()))
-                .on_press(Message::OpenImageZoom(url.to_string()))
-                .into(),
+            Some(ImageState::Loaded(h)) => zoomable(image_widget(h.clone()), url.to_string()),
+            Some(ImageState::LoadedSvg { svg, .. }) => {
+                zoomable(svg_widget(svg.clone()), url.to_string())
+            }
             Some(ImageState::Failed) => placeholder(format!("[image failed: {alt} ({url})]")),
             _ => placeholder(format!("[loading: {alt} ({url})]")),
         }
@@ -1121,12 +1119,8 @@ fn render_image<'a>(
         };
         let key = p.to_string_lossy().into_owned();
         match img.cache.get(&key) {
-            Some(ImageState::Loaded(h)) => mouse_area(image_widget(h.clone()))
-                .on_press(Message::OpenImageZoom(key))
-                .into(),
-            Some(ImageState::LoadedSvg { svg, .. }) => mouse_area(svg_widget(svg.clone()))
-                .on_press(Message::OpenImageZoom(key))
-                .into(),
+            Some(ImageState::Loaded(h)) => zoomable(image_widget(h.clone()), key),
+            Some(ImageState::LoadedSvg { svg, .. }) => zoomable(svg_widget(svg.clone()), key),
             Some(ImageState::Failed) => placeholder(format!("[image missing: {alt} ({url})]")),
             Some(ImageState::Loading) => placeholder(format!("[loading: {alt} ({url})]")),
             // Not read ahead (an image added while editing, or a preview of
@@ -1137,17 +1131,22 @@ fn render_image<'a>(
                     .and_then(|e| e.to_str())
                     .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
                 if is_svg {
-                    mouse_area(svg_widget(iced::widget::svg::Handle::from_path(p)))
-                        .on_press(Message::OpenImageZoom(key))
-                        .into()
+                    zoomable(svg_widget(iced::widget::svg::Handle::from_path(p)), key)
                 } else {
-                    mouse_area(image_widget(p))
-                        .on_press(Message::OpenImageZoom(key))
-                        .into()
+                    zoomable(image_widget(p), key)
                 }
             }
         }
     }
+}
+
+/// An image that opens the image viewer on click, with the zoom-in cursor
+/// that says so.
+fn zoomable<'a>(image: impl Into<Element<'a, Message>>, key: String) -> Element<'a, Message> {
+    mouse_area(image)
+        .interaction(iced::mouse::Interaction::ZoomIn)
+        .on_press(Message::OpenImageZoom(key))
+        .into()
 }
 
 /// Render a `Block::Diagram { kind: Math }`. Unlike mermaid/dot diagrams,

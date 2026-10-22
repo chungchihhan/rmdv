@@ -1281,4 +1281,47 @@ mod group3 {
             "a folded heading offers Expand"
         );
     }
+
+    // --- 3. Reader images show the zoom-in cursor ----------------------------
+
+    #[test]
+    fn reader_images_show_the_zoom_in_cursor() {
+        let url = "https://example.com/pointer.png";
+        let mut app = App::default();
+        let _ = app.update(Message::FileLoaded(Ok((
+            PathBuf::from("/tmp/pointer-image.md"),
+            format!("Intro\n\n![a picture]({url})\n\nOutro\n"),
+        ))));
+        let handle = iced::widget::image::Handle::from_rgba(200, 100, vec![200u8; 200 * 100 * 4]);
+        app.image_cache
+            .insert(url.to_string(), ImageState::Loaded(handle));
+        let image_id = app
+            .ast
+            .iter()
+            .find(|(_, block)| matches!(block, crate::ast::Block::Image { .. }))
+            .map(|(id, _)| *id)
+            .expect("image block");
+        let mut ui = PointerUi::new();
+        let (bounds, _) = ui
+            .find(
+                &app,
+                Find {
+                    text: None,
+                    contains: None,
+                    id: Some(crate::render::block_anchor_id(image_id)),
+                    found: None,
+                    found_text: None,
+                },
+            )
+            .expect("image block anchor");
+        let over = Point::new(bounds.x + 20.0, bounds.center_y());
+
+        let (_, cursor) = ui.move_to(&app, over);
+        assert_eq!(cursor, mouse::Interaction::ZoomIn);
+        let messages = ui.click(&app, over);
+        assert!(has(&messages, |m| matches!(
+            m,
+            Message::OpenImageZoom(u) if u == url
+        )));
+    }
 }
