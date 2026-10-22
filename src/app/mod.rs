@@ -108,6 +108,7 @@ mod dispatch;
 mod full_mindmap;
 mod full_mindmap_state;
 mod full_mindmap_view;
+mod history;
 mod ipc_handler;
 mod lifecycle;
 pub use lifecycle::window_settings;
@@ -143,7 +144,7 @@ use scroll_tasks::*;
 use settings::*;
 use types::*;
 pub use types::{
-    MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
+    HistoryDir, MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
     PendingWatcherReload, SidebarTab, ThemeEntry, Toast, ToastAction, ToolbarView, ViewMode,
     ZenRestoreState,
 };
@@ -475,6 +476,8 @@ pub struct App {
     pending_quick_slot_restore: Option<PendingQuickSlotRestore>,
     quick_slot_preview_restore_guard: Option<PendingQuickSlotRestore>,
     quick_slot_body_restore: Option<f32>,
+    /// Back and Forward navigation history.
+    history: NavHistory,
     quick_slot_preview_restore: Option<f32>,
     quick_slots_persistence_path: Option<PathBuf>,
     watcher_generation: u64,
@@ -685,6 +688,7 @@ impl Default for App {
             pending_quick_slot_restore: None,
             quick_slot_preview_restore_guard: None,
             quick_slot_body_restore: None,
+            history: NavHistory::default(),
             quick_slot_preview_restore: None,
             quick_slots_persistence_path: {
                 #[cfg(test)]
@@ -1101,6 +1105,12 @@ impl App {
             self.invalidate_pending_quick_slot_restore();
         }
         let switching_file = self.file.as_deref() != Some(path.as_path());
+        // Read the stop being left before any state below changes.
+        let history_restore = if switching_file {
+            self.history_on_file_switch(&path)
+        } else {
+            None
+        };
         let refresh_full_mindmap_preview = self.full_mindmap.as_ref().is_some_and(|full| {
             matches!(
                 full.selected.as_ref(),
@@ -1176,6 +1186,9 @@ impl App {
             self.apply_quick_slot_restore_after_file(&path, pending.slot)
         });
         fetches.push(slot_restore);
+        if let Some(entry) = history_restore {
+            fetches.push(self.restore_history_after_file(entry));
+        }
         if refresh_full_mindmap_preview {
             let source = self.source_snapshot_for_preview();
             fetches.push(self.begin_full_mindmap_preview_source(path, source));
@@ -1190,6 +1203,12 @@ impl App {
         });
         if root_changed {
             self.invalidate_pending_quick_slot_restore();
+        }
+        let workspace_changed = self.workspace.as_ref().is_some_and(|current| {
+            crate::quick_slots::workspace_key(current) != crate::quick_slots::workspace_key(&path)
+        });
+        if workspace_changed {
+            self.clear_history();
         }
         let _ = self.checkpoint_active_quick_slot();
         self.persist_quick_slots_now();

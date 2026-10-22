@@ -457,6 +457,7 @@ impl App {
                 Task::none()
             }
             Message::QuickSlotRestorePending => self.apply_pending_quick_slot_restore(),
+            Message::HistoryGo(dir) => self.history_go(dir),
             Message::QuickSlotFileLoaded {
                 index,
                 slot,
@@ -2640,6 +2641,8 @@ impl App {
                     if let Some(line) =
                         fragment.and_then(|f| line_for_fragment(&self.source, f, is_tex))
                     {
+                        // A jump in the document is a stop, as in a browser.
+                        self.record_history();
                         return Task::done(goto_line_message(line));
                     }
                     return Task::none();
@@ -2654,6 +2657,21 @@ impl App {
                                 || e.eq_ignore_ascii_case("tex")
                         });
                         if is_md && path.is_file() {
+                            // `this.md#part` from inside this.md jumps in
+                            // place, like a bare `#part`.
+                            let same_file = self.file.as_ref().is_some_and(|current| {
+                                canonicalize_existing_path(current.clone())
+                                    == canonicalize_existing_path(path.clone())
+                            });
+                            if same_file {
+                                let is_tex = is_tex_path(self.file.as_deref());
+                                if let Some(line) = fragment
+                                    .and_then(|f| line_for_fragment(&self.source, f, is_tex))
+                                {
+                                    self.record_history();
+                                    return Task::done(goto_line_message(line));
+                                }
+                            }
                             if let Some(blocked) = self.block_file_open_if_dirty(&path) {
                                 return blocked;
                             }
@@ -2673,6 +2691,7 @@ impl App {
             Message::FileLoaded(Err(e)) => {
                 self.cancel_refresh_tracking();
                 self.pending_nav = None;
+                self.history.pending = None;
                 self.error = Some(e);
                 Task::none()
             }

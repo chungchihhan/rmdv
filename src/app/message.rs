@@ -67,6 +67,9 @@ pub enum Message {
     QuickSlotsModifierReveal(u64),
     /// Debounced persistence generation for ordinary scrolling checkpoints.
     QuickSlotsPersist(u64),
+    /// Go Back or Forward in navigation history (⌘[ ⌘], the mouse side
+    /// buttons, the toolbar chevrons, the palette).
+    HistoryGo(HistoryDir),
     /// Internal handoff after entering/exiting Full Mindmap for a slot.
     QuickSlotRestorePending,
     /// Identity-bearing file read for a non-Full-Mindmap slot activation.

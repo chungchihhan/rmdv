@@ -240,3 +240,62 @@ pub struct ToolbarBandSlot {
     pub sidebar: bool,
     pub glass_corner: bool,
 }
+
+/// The most stops Back keeps; the oldest drop off first.
+pub(super) const HISTORY_LIMIT: usize = 100;
+
+/// One stop in navigation history: a file, where its reader was scrolled
+/// to, and the reading surface it showed.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct HistoryEntry {
+    pub(super) path: PathBuf,
+    /// Body scroll position, normalized to 0–1 like a Quick Slot's.
+    pub(super) position: f32,
+    /// `Rendered` or `Mindmap`; Zen edit maps to `Rendered`.
+    pub(super) mode: ViewMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HistoryDir {
+    Back,
+    Forward,
+}
+
+/// Back and Forward stacks, like a browser's. A new navigation clears
+/// Forward; a workspace change clears both.
+#[derive(Debug, Default)]
+pub(super) struct NavHistory {
+    pub(super) back: Vec<HistoryEntry>,
+    pub(super) forward: Vec<HistoryEntry>,
+    /// A Back or Forward whose file is still loading. The stacks move only
+    /// when that load lands, so a newer open that supersedes it records as
+    /// an ordinary navigation.
+    pub(super) pending: Option<(HistoryDir, PathBuf)>,
+}
+
+impl NavHistory {
+    pub(super) fn stack(&self, dir: HistoryDir) -> &Vec<HistoryEntry> {
+        match dir {
+            HistoryDir::Back => &self.back,
+            HistoryDir::Forward => &self.forward,
+        }
+    }
+
+    /// The stack `dir` takes from and the one it gives the current stop to.
+    pub(super) fn stacks_mut(
+        &mut self,
+        dir: HistoryDir,
+    ) -> (&mut Vec<HistoryEntry>, &mut Vec<HistoryEntry>) {
+        match dir {
+            HistoryDir::Back => (&mut self.back, &mut self.forward),
+            HistoryDir::Forward => (&mut self.forward, &mut self.back),
+        }
+    }
+
+    pub(super) fn push(stack: &mut Vec<HistoryEntry>, entry: HistoryEntry) {
+        stack.push(entry);
+        if stack.len() > HISTORY_LIMIT {
+            stack.remove(0);
+        }
+    }
+}
