@@ -197,6 +197,34 @@ where
         self
     }
 
+    /// Publishes the hover message for a change of the hovered link span:
+    /// entering `now`'s link, or else leaving `before`'s.
+    fn publish_link_change(
+        &self,
+        before: Option<usize>,
+        now: Option<usize>,
+        shell: &mut Shell<'_, Message>,
+    ) {
+        let link_of = |index: Option<usize>| {
+            self.spans
+                .as_ref()
+                .as_ref()
+                .get(index?)
+                .and_then(|span| span.link.clone())
+        };
+        if let Some(link) = link_of(now) {
+            if let Some(on_link_hovered) = self.on_link_hover.as_deref() {
+                shell.publish(on_link_hovered(link));
+            }
+        } else if let Some(on_link_leave) = self.on_link_leave.as_deref() {
+            if let Some(link) = link_of(before) {
+                shell.publish(on_link_leave(link));
+            }
+        } else if let Some(on_hover_lost) = self.on_hover_lost.as_deref() {
+            shell.publish(on_hover_lost());
+        }
+    }
+
     /// Sets the message that will be produced when a link of the [`Rich`] text
     /// is no longer hovered.
     pub fn on_hover_lost_with(
@@ -672,6 +700,13 @@ where
             && state.selection.is_empty()
             && state.dragging.is_none()
         {
+            // Scrolled out of view under the pointer (a jump moves it
+            // in one step): it no longer hovers its link.
+            if let Some(index) = state.hovered_link.take() {
+                state.is_hovered = false;
+                self.publish_link_change(Some(index), None, shell);
+                shell.request_redraw();
+            }
             return;
         }
 
@@ -935,24 +970,11 @@ where
         // Hover messages go out only when the hovered link changes: once on
         // entering a link and once on leaving it, never per pointer move.
         if state.hovered_link != hovered_link_before {
-            let link_of = |index: Option<usize>| {
-                self.spans
-                    .as_ref()
-                    .as_ref()
-                    .get(index?)
-                    .and_then(|span| span.link.clone())
-            };
-            if let Some(link) = link_of(state.hovered_link) {
-                if let Some(on_link_hovered) = self.on_link_hover.as_deref() {
-                    shell.publish(on_link_hovered(link));
-                }
-            } else if let Some(on_link_leave) = self.on_link_leave.as_deref() {
-                if let Some(link) = link_of(hovered_link_before) {
-                    shell.publish(on_link_leave(link));
-                }
-            } else if let Some(on_hover_lost) = self.on_hover_lost.as_deref() {
-                shell.publish(on_hover_lost());
-            }
+            self.publish_link_change(
+                hovered_link_before,
+                state.hovered_link,
+                shell,
+            );
         }
 
         if state.is_hovered != was_hovered

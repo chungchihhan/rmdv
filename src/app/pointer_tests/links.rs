@@ -315,30 +315,114 @@ fn leaving_one_link_after_entering_the_next_keeps_the_next() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-#[test]
-fn scrolling_or_navigating_hides_the_link_pill() {
-    let (mut app, dir) = fixture("hide");
+/// A long document whose first block is a link that wraps over many lines.
+fn long_link_doc(dir: &Path) -> PathBuf {
     let a = dir.join("a.md");
-    let mut long = String::from("# A\n\n");
+    let mut long = String::from("# A\n\n[");
+    long.push_str(&"many linked words ".repeat(60));
+    long.push_str("](sub/NOTES.MD)\n\n");
     for i in 0..200 {
         long.push_str(&format!(
             "Paragraph {i} with enough words to fill a line.\n\n"
         ));
     }
     std::fs::write(&a, &long).expect("a.md");
+    a
+}
+
+/// Frames with the pointer resting at `at`: the reader reports its
+/// viewport, and links check what is under the pointer now.
+fn redraw_at(app: &mut App, ui: &mut PointerUi, at: Point) {
+    for _ in 0..3 {
+        let (messages, _) = ui.send(
+            app,
+            at,
+            vec![Event::Window(iced::window::Event::RedrawRequested(
+                std::time::Instant::now(),
+            ))],
+        );
+        super::group2::apply_ui(app, ui, messages);
+    }
+}
+
+fn reader_offset(app: &App) -> f32 {
+    app.body_viewport
+        .as_ref()
+        .map_or(0.0, |viewport| viewport.absolute_offset().y)
+}
+
+#[test]
+fn the_pill_stays_while_scrolling_keeps_the_link_under_the_pointer() {
+    let (mut app, dir) = fixture("scroll");
+    let a = long_link_doc(&dir);
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(a));
+    settle(&mut app, &mut ui);
+    let (at, entered) = find_link(&app, &mut ui).expect("a link under the pointer");
+    super::group2::apply_ui(&mut app, &mut ui, entered);
+    // Into the link's second line, so a small scroll keeps it under.
+    let at = Point::new(at.x, at.y + 40.0);
+    let (moved, _) = ui.move_to(&app, at);
+    assert!(link_messages(&moved).is_empty(), "still on the link: {moved:?}");
+    assert!(ui.text_containing(&app, "sub/NOTES.MD").is_some());
+
+    // A trackpad scroll of a few pixels.
+    let (messages, _) = ui.send(
+        &app,
+        at,
+        vec![Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -8.0 },
+        })],
+    );
+    super::group2::apply_ui(&mut app, &mut ui, messages);
+    redraw_at(&mut app, &mut ui, at);
+    assert!(reader_offset(&app) > 0.0, "the reader scrolled");
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_some(),
+        "the link is still under the pointer, so its pill stays"
+    );
+
+    // A jump far away (⌘↓): the link leaves the pointer and the view.
+    super::group2::apply_ui(&mut app, &mut ui, vec![Message::ScrollToBottom]);
+    redraw_at(&mut app, &mut ui, at);
+    assert!(reader_offset(&app) > 2000.0, "at the bottom");
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "the link scrolled away, so its pill hides"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn wheeling_the_link_away_from_the_pointer_hides_the_pill() {
+    let (mut app, dir) = fixture("wheel-away");
+    let a = long_link_doc(&dir);
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(a));
+    settle(&mut app, &mut ui);
+    let (at, entered) = find_link(&app, &mut ui).expect("a link under the pointer");
+    super::group2::apply_ui(&mut app, &mut ui, entered);
+    assert!(ui.text_containing(&app, "sub/NOTES.MD").is_some());
+    for _ in 0..4 {
+        let messages = ui.wheel(&app, at);
+        super::group2::apply_ui(&mut app, &mut ui, messages);
+        redraw_at(&mut app, &mut ui, at);
+    }
+    assert!(reader_offset(&app) > 400.0, "the reader scrolled");
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "the link moved off the pointer, so its pill hides"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn navigating_hides_the_link_pill() {
+    let (mut app, dir) = fixture("hide");
+    let a = long_link_doc(&dir);
     let mut ui = PointerUi::new();
     send(&mut app, Message::Open(a.clone()));
     settle(&mut app, &mut ui);
-
-    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
-    assert!(ui.text_containing(&app, "sub/NOTES.MD").is_some());
-    for message in ui.wheel(&app, Point::new(700.0, 420.0)) {
-        send(&mut app, message);
-    }
-    assert!(
-        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
-        "scrolling hides the pill"
-    );
 
     send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
     send(&mut app, Message::Open(dir.join("conf.yaml")));

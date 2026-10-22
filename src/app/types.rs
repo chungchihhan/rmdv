@@ -312,9 +312,10 @@ pub(super) struct HoveredLink {
     pub(super) label: String,
 }
 
-/// What the reader shows under the pointer. When it changes (a scroll,
-/// another file, another view, a modal), a link's pill no longer matches
-/// what is under the pointer.
+/// What the reader shows under the pointer. When it changes (another
+/// file, another view, a modal, a page over the reader), a link's pill no
+/// longer matches what is under the pointer. A scroll is not a change:
+/// the link widgets report leaving when content moves off the pointer.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct LinkPage {
     pub(super) file: Option<PathBuf>,
@@ -325,5 +326,4 @@ pub(super) struct LinkPage {
     pub(super) settings_open: bool,
     pub(super) vault_open: bool,
     pub(super) error: bool,
-    pub(super) offset: Option<f32>,
 }

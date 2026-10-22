@@ -1617,10 +1617,6 @@ impl App {
             settings_open: self.settings_open,
             vault_open: self.vault_open,
             error: self.error.is_some(),
-            offset: self
-                .body_viewport
-                .as_ref()
-                .map(|viewport| viewport.absolute_offset().y),
         }
     }
 
