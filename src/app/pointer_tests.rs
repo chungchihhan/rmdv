@@ -1324,4 +1324,113 @@ mod group3 {
             Message::OpenImageZoom(u) if u == url
         )));
     }
+
+    // --- 5. Full Mindmap Back, parent-folder, and panel buttons ----------------
+
+    /// The tree fixture in Full Mindmap with its workspace graph loaded.
+    fn full_mindmap_app(tag: &str) -> (App, PathBuf) {
+        let (mut app, dir) = tree_fixture(tag);
+        let _ = app.update(Message::ToggleFullMindmap);
+        // The open workspace's snapshot may be reused without a new index.
+        if let Some(request) = app
+            .full_mindmap
+            .as_ref()
+            .and_then(|full| full.pending_workspace_load.clone())
+        {
+            let snapshot = tree::build_workspace(&request.path, app.show_hidden).unwrap();
+            let _ = app.update(Message::FullMindmapWorkspaceLoaded {
+                request: request.clone(),
+                result: Ok((request.path.clone(), snapshot)),
+            });
+        }
+        assert!(app.full_mindmap_graph().is_some(), "graph is ready");
+        (app, dir)
+    }
+
+    #[test]
+    fn full_mindmap_back_pill_exits_with_and_without_a_graph() {
+        // Before any graph exists (indexing, or the index failed).
+        let (mut app, dir) = tree_fixture("fmm-back-no-graph");
+        let _ = app.update(Message::ToggleFullMindmap);
+        assert!(app.full_mindmap.is_some());
+        app.workspace_tree = None;
+        *app.full_mindmap.as_ref().unwrap().layout_cache.borrow_mut() = None;
+        assert!(app.full_mindmap_graph().is_none(), "no graph to draw");
+        let mut ui = PointerUi::new();
+        let back = ui
+            .text_bounds(&app, "Back")
+            .expect("Back pill without a graph");
+        let messages = ui.click(&app, center(back));
+        assert!(has(&messages, |m| matches!(m, Message::ExitFullMindmap)));
+        apply(&mut app, messages);
+        assert!(app.full_mindmap.is_none(), "Back leaves Full Mindmap");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // With the graph drawn.
+        let (mut app, dir) = full_mindmap_app("fmm-back-ready");
+        let mut ui = PointerUi::new();
+        let back = ui.text_bounds(&app, "Back").expect("Back pill");
+        assert!(
+            back.x < 200.0 && back.y < 120.0,
+            "the pill sits top-left: {back:?}"
+        );
+        let messages = ui.click(&app, center(back));
+        apply(&mut app, messages);
+        assert!(app.full_mindmap.is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn full_mindmap_parent_and_panel_buttons_send_their_messages() {
+        let (mut app, dir) = full_mindmap_app("fmm-buttons");
+        let mut ui = PointerUi::new();
+        assert_tips(
+            &tips(&mut ui, &app),
+            &["Back to Reader  Esc", "Parent Folder", "Show Panel  ⌘⌥B"],
+        );
+
+        let parent = ui
+            .text_bounds(&app, &glyph(crate::icon::ic::FOLDER_UP))
+            .expect("parent folder button");
+        let messages = ui.click(&app, center(parent));
+        assert!(
+            has(&messages, |m| matches!(
+                m,
+                Message::FullMindmapWorkspaceParent
+            )),
+            "{messages:?}"
+        );
+
+        let panel = ui
+            .text_bounds(&app, &glyph(crate::icon::ic::PANEL_RIGHT_OPEN))
+            .expect("panel toggle button");
+        let messages = ui.click(&app, center(panel));
+        apply(&mut app, messages);
+        assert!(app.full_mindmap.as_ref().unwrap().panel_open);
+        assert_tips(&tips(&mut ui, &app), &["Hide Panel  ⌘⌥B"]);
+        assert!(ui
+            .text_bounds(&app, &glyph(crate::icon::ic::PANEL_RIGHT_CLOSE))
+            .is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn full_mindmap_nav_layer_leaves_the_canvas_its_events() {
+        let (app, dir) = full_mindmap_app("fmm-pass-through");
+        let mut ui = PointerUi::new();
+        let back = ui.text_bounds(&app, "Back").expect("Back pill");
+        // Beside and below the pill, over blank canvas.
+        for probe in [
+            Point::new(back.x + 260.0, back.center_y()),
+            Point::new(back.x, back.y + 80.0),
+        ] {
+            let (_, cursor) = ui.move_to(&app, probe);
+            assert_eq!(
+                cursor,
+                mouse::Interaction::Grab,
+                "the canvas still owns {probe:?}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
