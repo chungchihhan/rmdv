@@ -345,6 +345,18 @@ pub(in crate::app) fn modal_scrim<'a>(on_press: Message) -> Element<'a, Message>
     .into()
 }
 
+/// Blank chrome that acts as the window's titlebar: a press moves the
+/// window and a double click zooms it. Controls inside take their own
+/// presses first, so only the blank space reaches this area.
+pub(in crate::app) fn window_drag_area<'a>(
+    content: impl Into<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    mouse_area(content)
+        .on_press(Message::WindowDrag)
+        .on_double_click(Message::WindowTitlebarDoubleClick)
+        .into()
+}
+
 /// Blank layer that reports pointer motion over a list surface. Stack it
 /// above the list: the stack updates its top layer first, so the report
 /// precedes the row hovers of the same event.

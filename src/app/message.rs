@@ -264,6 +264,11 @@ pub enum Message {
     ToolbarHideAfter(u64),
     /// A toolbar segment: show this view.
     ToolbarView(ToolbarView),
+    /// A press on the toolbar's blank space or the sidebar header: move the
+    /// window, as a press on a titlebar does.
+    WindowDrag,
+    /// A double click there: zoom the window, as on a titlebar.
+    WindowTitlebarDoubleClick,
     ExitFullMindmap,
     FullMindmapToggleNode(WorkspaceNodeId),
     FullMindmapSelectNode(WorkspaceNodeId),

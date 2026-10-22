@@ -837,6 +837,14 @@ impl App {
                 Task::none()
             }
             Message::ToolbarView(target) => self.toolbar_view(target),
+            // A fullscreen window neither moves nor zooms, as on macOS.
+            Message::WindowDrag if !self.window_fullscreen => {
+                iced::window::latest().and_then(iced::window::drag)
+            }
+            Message::WindowTitlebarDoubleClick if !self.window_fullscreen => {
+                iced::window::latest().and_then(iced::window::toggle_maximize)
+            }
+            Message::WindowDrag | Message::WindowTitlebarDoubleClick => Task::none(),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a
                 // finite magnification delta while a graph owns the visible

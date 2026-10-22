@@ -1592,3 +1592,7 @@ mod group3 {
 // --- P2: the top toolbar ------------------------------------------------------
 
 mod toolbar;
+
+// --- P2 group 2: window and lifecycle ---------------------------------------
+
+mod window;
