@@ -379,3 +379,165 @@ fn drop_highlight_takes_no_pointer_input() {
     });
     assert!(text_cursor, "the reader keeps its cursor under the frame");
 }
+
+// --- 5. Recent items on the welcome page ----------------------------------------
+
+#[test]
+fn welcome_page_lists_recent_folders_and_files_and_opens_them() {
+    let dir = std::env::temp_dir().join(format!("rmdv-welcome-recent-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = canonicalize_existing_path(dir);
+    let notes = dir.join("notes");
+    std::fs::create_dir_all(&notes).unwrap();
+    let file = dir.join("plan.md");
+    std::fs::write(&file, "# Plan\n").unwrap();
+
+    let mut app = App::default();
+    let store = app.recent_store.clone().expect("private store");
+    // An older entry that no longer exists is skipped.
+    std::fs::write(
+        &store,
+        format!(
+            r#"{{ "paths": ["{}"], "folders": ["{}"] }}"#,
+            dir.join("gone.md").display(),
+            dir.join("gone").display()
+        ),
+    )
+    .unwrap();
+    app.remember_recent_file(&file);
+    app.remember_recent_folder(&notes);
+    assert_eq!(app.recent.paths, vec![file.clone()]);
+    assert_eq!(app.recent.folders, vec![notes.clone()]);
+    let saved = crate::recent::load_from(&store);
+    assert_eq!(saved.paths.len(), 2, "the store keeps what it had");
+
+    // Opening a folder on purpose records it; a file's implied parent does not.
+    let other = dir.join("other");
+    std::fs::create_dir_all(&other).unwrap();
+    let _ = app.update(Message::OpenWorkspace(other.clone()));
+    assert_eq!(app.recent.folders.first(), Some(&other));
+    let mut fresh = App::default();
+    let _ = fresh.update(Message::FileLoaded(Ok((file.clone(), "# Plan\n".into()))));
+    assert_eq!(fresh.recent.paths, vec![file.clone()]);
+    assert!(
+        fresh.recent.folders.is_empty(),
+        "{:?}",
+        fresh.recent.folders
+    );
+
+    let mut app = App::default();
+    let store = app.recent_store.clone().unwrap();
+    let _ = crate::recent::add_file_to(&store, &file);
+    app.remember_recent_folder(&notes);
+    let mut ui = PointerUi::new();
+    assert!(ui.text_bounds(&app, "gone.md").is_none());
+    let folder_row = ui.text_bounds(&app, "notes").expect("recent folder row");
+    let file_row = ui.text_bounds(&app, "plan.md").expect("recent file row");
+    assert!(ui.text_bounds(&app, "Recent Folders").is_some());
+    assert!(ui.text_bounds(&app, "Recent Files").is_some());
+
+    let messages = ui.click(&app, center(file_row));
+    assert!(
+        has(
+            &messages,
+            |m| matches!(m, Message::OpenFileFinderPath(p) if *p == file)
+        ),
+        "{messages:?}"
+    );
+    let messages = ui.click(&app, center(folder_row));
+    assert!(
+        has(
+            &messages,
+            |m| matches!(m, Message::OpenFileFinderPath(p) if *p == notes)
+        ),
+        "{messages:?}"
+    );
+    apply(&mut app, messages);
+    assert_eq!(app.workspace.as_deref(), Some(notes.as_path()));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn welcome_page_without_recent_items_shows_no_recent_section() {
+    let app = App::default();
+    let mut ui = PointerUi::new();
+    assert!(ui.text_bounds(&app, "Recent Files").is_none());
+    assert!(ui.text_bounds(&app, "Recent Folders").is_none());
+}
+
+// --- Review screenshots ---------------------------------------------------------
+
+#[test]
+#[ignore = "writes review screenshots; set RMDV_WINDOW_SHOTS"]
+fn window_screenshots() {
+    use iced::advanced::renderer::Headless;
+    let Some(dir) = std::env::var_os("RMDV_WINDOW_SHOTS").map(PathBuf::from) else {
+        return;
+    };
+    std::fs::create_dir_all(&dir).expect("shot dir");
+    {
+        let fonts = iced::advanced::graphics::text::font_system();
+        let mut fonts = fonts.write().expect("font system");
+        for font in crate::fonts::BUNDLED {
+            fonts.load_font(std::borrow::Cow::Borrowed(font));
+        }
+    }
+    let scale = 2.0;
+    let shoot = |app: &App, name: &str| {
+        let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+            iced::Font::with_name("Inter"),
+            iced::Pixels(16.0),
+            Some("tiny-skia"),
+        ))
+        .expect("headless tiny-skia renderer");
+        let mut ui = UserInterface::build(app.view(), WINDOW, Cache::default(), &mut renderer);
+        let pal = app.palette;
+        ui.draw(
+            &mut renderer,
+            &app.theme(),
+            &iced::advanced::renderer::Style { text_color: pal.fg },
+            mouse::Cursor::Unavailable,
+        );
+        let (w, h) = (
+            (WINDOW.width * scale) as u32,
+            (WINDOW.height * scale) as u32,
+        );
+        let rgba = renderer.screenshot(iced::Size::new(w, h), scale, pal.bg);
+        let path = dir.join(name);
+        image::RgbaImage::from_raw(w, h, rgba)
+            .expect("rgba buffer")
+            .save(&path)
+            .expect("write png");
+        eprintln!("wrote {}", path.display());
+    };
+    let ws = std::env::temp_dir().join(format!("rmdv-window-shots-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&ws);
+    std::fs::create_dir_all(ws.join("notes")).unwrap();
+    std::fs::write(ws.join("plan.md"), "# Plan\n").unwrap();
+    std::fs::write(ws.join("notes").join("ideas.md"), "# Ideas\n").unwrap();
+    for (preset, tag) in [
+        (crate::theme::ThemePreset::OneLight, "light"),
+        (crate::theme::ThemePreset::OneDark, "dark"),
+    ] {
+        let mut app = App::default();
+        let _ = app.update(Message::SetTheme(preset));
+        let _ = app.update(Message::SetGlass(crate::macos_vibrancy::Glass::Off));
+        app.remember_recent_file(&ws.join("notes").join("ideas.md"));
+        app.remember_recent_file(&ws.join("plan.md"));
+        app.remember_recent_folder(&ws.join("notes"));
+        app.remember_recent_folder(&ws);
+        app.toast = None;
+        shoot(&app, &format!("welcome-recent-{tag}.png"));
+        app.drop_hover = true;
+        shoot(&app, &format!("drop-highlight-{tag}.png"));
+
+        let mut app = dirty_app();
+        let _ = app.update(Message::SetTheme(preset));
+        let _ = app.update(Message::SetGlass(crate::macos_vibrancy::Glass::Off));
+        let _ = app.update(Message::WindowCloseRequested(iced::window::Id::unique()));
+        app.toast = None;
+        shoot(&app, &format!("close-confirm-{tag}.png"));
+    }
+    let _ = std::fs::remove_dir_all(&ws);
+}

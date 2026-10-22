@@ -308,7 +308,10 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
     stack![scrim_click, close_overlay].into()
 }
 
-pub(in crate::app) fn welcome_view<'a>(pal: Palette) -> Element<'a, Message> {
+pub(in crate::app) fn welcome_view<'a>(
+    recent: &crate::recent::Recent,
+    pal: Palette,
+) -> Element<'a, Message> {
     // Each row is a button that sends its shortcut's message; the key cap
     // stays visible as the hint.
     let kbd = |label: &'static str, key: &'static str, message: Message| {
@@ -353,31 +356,116 @@ pub(in crate::app) fn welcome_view<'a>(pal: Palette) -> Element<'a, Message> {
             })
             .on_press(message)
     };
-    centered_card(
-        column![
-            text("rmdv").size(40).color(pal.fg),
-            text("Lightweight, beautiful, native markdown viewer")
-                .size(14)
-                .color(pal.muted),
-            Space::new().height(22),
-            primary_button("Browse a Project as Mindmap", pal).on_press(Message::ToggleFullMindmap),
-            Space::new().height(8),
-            kbd("Open Folder", "⌘O", Message::OpenFolderPicker),
-            kbd("Find File in Workspace", "⌘P", Message::OpenFileFinder),
-            kbd("Command Palette", "⌘⇧P", Message::OpenCommandPalette),
-            kbd("Toggle Sidebar", "⌘B", Message::ToggleSidebar),
-            kbd("Find in Document", "⌘F", Message::ToggleSearch),
-            kbd("Cycle Theme", "⌘T", Message::ToggleTheme),
-            // Edit and Fold act on an open document; here they explain that.
-            kbd("Edit / Select Text", "⌘E", Message::WelcomeNeedsFile),
-            kbd("Fold to Level (then 0–6)", "⌘K", Message::WelcomeNeedsFile),
-            kbd("Full Mindmap Mode", "⌘⇧M", Message::ToggleFullMindmap),
-        ]
-        .spacing(8)
-        .align_x(iced::Alignment::Start)
-        .into(),
-        pal,
-    )
+    let start = column![
+        text("rmdv").size(40).color(pal.fg),
+        text("Lightweight, beautiful, native markdown viewer")
+            .size(14)
+            .color(pal.muted),
+        Space::new().height(22),
+        primary_button("Browse a Project as Mindmap", pal).on_press(Message::ToggleFullMindmap),
+        Space::new().height(8),
+        kbd("Open Folder", "⌘O", Message::OpenFolderPicker),
+        kbd("Find File in Workspace", "⌘P", Message::OpenFileFinder),
+        kbd("Command Palette", "⌘⇧P", Message::OpenCommandPalette),
+        kbd("Toggle Sidebar", "⌘B", Message::ToggleSidebar),
+        kbd("Find in Document", "⌘F", Message::ToggleSearch),
+        kbd("Cycle Theme", "⌘T", Message::ToggleTheme),
+        // Edit and Fold act on an open document; here they explain that.
+        kbd("Edit / Select Text", "⌘E", Message::WelcomeNeedsFile),
+        kbd("Fold to Level (then 0–6)", "⌘K", Message::WelcomeNeedsFile),
+        kbd("Full Mindmap Mode", "⌘⇧M", Message::ToggleFullMindmap),
+    ]
+    .spacing(8)
+    .align_x(iced::Alignment::Start);
+    let content: Element<'a, Message> = match welcome_recent(recent, pal) {
+        // Beside the shortcuts, so the card stays as tall as it was.
+        Some(recent) => irow![start, recent].spacing(40).into(),
+        None => start.into(),
+    };
+    centered_card(content, pal)
+}
+
+/// The welcome page's Recent Folders and Recent Files: one row per entry,
+/// which opens that folder as the workspace or that file. `None` when there
+/// is nothing to list.
+fn welcome_recent<'a>(
+    recent: &crate::recent::Recent,
+    pal: Palette,
+) -> Option<Element<'a, Message>> {
+    if recent.paths.is_empty() && recent.folders.is_empty() {
+        return None;
+    }
+    let home = dirs::home_dir();
+    let row = |path: &Path, glyph: char| {
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
+        let parent = path.parent().map(|parent| {
+            match home
+                .as_deref()
+                .and_then(|home| parent.strip_prefix(home).ok())
+            {
+                Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+                Some(rest) => format!("~/{}", rest.display()),
+                None => parent.display().to_string(),
+            }
+        });
+        let mut label = column![text(name)
+            .size(13)
+            .color(pal.fg)
+            .wrapping(iced::widget::text::Wrapping::None)]
+        .spacing(1);
+        if let Some(parent) = parent {
+            label = label.push(
+                text(parent)
+                    .size(11)
+                    .color(pal.subtle)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            );
+        }
+        button(
+            irow![
+                icon::glyph(glyph, 13.0, pal.muted),
+                container(label).width(Length::Fill).clip(true),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        )
+        .width(Length::Fill)
+        .padding(Padding::from([4, 6]))
+        .style(move |_, status| button::Style {
+            background: match status {
+                button::Status::Hovered => Some(Background::Color(pal.hover())),
+                button::Status::Pressed => Some(Background::Color(pal.active())),
+                _ => None,
+            },
+            text_color: pal.fg,
+            border: Border {
+                radius: theme::radius::SM.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .on_press(Message::OpenFileFinderPath(path.to_path_buf()))
+    };
+    let heading = |label: &'static str| text(label).size(11).color(pal.subtle);
+    let mut list = Column::new().spacing(4).width(Length::Fixed(240.0));
+    if !recent.folders.is_empty() {
+        list = list.push(heading("Recent Folders"));
+        for folder in &recent.folders {
+            list = list.push(row(folder, ic::FOLDER));
+        }
+        list = list.push(Space::new().height(10));
+    }
+    if !recent.paths.is_empty() {
+        list = list.push(heading("Recent Files"));
+        for file in &recent.paths {
+            list = list.push(row(file, ic::FILE_TEXT));
+        }
+    }
+    Some(list.into())
 }
 
 /// Transient modifier-driven Quick Slot rail. It deliberately has no enclosing

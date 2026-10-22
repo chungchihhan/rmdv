@@ -461,6 +461,10 @@ pub struct App {
     window_closing: bool,
     /// Files are being dragged over the window: the drop highlight shows.
     drop_hover: bool,
+    /// Recent files and folders that still exist, for the welcome page.
+    recent: crate::recent::Recent,
+    /// Where the recent list is stored; tests use a private file.
+    recent_store: Option<PathBuf>,
     pub quick_slots_modifier_held: bool,
     quick_slots_rail_revealed: bool,
     quick_slots_modifier_generation: u64,
@@ -650,6 +654,26 @@ impl Default for App {
             close_after_save: None,
             window_closing: false,
             drop_hover: false,
+            recent: {
+                #[cfg(not(test))]
+                {
+                    crate::recent::load().existing()
+                }
+                #[cfg(test)]
+                {
+                    crate::recent::Recent::default()
+                }
+            },
+            recent_store: {
+                #[cfg(not(test))]
+                {
+                    crate::recent::store_path()
+                }
+                #[cfg(test)]
+                {
+                    Some(test_quick_slots_persistence_path().with_extension("recent.json"))
+                }
+            },
             quick_slots_modifier_held: false,
             quick_slots_rail_revealed: false,
             quick_slots_modifier_generation: 0,
@@ -1082,7 +1106,7 @@ impl App {
             )
         });
         self.bump_file_refresh_generation();
-        crate::recent::add(&path);
+        self.remember_recent_file(&path);
         if switching_file && pending_slot_restore.is_none() {
             // Manual/file-finder navigation leaves the old slot checkpointed
             // but unslotted; only an explicit Quick Slot activation may make
@@ -1516,7 +1540,14 @@ impl App {
     fn set_workspace(&mut self, path: PathBuf, open_sidebar: bool) {
         let path = canonicalize_existing_path(path);
         match tree::build_workspace(&path, self.show_hidden) {
-            Ok(snapshot) => self.apply_workspace_snapshot(path, snapshot, open_sidebar),
+            Ok(snapshot) => {
+                // A folder opened on purpose (not a file's implied parent)
+                // joins the recent folders.
+                if open_sidebar {
+                    self.remember_recent_folder(&path);
+                }
+                self.apply_workspace_snapshot(path, snapshot, open_sidebar)
+            }
             Err(error) => {
                 let message = format!("Couldn't index {}: {error}", path.display());
                 if let Some(full) = self.full_mindmap.as_mut() {
@@ -3466,7 +3497,7 @@ impl App {
                 pal,
             )
         } else if self.file.is_none() {
-            welcome_view(pal)
+            welcome_view(&self.recent, pal)
         } else {
             // Results still belong to the previous query while a debounced
             // search is pending, so don't mark any hit as current.

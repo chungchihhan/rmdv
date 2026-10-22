@@ -1,4 +1,5 @@
-//! The window's lifecycle: its launch settings and closing it.
+//! The window's lifecycle: its launch settings, closing it, and the recent
+//! files and folders it reopens.
 
 use super::*;
 
@@ -101,5 +102,21 @@ impl App {
             None => iced::window::latest().and_then(iced::window::close),
         };
         Task::batch([checkpoint, close])
+    }
+}
+
+impl App {
+    /// Record a file opened now in the recent list.
+    pub(super) fn remember_recent_file(&mut self, path: &Path) {
+        if let Some(store) = self.recent_store.as_deref() {
+            self.recent = crate::recent::add_file_to(store, path).existing();
+        }
+    }
+
+    /// Record a folder opened now as the workspace in the recent list.
+    pub(super) fn remember_recent_folder(&mut self, path: &Path) {
+        if let Some(store) = self.recent_store.as_deref() {
+            self.recent = crate::recent::add_folder_to(store, path).existing();
+        }
     }
 }
