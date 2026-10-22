@@ -165,6 +165,7 @@ impl App {
                 self.vault_cursor = 0;
                 self.vault_collapsed.clear();
                 self.vault_viewport = None;
+                self.list_pointer = ListPointer::default();
                 // Bump seq so any in-flight `run` from a prior open is dropped
                 // by the `VaultSearchDone` seq guard instead of repopulating
                 // the freshly-blank page.
@@ -232,7 +233,21 @@ impl App {
                 }
                 let next = (self.vault_cursor as isize + d).clamp(0, visible.len() as isize - 1);
                 self.vault_cursor = next as usize;
+                self.list_pointer.settle();
                 self.scroll_vault_to_cursor()
+            }
+            Message::VaultHover(index) => {
+                if self.list_pointer.take_motion() {
+                    let visible = self.vault_visible_matches().len();
+                    if index < visible {
+                        self.vault_cursor = index;
+                    }
+                }
+                Task::none()
+            }
+            Message::ListPointerMoved(at) => {
+                self.list_pointer.moved(at);
+                Task::none()
             }
             Message::VaultToggleFile(path) => {
                 // Remember which hit the cursor pointed at so it tracks that
@@ -2254,9 +2269,10 @@ impl App {
                 Task::none()
             }
             Message::PickerSelectFolderHere => {
-                if let Some(pk) = &self.picker {
-                    let p = pk.cwd.clone();
-                    return Task::done(Message::OpenWorkspace(p));
+                if let Some(pk) = self.picker.take() {
+                    // Same close-then-open order as Enter on a folder row.
+                    self.overlay = Overlay::None;
+                    return Task::done(Message::OpenWorkspace(pk.cwd));
                 }
                 Task::none()
             }
@@ -2310,7 +2326,8 @@ impl App {
             }
             Message::OverlayMove(d) => {
                 let len = match self.overlay {
-                    Overlay::FileFinder => self.filtered_files().len(),
+                    // Only the rendered rows are reachable.
+                    Overlay::FileFinder => self.filtered_files().len().min(FILE_FINDER_ROW_CAP),
                     Overlay::Command => self.filtered_commands().len(),
                     Overlay::ThemePicker => self.filtered_themes().len(),
                     Overlay::FolderPicker => {
@@ -2323,7 +2340,19 @@ impl App {
                 }
                 let next = (self.overlay_selected as isize + d).clamp(0, len as isize - 1);
                 self.overlay_selected = next as usize;
+                self.list_pointer.settle();
                 self.scroll_overlay_to_cursor_with_len(len)
+            }
+            Message::OverlayPick(index) => {
+                // A row click is Enter on that row.
+                self.overlay_selected = index;
+                self.update(Message::OverlayConfirm)
+            }
+            Message::OverlayHover(index) => {
+                if self.list_pointer.take_motion() {
+                    self.overlay_selected = index;
+                }
+                Task::none()
             }
             Message::OverlayConfirm => match self.overlay {
                 Overlay::FileFinder => {

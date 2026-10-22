@@ -272,8 +272,12 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
         ..Default::default()
     });
     // Click background scrim → close. Pointer cursor would mislead since
-    // most of the surface is the viewer (which handles its own drags).
-    let scrim_click = mouse_area(scrim).on_press(Message::CloseOverlay);
+    // most of the surface is the viewer (which handles its own drags). The
+    // idle cursor and the swallowed wheel keep the reader below inert.
+    let scrim_click = mouse_area(scrim)
+        .interaction(iced::mouse::Interaction::Idle)
+        .on_scroll(|_| Message::Noop)
+        .on_press(Message::CloseOverlay);
     // Top-right close button. Sits on its own mouse_area so a click on the
     // X always fires CloseOverlay (independent of the scrim mouse_area
     // beneath it in the stack).
@@ -307,8 +311,10 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
 }
 
 pub(in crate::app) fn welcome_view<'a>(pal: Palette) -> Element<'a, Message> {
-    let kbd = |label: &'static str, key: &'static str| {
-        irow![
+    // Each row is a button that sends its shortcut's message; the key cap
+    // stays visible as the hint.
+    let kbd = |label: &'static str, key: &'static str, message: Message| {
+        let row = irow![
             container(
                 text(key)
                     .size(12)
@@ -331,7 +337,23 @@ pub(in crate::app) fn welcome_view<'a>(pal: Palette) -> Element<'a, Message> {
             }),
         ]
         .spacing(8)
-        .align_y(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center);
+        button(row)
+            .padding(Padding::from([3, 6]))
+            .style(move |_, status| button::Style {
+                background: match status {
+                    button::Status::Hovered => Some(Background::Color(pal.hover())),
+                    button::Status::Pressed => Some(Background::Color(pal.active())),
+                    _ => None,
+                },
+                text_color: pal.fg,
+                border: Border {
+                    radius: theme::radius::SM.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .on_press(message)
     };
     centered_card(
         column![
@@ -342,15 +364,15 @@ pub(in crate::app) fn welcome_view<'a>(pal: Palette) -> Element<'a, Message> {
             Space::new().height(22),
             primary_button("Browse a Project as Mindmap", pal).on_press(Message::ToggleFullMindmap),
             Space::new().height(8),
-            kbd("Open Folder", "⌘O"),
-            kbd("Find File in Workspace", "⌘P"),
-            kbd("Command Palette", "⌘⇧P"),
-            kbd("Toggle Sidebar", "⌘B"),
-            kbd("Find in Document", "⌘F"),
-            kbd("Cycle Theme", "⌘T"),
-            kbd("Edit / Select Text", "⌘E"),
-            kbd("Fold to Level (then 0–6)", "⌘K"),
-            kbd("Full Mindmap Mode", "⌘⇧M"),
+            kbd("Open Folder", "⌘O", Message::OpenFolderPicker),
+            kbd("Find File in Workspace", "⌘P", Message::OpenFileFinder),
+            kbd("Command Palette", "⌘⇧P", Message::OpenCommandPalette),
+            kbd("Toggle Sidebar", "⌘B", Message::ToggleSidebar),
+            kbd("Find in Document", "⌘F", Message::ToggleSearch),
+            kbd("Cycle Theme", "⌘T", Message::ToggleTheme),
+            kbd("Edit / Select Text", "⌘E", Message::ToggleViewMode),
+            kbd("Fold to Level (then 0–6)", "⌘K", Message::FoldChordStart),
+            kbd("Full Mindmap Mode", "⌘⇧M", Message::ToggleFullMindmap),
         ]
         .spacing(8)
         .align_x(iced::Alignment::Start)

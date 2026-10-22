@@ -24,6 +24,13 @@ pub enum Message {
     VaultEnter,
     VaultSearchDone(crate::vault_search::VaultResults),
     VaultMove(isize),
+    /// Pointer motion over a vault hit (visible-match index); gated like
+    /// [`Message::OverlayHover`].
+    VaultHover(usize),
+    /// Pointer position over an overlay list or the vault results. A changed
+    /// position is real motion; row hovers caused by scrolling under a still
+    /// pointer arrive without one.
+    ListPointerMoved(iced::Point),
     VaultOpenSelected,
     VaultOpenHit(usize),
     VaultToggleFile(PathBuf),
@@ -71,6 +78,12 @@ pub enum Message {
     OverlayQueryChanged(String),
     OverlayMove(isize),
     OverlayConfirm,
+    /// Pointer click on a palette or theme row: select it, then confirm
+    /// exactly as Enter does.
+    OverlayPick(usize),
+    /// Pointer motion over an overlay list row. Moves the keyboard selection
+    /// only after real pointer motion (see [`Message::ListPointerMoved`]).
+    OverlayHover(usize),
     OverlayDescend,
     FileLoaded(Result<(PathBuf, String), String>),
     FileLoadCompleted {

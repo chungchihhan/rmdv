@@ -31,6 +31,10 @@ const QUICK_SLOTS_RAIL_REVEAL_DELAY_MS: u64 = 500;
 /// debounced above it, where one search no longer fits inside a frame.
 const SEARCH_DEBOUNCE_MIN_BYTES: usize = 1024 * 1024;
 const SEARCH_DEBOUNCE_MS: u64 = 80;
+/// Results the file finder keeps after fuzzy ranking.
+const FILE_FINDER_RESULT_CAP: usize = 200;
+/// Rows the file finder renders; keyboard selection stays within them.
+const FILE_FINDER_ROW_CAP: usize = 80;
 const READING_MAX: f32 = theme::READING_MAX_PX;
 /// Radius of the reader panel's top-left corner next to the sidebar.
 const READER_CORNER_RADIUS: f32 = 24.0;
@@ -196,6 +200,9 @@ pub struct App {
     pub overlay: Overlay,
     pub overlay_query: String,
     pub overlay_selected: usize,
+    /// Pointer motion over the overlay lists and vault results; gates hover
+    /// selection on real motion.
+    list_pointer: ListPointer,
     /// Vault search results page (Zed-style) — full reader-area, not an overlay.
     /// Shown when `vault_open`; workspace-level, so it renders even with no file.
     pub vault_open: bool,
@@ -499,6 +506,7 @@ impl Default for App {
             overlay: Overlay::None,
             overlay_query: String::new(),
             overlay_selected: 0,
+            list_pointer: ListPointer::default(),
             vault_open: false,
             vault_query: String::new(),
             vault_searched_query: None,
@@ -1522,6 +1530,12 @@ impl App {
     fn vault_scroll_id() -> iced::widget::Id {
         iced::widget::Id::new("vault")
     }
+    fn vault_search_button_id() -> iced::widget::Id {
+        iced::widget::Id::new("vault-search-button")
+    }
+    fn vault_close_button_id() -> iced::widget::Id {
+        iced::widget::Id::new("vault-close-button")
+    }
     /// Stable id for the n-th visible match block, used to scroll to the cursor
     /// by measured bounds (blocks vary in height, so estimation can't track it).
     fn vault_match_anchor_id(vis_idx: usize) -> iced::widget::Id {
@@ -1598,8 +1612,9 @@ impl App {
     /// filtered list length this update (`OverlayMove` does, every arrow key).
     fn scroll_overlay_to_cursor_with_len(&self, len: usize) -> Task<Message> {
         let (total, row_h) = match self.overlay {
-            // FileFinder renders at most 80 rows; scroll math matches.
-            Overlay::FileFinder => (len.min(80), 32.0),
+            // FileFinder renders at most FILE_FINDER_ROW_CAP rows; scroll
+            // math matches.
+            Overlay::FileFinder => (len.min(FILE_FINDER_ROW_CAP), 32.0),
             Overlay::Command | Overlay::ThemePicker => (len, 32.0),
             Overlay::FolderPicker => (len, 33.0),
             Overlay::None | Overlay::ImageZoom | Overlay::Shortcuts => (0, 32.0),
@@ -2308,6 +2323,7 @@ impl App {
         self.overlay_query.clear();
         self.overlay_selected = 0;
         self.overlay_viewport = None;
+        self.list_pointer = ListPointer::default();
         if kind == Overlay::FolderPicker {
             let start = self.workspace.clone().or_else(|| {
                 self.file
@@ -2602,7 +2618,7 @@ impl App {
             })
             .collect();
         scored.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
-        scored.truncate(200);
+        scored.truncate(FILE_FINDER_RESULT_CAP);
         self.file_finder_memo.replace(Some(FileFinderMemo {
             query: self.overlay_query.clone(),
             root: root.cloned(),
@@ -3788,5 +3804,7 @@ fn block_contains_diagram_hash(block: &Block, hash: u64) -> bool {
     }
 }
 
+#[cfg(test)]
+mod pointer_tests;
 #[cfg(test)]
 mod tests;

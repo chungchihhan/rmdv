@@ -191,3 +191,48 @@ impl<Message> iced::widget::canvas::Program<Message> for CornerFill {
         vec![frame.into_geometry()]
     }
 }
+
+/// Full-window backdrop under a modal panel. A press sends `on_press`; the
+/// idle cursor and the swallowed wheel keep hover, cursor shape, and scroll
+/// from reaching the content under the overlay.
+pub(in crate::app) fn modal_scrim<'a>(on_press: Message) -> Element<'a, Message> {
+    mouse_area(
+        container(Space::new().width(Length::Fill).height(Length::Fill))
+            .style(|_| container::Style {
+                background: Some(Background::Color(theme::shadow::SCRIM)),
+                ..Default::default()
+            })
+            .width(Length::Fill)
+            .height(Length::Fill),
+    )
+    .interaction(iced::mouse::Interaction::Idle)
+    .on_scroll(|_| Message::Noop)
+    .on_press(on_press)
+    .into()
+}
+
+/// Blank layer that reports pointer motion over a list surface. Stack it
+/// above the list: the stack updates its top layer first, so the report
+/// precedes the row hovers of the same event.
+pub(in crate::app) fn list_pointer_tracker<'a>() -> Element<'a, Message> {
+    mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
+        .on_move(Message::ListPointerMoved)
+        .into()
+}
+
+/// Background for a list row: only the keyboard selection is filled, so
+/// hover and selection show as one highlighted row.
+pub(in crate::app) fn list_row_style(
+    selected: bool,
+    pal: Palette,
+) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_, _| button::Style {
+        background: selected.then(|| Background::Color(pal.hover())),
+        text_color: pal.fg,
+        border: Border {
+            radius: theme::radius::SM.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
