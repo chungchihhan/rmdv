@@ -778,10 +778,7 @@ impl ParseState {
         };
         let images_only = match &frame {
             Frame::Paragraph { inlines, .. } => {
-                std::mem::take(&mut self.image_in_paragraph)
-                    && inlines
-                        .iter()
-                        .all(|i| matches!(i, Inline::Text(t) if t.trim().is_empty()))
+                std::mem::take(&mut self.image_in_paragraph) && is_blank(inlines)
             }
             _ => false,
         };
@@ -818,6 +815,16 @@ impl ParseState {
                     .any(|frame| matches!(frame, Frame::Paragraph { .. }))
                 {
                     self.image_in_paragraph = true;
+                }
+                // A heading keeps the alt text as its title (and anchor),
+                // as it did before images became their own blocks.
+                if !alt.is_empty()
+                    && self
+                        .stack
+                        .iter()
+                        .any(|frame| matches!(frame, Frame::Heading { .. }))
+                {
+                    self.push_inline(Inline::Text(alt.clone()), offset, false);
                 }
                 self.push_block_in_container(Block::Image { url, alt, link });
             }
@@ -1045,6 +1052,13 @@ fn heading_level(l: HeadingLevel) -> u8 {
         HeadingLevel::H5 => 5,
         HeadingLevel::H6 => 6,
     }
+}
+
+/// Only whitespace text: what a row of badges leaves between its images.
+fn is_blank(inlines: &[Inline]) -> bool {
+    inlines
+        .iter()
+        .all(|i| matches!(i, Inline::Text(t) if t.trim().is_empty()))
 }
 
 fn inline_to_string(v: &[Inline]) -> String {
@@ -1501,6 +1515,28 @@ mod tests {
             })
             .expect("a table");
         assert_eq!(table.len(), 2, "both rows stay in the table: {blocks:?}");
+    }
+
+    #[test]
+    fn a_heading_with_an_image_keeps_the_alt_text_as_its_title() {
+        let blocks = blocks_of("# ![logo](l.png)\n\ntext\n");
+        assert_eq!(images(&blocks), vec![image("l.png", "logo", None)]);
+        assert!(
+            blocks.iter().any(|b| matches!(
+                b,
+                Block::Heading { id, inlines, .. }
+                    if id == "logo" && inline_to_string(inlines) == "logo"
+            )),
+            "{blocks:?}"
+        );
+        let blocks = blocks_of("# ![logo](l.png) Title\n");
+        assert!(
+            blocks.iter().any(|b| matches!(
+                b,
+                Block::Heading { id, .. } if id == "logo-title"
+            )),
+            "the anchor stays logo-title: {blocks:?}"
+        );
     }
 
     #[test]
