@@ -64,12 +64,12 @@ fn selectable<'a>(
     // the app shows the destination while the pointer is on the link.
     let mut text = iced_selection::rich_text(spans)
         .on_link_click(|m| m)
-        .on_link_hover(|m| match m {
-            Message::OpenLink(url) => Message::LinkHovered(url),
+        .on_link_enter(|m, source| match m {
+            Message::OpenLink(url) => Message::LinkHovered(url, source),
             _ => Message::Noop,
         })
-        .on_link_leave(|m| match m {
-            Message::OpenLink(url) => Message::LinkLeft(url),
+        .on_link_leave(|m, source| match m {
+            Message::OpenLink(url) => Message::LinkLeft(url, source),
             _ => Message::Noop,
         })
         .style(move |_| iced_selection::text::Style {
@@ -501,7 +501,7 @@ mod tests {
         assert!(
             matches!(
                 messages.as_slice(),
-                [Message::LinkHovered(_), Message::OpenLink(url)] if url == "go.md"
+                [Message::LinkHovered(..), Message::OpenLink(url)] if url == "go.md"
             ),
             "{messages:?}"
         );
@@ -765,7 +765,7 @@ mod tests {
             .collect();
         assert!(steps[0].is_empty() && steps[1].is_empty(), "{names:?}");
         assert!(
-            matches!(steps[2].as_slice(), [Message::LinkHovered(url)] if url == "b.md"),
+            matches!(steps[2].as_slice(), [Message::LinkHovered(url, _)] if url == "b.md"),
             "entering sends one LinkHovered: {names:?}"
         );
         for step in &steps[3..6] {
@@ -775,7 +775,7 @@ mod tests {
             );
         }
         assert!(
-            matches!(steps[6].as_slice(), [Message::LinkLeft(url)] if url == "b.md"),
+            matches!(steps[6].as_slice(), [Message::LinkLeft(url, _)] if url == "b.md"),
             "leaving sends one LinkLeft: {names:?}"
         );
     }

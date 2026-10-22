@@ -129,10 +129,12 @@ pub enum Message {
         actual: Option<String>,
     },
     OpenLink(String),
-    /// The pointer entered a link (its destination); sent once per link.
-    LinkHovered(String),
-    /// The pointer left that link.
-    LinkLeft(String),
+    /// The pointer entered a link: its destination, and the widget that
+    /// holds it (two widgets can hold the same destination). Sent once
+    /// per link.
+    LinkHovered(String, u64),
+    /// The pointer left that link of that widget.
+    LinkLeft(String, u64),
     ToggleTheme,
     SetTheme(ThemePreset),
     SetCustomTheme(String),

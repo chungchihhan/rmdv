@@ -47,7 +47,8 @@ pub struct Rich<
     on_link_click: Option<Box<dyn Fn(Link) -> Message + 'a>>,
     on_link_hover: Option<Box<dyn Fn(Link) -> Message + 'a>>,
     on_hover_lost: Option<Box<dyn Fn() -> Message + 'a>>,
-    on_link_leave: Option<Box<dyn Fn(Link) -> Message + 'a>>,
+    on_link_enter: Option<Box<dyn Fn(Link, u64) -> Message + 'a>>,
+    on_link_leave: Option<Box<dyn Fn(Link, u64) -> Message + 'a>>,
 }
 
 impl<'a, Link, Message, Theme, Renderer>
@@ -75,6 +76,7 @@ where
             on_link_click: None,
             on_link_hover: None,
             on_hover_lost: None,
+            on_link_enter: None,
             on_link_leave: None,
         }
     }
@@ -189,10 +191,26 @@ where
         self
     }
 
+    /// Sets the message that will be produced, with the link and the id
+    /// of this widget's state, when the pointer enters a link of the
+    /// [`Rich`] text. It takes precedence over [`Rich::on_link_hover`].
+    /// The id tells apart two widgets that hold the same link.
+    pub fn on_link_enter(
+        mut self,
+        on_link_enter: impl Fn(Link, u64) -> Message + 'a,
+    ) -> Self {
+        self.on_link_enter = Some(Box::new(on_link_enter));
+        self
+    }
+
     /// Sets the message that will be produced, with the link that was
-    /// hovered, when the pointer leaves a link of the [`Rich`] text. It takes
-    /// precedence over [`Rich::on_hover_lost`].
-    pub fn on_link_leave(mut self, on_link_leave: impl Fn(Link) -> Message + 'a) -> Self {
+    /// hovered and the id of this widget's state, when the pointer leaves
+    /// a link of the [`Rich`] text. It takes precedence over
+    /// [`Rich::on_hover_lost`].
+    pub fn on_link_leave(
+        mut self,
+        on_link_leave: impl Fn(Link, u64) -> Message + 'a,
+    ) -> Self {
         self.on_link_leave = Some(Box::new(on_link_leave));
         self
     }
@@ -201,6 +219,7 @@ where
     /// entering `now`'s link, or else leaving `before`'s.
     fn publish_link_change(
         &self,
+        id: u64,
         before: Option<usize>,
         now: Option<usize>,
         shell: &mut Shell<'_, Message>,
@@ -213,12 +232,15 @@ where
                 .and_then(|span| span.link.clone())
         };
         if let Some(link) = link_of(now) {
-            if let Some(on_link_hovered) = self.on_link_hover.as_deref() {
+            if let Some(on_link_enter) = self.on_link_enter.as_deref() {
+                shell.publish(on_link_enter(link, id));
+            } else if let Some(on_link_hovered) = self.on_link_hover.as_deref()
+            {
                 shell.publish(on_link_hovered(link));
             }
         } else if let Some(on_link_leave) = self.on_link_leave.as_deref() {
             if let Some(link) = link_of(before) {
-                shell.publish(on_link_leave(link));
+                shell.publish(on_link_leave(link, id));
             }
         } else if let Some(on_hover_lost) = self.on_hover_lost.as_deref() {
             shell.publish(on_hover_lost());
@@ -283,6 +305,8 @@ pub struct State<Link> {
     keyboard_modifiers: keyboard::Modifiers,
     visual_lines_bounds: Vec<core::Rectangle>,
     external: Option<Selection>,
+    /// Unique per state: the source of this widget's link messages.
+    id: u64,
 }
 
 impl<Link> State<Link> {
@@ -482,6 +506,11 @@ where
             keyboard_modifiers: keyboard::Modifiers::default(),
             visual_lines_bounds: Vec::new(),
             external: None,
+            id: {
+                use std::sync::atomic::{AtomicU64, Ordering};
+                static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+                NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            },
         })
     }
 
@@ -704,7 +733,7 @@ where
             // in one step): it no longer hovers its link.
             if let Some(index) = state.hovered_link.take() {
                 state.is_hovered = false;
-                self.publish_link_change(Some(index), None, shell);
+                self.publish_link_change(state.id, Some(index), None, shell);
                 shell.request_redraw();
             }
             return;
@@ -971,6 +1000,7 @@ where
         // entering a link and once on leaving it, never per pointer move.
         if state.hovered_link != hovered_link_before {
             self.publish_link_change(
+                state.id,
                 hovered_link_before,
                 state.hovered_link,
                 shell,

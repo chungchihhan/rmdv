@@ -310,6 +310,8 @@ pub(super) struct HoveredLink {
     /// The link as written; a leave for another link leaves this one shown.
     pub(super) url: String,
     pub(super) label: String,
+    /// The widget that reported the hover; only its leave hides the pill.
+    pub(super) source: u64,
 }
 
 /// What the reader shows under the pointer. When it changes (another

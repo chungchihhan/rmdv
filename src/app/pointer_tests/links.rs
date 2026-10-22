@@ -206,7 +206,7 @@ fn find_link(app: &App, ui: &mut PointerUi) -> Option<(Point, Vec<Message>)> {
             let (messages, _) = ui.move_to(app, at);
             if messages
                 .iter()
-                .any(|m| matches!(m, Message::LinkHovered(_)))
+                .any(|m| matches!(m, Message::LinkHovered(..)))
             {
                 return Some((at, messages));
             }
@@ -218,8 +218,11 @@ fn find_link(app: &App, ui: &mut PointerUi) -> Option<(Point, Vec<Message>)> {
 fn link_messages(messages: &[Message]) -> Vec<String> {
     messages
         .iter()
-        .filter(|m| matches!(m, Message::LinkHovered(_) | Message::LinkLeft(_)))
-        .map(|m| format!("{m:?}"))
+        .filter_map(|m| match m {
+            Message::LinkHovered(url, _) => Some(format!("LinkHovered({url:?})")),
+            Message::LinkLeft(url, _) => Some(format!("LinkLeft({url:?})")),
+            _ => None,
+        })
         .collect()
 }
 
@@ -287,13 +290,13 @@ fn the_link_pill_shows_paths_relative_to_the_workspace() {
         ("#part", "#part"),
         ("https://example.com/page", "https://example.com/page"),
     ] {
-        send(&mut app, Message::LinkHovered(url.into()));
+        send(&mut app, Message::LinkHovered(url.into(), 1));
         assert_eq!(
             ui.text_containing(&app, label).as_deref(),
             Some(label),
             "{url}"
         );
-        send(&mut app, Message::LinkLeft(url.into()));
+        send(&mut app, Message::LinkLeft(url.into(), 1));
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -305,9 +308,9 @@ fn leaving_one_link_after_entering_the_next_keeps_the_next() {
     send(&mut app, Message::Open(dir.join("a.md")));
     // Two links in different blocks: the lower one reports the enter
     // before the upper one reports the leave.
-    send(&mut app, Message::LinkHovered("sub/x.md".into()));
-    send(&mut app, Message::LinkHovered("sub/y.md".into()));
-    send(&mut app, Message::LinkLeft("sub/x.md".into()));
+    send(&mut app, Message::LinkHovered("sub/x.md".into(), 1));
+    send(&mut app, Message::LinkHovered("sub/y.md".into(), 2));
+    send(&mut app, Message::LinkLeft("sub/x.md".into(), 1));
     assert_eq!(
         ui.text_containing(&app, "sub/y.md").as_deref(),
         Some("sub/y.md")
@@ -363,7 +366,10 @@ fn the_pill_stays_while_scrolling_keeps_the_link_under_the_pointer() {
     // Into the link's second line, so a small scroll keeps it under.
     let at = Point::new(at.x, at.y + 40.0);
     let (moved, _) = ui.move_to(&app, at);
-    assert!(link_messages(&moved).is_empty(), "still on the link: {moved:?}");
+    assert!(
+        link_messages(&moved).is_empty(),
+        "still on the link: {moved:?}"
+    );
     assert!(ui.text_containing(&app, "sub/NOTES.MD").is_some());
 
     // A trackpad scroll of a few pixels.
@@ -424,7 +430,7 @@ fn navigating_hides_the_link_pill() {
     send(&mut app, Message::Open(a.clone()));
     settle(&mut app, &mut ui);
 
-    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into(), 1));
     send(&mut app, Message::Open(dir.join("conf.yaml")));
     assert!(
         ui.text_containing(&app, "sub/NOTES.MD").is_none(),
@@ -432,11 +438,57 @@ fn navigating_hides_the_link_pill() {
     );
 
     send(&mut app, Message::Open(a));
-    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into(), 1));
     send(&mut app, Message::ToggleMindmap);
     assert!(
         ui.text_containing(&app, "sub/NOTES.MD").is_none(),
         "the mind map hides the pill"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn moving_up_between_two_links_to_one_url_keeps_the_pill() {
+    let (mut app, dir) = fixture("same-url");
+    let a = dir.join("a.md");
+    std::fs::write(
+        &a,
+        "# A\n\n[the notes](sub/NOTES.MD)\n\nPlain words between.\n\n[the notes](sub/NOTES.MD)\n",
+    )
+    .expect("a.md");
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(a));
+    settle(&mut app, &mut ui);
+    let (upper, _) = find_link(&app, &mut ui).expect("the upper link");
+    let _ = ui.move_to(&app, Point::new(5.0, 5.0));
+    // The lower link: the same row of x, further down.
+    let lower = (1..60)
+        .map(|step| Point::new(upper.x, upper.y + 30.0 + step as f32 * 4.0))
+        .find(|at| {
+            let (messages, _) = ui.move_to(&app, *at);
+            let hit = has(&messages, |m| matches!(m, Message::LinkHovered(..)));
+            let _ = ui.move_to(&app, Point::new(5.0, 5.0));
+            hit
+        })
+        .expect("the lower link");
+    let (entered, _) = ui.move_to(&app, lower);
+    super::group2::apply_ui(&mut app, &mut ui, entered);
+    assert!(ui.text_containing(&app, "sub/NOTES.MD").is_some());
+
+    // One move from the lower link straight onto the upper one: the upper
+    // widget reports its enter before the lower one reports its leave.
+    let (swap, _) = ui.move_to(&app, upper);
+    assert_eq!(link_messages(&swap).len(), 2, "{swap:?}");
+    super::group2::apply_ui(&mut app, &mut ui, swap);
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_some(),
+        "the pointer is on the upper link, so the pill stays"
+    );
+    let (left, _) = ui.move_to(&app, Point::new(5.0, 5.0));
+    super::group2::apply_ui(&mut app, &mut ui, left);
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "leaving the upper link hides it"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -448,22 +500,25 @@ fn pages_over_the_reader_hide_the_link_pill() {
     send(&mut app, Message::Open(dir.join("a.md")));
     let pill = |ui: &mut PointerUi, app: &App| ui.text_containing(app, "sub/NOTES.MD");
 
-    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into(), 1));
     send(&mut app, Message::OpenSettings);
     assert!(pill(&mut ui, &app).is_none(), "Settings hides the pill");
     send(&mut app, Message::CloseSettings);
     assert!(pill(&mut ui, &app).is_none(), "and it stays hidden");
 
-    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into(), 1));
     send(&mut app, Message::OpenVaultSearch);
     assert!(app.vault_open);
     assert!(pill(&mut ui, &app).is_none(), "vault search hides the pill");
     send(&mut app, Message::VaultClose);
 
-    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into(), 1));
     send(&mut app, Message::FileLoaded(Err("boom".into())));
     assert!(app.error.is_some());
-    assert!(pill(&mut ui, &app).is_none(), "the error card hides the pill");
+    assert!(
+        pill(&mut ui, &app).is_none(),
+        "the error card hides the pill"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -517,7 +572,7 @@ fn a_linked_image_follows_its_link_and_an_unlinked_one_zooms() {
     assert!(
         has(
             &entered,
-            |m| matches!(m, Message::LinkHovered(u) if u == "https://ci.example.com")
+            |m| matches!(m, Message::LinkHovered(u, _) if u == "https://ci.example.com")
         ),
         "its destination shows: {entered:?}"
     );

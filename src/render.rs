@@ -1105,12 +1105,12 @@ fn render_image<'a>(
     let placeholder = |msg: String| -> Element<'a, Message> {
         let shown: Element<'a, Message> = text(msg).color(pal.muted).into();
         match link {
-            Some(link) => linked_image(shown, link),
+            Some(link) => linked_image(shown, link, url),
             None => shown,
         }
     };
     let clickable = |image: Element<'a, Message>, key: String| match link {
-        Some(link) => linked_image(image, link),
+        Some(link) => linked_image(image, link, url),
         None => zoomable(image, key),
     };
     if is_remote_url(url) {
@@ -1160,13 +1160,25 @@ fn render_image<'a>(
 
 /// An image wrapped in a link (a badge): a click follows the link instead
 /// of opening the image viewer, and the pointer shows the destination.
-fn linked_image<'a>(image: Element<'a, Message>, link: &str) -> Element<'a, Message> {
+fn linked_image<'a>(image: Element<'a, Message>, link: &str, url: &str) -> Element<'a, Message> {
+    let source = linked_image_source(link, url);
     mouse_area(image)
         .interaction(iced::mouse::Interaction::Pointer)
         .on_press(Message::OpenLink(link.to_string()))
-        .on_enter(Message::LinkHovered(link.to_string()))
-        .on_exit(Message::LinkLeft(link.to_string()))
+        .on_enter(Message::LinkHovered(link.to_string(), source))
+        .on_exit(Message::LinkLeft(link.to_string(), source))
         .into()
+}
+
+/// The hover source of a linked image: its link and picture, so it stays
+/// the same across rebuilds and reloads. The top bit keeps it apart from
+/// the reader text widgets' ids, which count up from 1.
+fn linked_image_source(link: &str, url: &str) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    link.hash(&mut h);
+    url.hash(&mut h);
+    h.finish() | (1 << 63)
 }
 
 /// An image that opens the image viewer on click, with the zoom-in cursor
