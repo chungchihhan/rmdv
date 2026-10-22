@@ -1614,6 +1614,9 @@ impl App {
             view_mode: self.view_mode,
             full_mindmap: self.full_mindmap.is_some(),
             overlay: self.overlay,
+            settings_open: self.settings_open,
+            vault_open: self.vault_open,
+            error: self.error.is_some(),
             offset: self
                 .body_viewport
                 .as_ref()

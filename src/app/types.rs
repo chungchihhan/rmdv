@@ -321,5 +321,9 @@ pub(super) struct LinkPage {
     pub(super) view_mode: ViewMode,
     pub(super) full_mindmap: bool,
     pub(super) overlay: Overlay,
+    /// Settings, vault search and the error card replace the reader.
+    pub(super) settings_open: bool,
+    pub(super) vault_open: bool,
+    pub(super) error: bool,
     pub(super) offset: Option<f32>,
 }

@@ -357,6 +357,32 @@ fn scrolling_or_navigating_hides_the_link_pill() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn pages_over_the_reader_hide_the_link_pill() {
+    let (mut app, dir) = fixture("pages");
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(dir.join("a.md")));
+    let pill = |ui: &mut PointerUi, app: &App| ui.text_containing(app, "sub/NOTES.MD");
+
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::OpenSettings);
+    assert!(pill(&mut ui, &app).is_none(), "Settings hides the pill");
+    send(&mut app, Message::CloseSettings);
+    assert!(pill(&mut ui, &app).is_none(), "and it stays hidden");
+
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::OpenVaultSearch);
+    assert!(app.vault_open);
+    assert!(pill(&mut ui, &app).is_none(), "vault search hides the pill");
+    send(&mut app, Message::VaultClose);
+
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::FileLoaded(Err("boom".into())));
+    assert!(app.error.is_some());
+    assert!(pill(&mut ui, &app).is_none(), "the error card hides the pill");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // --- 3. Images wrapped in links ------------------------------------------------
 
 fn image_block_bounds(ui: &mut PointerUi, app: &App, linked: bool) -> Rectangle {
