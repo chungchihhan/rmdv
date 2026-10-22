@@ -113,6 +113,23 @@ impl PointerUi {
         )
     }
 
+    /// Two clicks in one pass, so a slow machine cannot stretch them past
+    /// the double-click interval.
+    fn double_click(&mut self, app: &App, at: Point) -> Vec<Message> {
+        let mut out = self.move_to(app, at).0;
+        let press = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
+        let release = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
+        out.extend(
+            self.send(
+                app,
+                at,
+                vec![press.clone(), release.clone(), press, release],
+            )
+            .0,
+        );
+        out
+    }
+
     fn click(&mut self, app: &App, at: Point) -> Vec<Message> {
         let mut out = self.move_to(app, at).0;
         out.extend(

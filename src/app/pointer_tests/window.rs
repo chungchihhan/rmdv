@@ -78,8 +78,7 @@ fn double_clicking_blank_toolbar_space_zooms_the_window() {
     let app = always(long_doc_app());
     let mut ui = PointerUi::new();
     let at = blank_toolbar_point(&mut ui, &app);
-    let mut messages = ui.click(&app, at);
-    messages.extend(ui.click(&app, at));
+    let messages = ui.double_click(&app, at);
     assert_eq!(zooms(&messages), APP_DRAWS_TITLEBAR, "{messages:?}");
 }
 
@@ -488,8 +487,7 @@ fn disabled_toolbar_controls_do_not_move_or_zoom_the_window() {
     let mut ui = PointerUi::new();
     for label in ["Read", "Edit", "Mind Map"] {
         let at = center(ui.text_bounds(&app, label).expect("segment"));
-        let mut messages = ui.click(&app, at);
-        messages.extend(ui.click(&app, at));
+        let messages = ui.double_click(&app, at);
         assert!(!drags(&messages), "{label}: {messages:?}");
         assert!(!zooms(&messages), "{label}: {messages:?}");
     }

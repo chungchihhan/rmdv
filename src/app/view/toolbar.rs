@@ -277,7 +277,9 @@ pub(in crate::app) fn toolbar<'a>(
         ..Default::default()
     });
     // Its blank space moves the window, as the titlebar it replaces does.
-    let bar = window_drag_area(bar);
+    // Opaque: where no drag area takes the press (a native title bar), a
+    // press on blank space still must not reach the editor under it.
+    let bar = iced::widget::opaque(window_drag_area(bar));
     if look.hairline {
         column![
             bar,
