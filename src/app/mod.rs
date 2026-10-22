@@ -44,10 +44,9 @@ const KEYBOARD_BUTTON_HEIGHT: f32 = 26.0; // 14px text at 1.3 line-height + 4px 
 const KEYBOARD_BUTTON_BOTTOM_PAD: f32 = 12.0;
 const KEYBOARD_BUTTON_FOOTER_BOTTOM_PAD: f32 = 44.0;
 const ZEN_EDITOR_OVERLAY_CLEARANCE: f32 = 2.0;
-/// Top padding of the body scrollable's content (`Padding::from([56, 32])` in
-/// `view`). Virt-window math works in body-relative px; every conversion from
-/// scrollable offsets must subtract this.
-const BODY_TOP_PAD: f32 = 56.0;
+/// Bottom padding of the body scrollable's content. Its top padding is
+/// `App::body_top_pad`.
+const BODY_BOTTOM_PAD: f32 = 56.0;
 const TREE_INDENT: f32 = 14.0;
 const SCROLLER_FADE_MS: u64 = 1200;
 const SIDEBAR_MIN: f32 = 160.0;
@@ -2021,11 +2020,23 @@ impl App {
         Task::done(Message::RestoreBodySnap(rel.clamp(0.0, 1.0)))
     }
 
+    /// Top padding of the body scrollable's content. Virt-window math works
+    /// in body-relative px; every conversion from scrollable offsets must
+    /// subtract this. Always mode reserves the toolbar's height above the
+    /// reader, so the text starts at the same height in both modes.
+    fn body_top_pad(&self) -> f32 {
+        match self.prefs.toolbar {
+            crate::prefs::ToolbarMode::OnHover => READER_TOP_PAD,
+            crate::prefs::ToolbarMode::Always => READER_TOP_PAD - TOOLBAR_H,
+        }
+    }
+
     /// Body-relative scroll offset (px past the top of the rendered column).
     fn body_offset(&self) -> f32 {
+        let pad = self.body_top_pad();
         self.body_viewport
             .as_ref()
-            .map(|v| (v.absolute_offset().y - BODY_TOP_PAD).max(0.0))
+            .map(|v| (v.absolute_offset().y - pad).max(0.0))
             .unwrap_or(0.0)
     }
 
@@ -3443,13 +3454,7 @@ impl App {
             && self.view_mode != ViewMode::Mindmap;
 
         let toolbar_always = self.prefs.toolbar == crate::prefs::ToolbarMode::Always;
-        // The text starts at the same height in both toolbar modes: Always
-        // reserves the toolbar's height above the reader.
-        let reader_top_pad = if toolbar_always {
-            READER_TOP_PAD - TOOLBAR_H
-        } else {
-            READER_TOP_PAD
-        };
+        let reader_top_pad = self.body_top_pad();
         let reader: Element<'_, Message> = if self.settings_open {
             // Drawn over whatever view is open, which stays untouched below.
             settings_page(self, pal, reader_fill)
@@ -3697,7 +3702,7 @@ impl App {
                         .padding(Padding {
                             top: reader_top_pad,
                             right: 32.0,
-                            bottom: 56.0,
+                            bottom: BODY_BOTTOM_PAD,
                             left: 32.0,
                         })
                         .center_x(Length::Fill)

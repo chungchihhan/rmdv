@@ -694,3 +694,25 @@ fn always_toolbar_clicks_keep_the_zen_editor_focused() {
         );
     }
 }
+
+#[test]
+fn always_mode_body_offset_matches_the_reader_padding() {
+    let mut app = always(long_doc_app());
+    let mut ui = PointerUi::new();
+    let column = ui.id_bounds(&app, "reader-column").expect("reading column");
+    for _ in 0..4 {
+        let messages = ui.wheel(&app, Point::new(640.0, 400.0));
+        apply(&mut app, messages);
+    }
+    let viewport = app.body_viewport.as_ref().expect("the reader scrolled");
+    let offset = viewport.absolute_offset().y;
+    assert!(offset > 100.0, "scrolled past the padding: {offset}");
+    // The column's unscrolled top, relative to the scrollable, is the
+    // content's real top padding.
+    let pad = column.y - viewport.bounds().y;
+    assert!(
+        (app.body_offset() - (offset - pad)).abs() < 0.5,
+        "body offset {} vs scroll offset {offset} minus padding {pad}",
+        app.body_offset()
+    );
+}
