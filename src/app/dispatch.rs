@@ -2923,9 +2923,30 @@ impl App {
                 }
                 let len_i = len as isize;
                 self.tree_cursor = ((self.tree_cursor as isize + d).rem_euclid(len_i)) as usize;
+                self.tree_cursor_shown = true;
                 self.scroll_tree_to_cursor_with_len(len)
             }
+            Message::TreeRowClicked { path, is_dir } => {
+                if let Some(root) = &self.workspace_tree {
+                    let rows = tree::flatten_with_files(
+                        root,
+                        &self.workspace_sidebar_files,
+                        &self.expanded,
+                    );
+                    if let Some(index) = rows.iter().position(|row| row.node.path() == path) {
+                        self.tree_cursor = index;
+                    }
+                }
+                self.tree_cursor_shown = false;
+                // Then the row's own action, as before the cursor moved.
+                self.dispatch_message(if is_dir {
+                    Message::TreeToggle(path)
+                } else {
+                    Message::Open(path)
+                })
+            }
             Message::TreeActivate => {
+                self.tree_cursor_shown = true;
                 let Some(root) = &self.workspace_tree else {
                     return Task::none();
                 };
@@ -2955,6 +2976,12 @@ impl App {
                     ((self.outline_cursor as isize + d).rem_euclid(len_i)) as usize;
                 self.scroll_outline_to_cursor()
             }
+            Message::OutlineRowClicked { index, line } => {
+                if index < self.outline_sections.len() {
+                    self.outline_cursor = index;
+                }
+                self.scroll_to_line_top(line)
+            }
             Message::OutlineActivate => {
                 let Some(s) = self.outline_sections.get(self.outline_cursor) else {
                     return Task::none();
@@ -2963,6 +2990,7 @@ impl App {
             }
             Message::ScrollToLine(line) => self.scroll_to_line_top(line),
             Message::TreeToggleAtCursor => {
+                self.tree_cursor_shown = true;
                 let Some(root) = &self.workspace_tree else {
                     return Task::none();
                 };

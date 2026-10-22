@@ -174,7 +174,8 @@ pub(in crate::app) fn sidebar_files_body<'a>(
     if let Some(tree_root) = &app.workspace_tree {
         let rows = tree::flatten_with_files(tree_root, &app.workspace_sidebar_files, &app.expanded);
         let current = app.file.as_ref();
-        let cursor = app.tree_cursor;
+        // The cursor row is painted only while the arrow keys drive it.
+        let cursor = app.tree_cursor_shown.then_some(app.tree_cursor);
         for r in rows.iter() {
             let w = tree_row_width(r.node, r.depth);
             if w > content_w {
@@ -185,7 +186,14 @@ pub(in crate::app) fn sidebar_files_body<'a>(
         // full height so scroll offsets and keyboard edge-scroll still match.
         list = push_sidebar_rows(list, app.tree_viewport.as_ref(), rows.len(), |i| {
             let r = &rows[i];
-            tree_row(r.node, r.depth, &app.expanded, current, i == cursor, pal)
+            tree_row(
+                r.node,
+                r.depth,
+                &app.expanded,
+                current,
+                cursor == Some(i),
+                pal,
+            )
         });
     }
     let list = list.width(Length::Fixed(content_w));
@@ -222,7 +230,7 @@ pub(in crate::app) fn sidebar_outline_body<'a>(
         );
     } else {
         list = push_sidebar_rows(list, app.outline_viewport.as_ref(), sections.len(), |i| {
-            outline_row(&sections[i], i == app.outline_cursor, pal)
+            outline_row(&sections[i], i, i == app.outline_cursor, pal)
         });
     }
     scrollable(list.width(Length::Fill))
@@ -325,6 +333,7 @@ pub(in crate::app) fn sidebar_rows_near(
 
 pub(in crate::app) fn outline_row<'a>(
     s: &crate::ipc::sections::Section,
+    index: usize,
     is_cursor: bool,
     pal: Palette,
 ) -> Element<'a, Message> {
@@ -363,7 +372,10 @@ pub(in crate::app) fn outline_row<'a>(
             },
             ..Default::default()
         })
-        .on_press(goto_line_message(s.line))
+        .on_press(Message::OutlineRowClicked {
+            index,
+            line: s.line,
+        })
         .into()
 }
 
@@ -504,11 +516,7 @@ pub(in crate::app) fn tree_row<'a>(
     .align_y(iced::Alignment::Center)
     .spacing(0);
 
-    let on_press = if is_dir {
-        Message::TreeToggle(path)
-    } else {
-        Message::Open(path)
-    };
+    let on_press = Message::TreeRowClicked { path, is_dir };
 
     button(content)
         .padding(Padding::from([4, 8]))

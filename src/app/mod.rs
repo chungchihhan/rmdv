@@ -198,6 +198,9 @@ pub struct App {
     pub sidebar_open: bool,
     pub sidebar_tab: SidebarTab,
     pub tree_cursor: usize,
+    /// The tree cursor's background shows only while the arrow keys move it;
+    /// a row click hides it, so hover and cursor never look like two rows.
+    pub tree_cursor_shown: bool,
     pub outline_cursor: usize,
     /// Heading outline, rebuilt in `load_ast_from_source` when the document
     /// changes. Cached so the Outline sidebar (rendered every frame) and arrow
@@ -509,6 +512,7 @@ impl Default for App {
             sidebar_open: false,
             sidebar_tab: SidebarTab::Files,
             tree_cursor: 0,
+            tree_cursor_shown: false,
             outline_cursor: 0,
             outline_sections: Vec::new(),
             overlay: Overlay::None,

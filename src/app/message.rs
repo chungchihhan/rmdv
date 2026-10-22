@@ -134,6 +134,18 @@ pub enum Message {
     /// Toggle visibility of dot-prefixed entries in tree + picker.
     ToggleHidden,
     TreeToggle(PathBuf),
+    /// A pointer click on a file-tree row: moves the tree cursor there, then
+    /// opens the file or toggles the folder.
+    TreeRowClicked {
+        path: PathBuf,
+        is_dir: bool,
+    },
+    /// A pointer click on an outline row: moves the outline cursor there,
+    /// then scrolls to the heading's line.
+    OutlineRowClicked {
+        index: usize,
+        line: u32,
+    },
     TreeMove(isize),
     TreeActivate,
     OutlineMove(isize),

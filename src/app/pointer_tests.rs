@@ -1014,3 +1014,111 @@ mod group2 {
         let _ = std::fs::remove_dir_all(&other);
     }
 }
+
+// --- Group 3: sidebar, reader, tooltips, Full Mindmap exit ------------------
+
+mod group3 {
+    use super::*;
+
+    /// A workspace with two files and a folder holding a third, opened with
+    /// the Files sidebar showing.
+    fn tree_fixture(tag: &str) -> (App, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("rmdv-tree-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("sub")).expect("fixture dir");
+        std::fs::write(dir.join("alpha.md"), "# Alpha\n").expect("alpha.md");
+        std::fs::write(dir.join("beta.md"), "# Beta\n").expect("beta.md");
+        std::fs::write(dir.join("sub").join("gamma.md"), "# Gamma\n").expect("gamma.md");
+        let dir = canonicalize_existing_path(dir);
+        let mut app = App::default();
+        app.set_workspace(dir.clone(), true);
+        app.sidebar_tab = SidebarTab::Files;
+        (app, dir)
+    }
+
+    fn tree_index(app: &App, path: &Path) -> usize {
+        let rows = tree::flatten_with_files(
+            app.workspace_tree.as_ref().unwrap(),
+            &app.workspace_sidebar_files,
+            &app.expanded,
+        );
+        rows.iter()
+            .position(|row| row.node.path() == path)
+            .expect("row is in the tree")
+    }
+
+    // --- 1. Row clicks move the tree and outline cursors ---------------------
+
+    #[test]
+    fn clicking_a_tree_file_moves_the_cursor_and_focus_to_it() {
+        let (mut app, dir) = tree_fixture("click-file");
+        let beta = dir.join("beta.md");
+        let _ = app.update(Message::TreeMove(1));
+        assert!(app.tree_cursor_shown, "arrow keys show the cursor");
+        let before = app.tree_cursor;
+        let mut ui = PointerUi::new();
+        let row = ui.text_bounds(&app, "beta.md").expect("beta row");
+        assert!(row.x < app.sidebar_width);
+
+        let messages = ui.click(&app, center(row));
+        apply(&mut app, messages);
+
+        assert_ne!(before, tree_index(&app, &beta));
+        assert_eq!(
+            app.tree_cursor,
+            tree_index(&app, &beta),
+            "cursor follows the click"
+        );
+        assert!(!app.tree_cursor_shown, "a click hides the keyboard cursor");
+        assert_eq!(app.focused_file_path(), Some(beta), "Reveal/Copy act on it");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clicking_a_tree_folder_moves_the_cursor_and_toggles_it() {
+        let (mut app, dir) = tree_fixture("click-folder");
+        let sub = dir.join("sub");
+        let alpha = dir.join("alpha.md");
+        // Keyboard cursor on a file: Reveal would act on it.
+        app.tree_cursor = tree_index(&app, &alpha);
+        app.tree_cursor_shown = true;
+        let mut ui = PointerUi::new();
+        let row = ui.text_bounds(&app, "sub").expect("folder row");
+
+        let messages = ui.click(&app, center(row));
+        apply(&mut app, messages);
+
+        assert!(app.expanded.contains(&sub), "the folder opens");
+        assert_eq!(app.tree_cursor, tree_index(&app, &sub));
+        assert!(!app.tree_cursor_shown);
+        assert_ne!(
+            app.focused_file_path(),
+            Some(alpha),
+            "the old cursor row no longer drives Reveal/Copy"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn clicking_an_outline_row_moves_the_outline_cursor() {
+        let (mut app, dir) = tree_fixture("click-outline");
+        let _ = app.update(Message::FileLoaded(Ok((
+            dir.join("alpha.md"),
+            "# Outline One\n\ntext\n\n## Outline Two\n\ntext\n\n## Outline Three\n\ntext\n".into(),
+        ))));
+        app.sidebar_tab = SidebarTab::Outline;
+        assert_eq!(app.outline_cursor, 0);
+        let mut ui = PointerUi::new();
+        let row = ui.text_bounds(&app, "Outline Three").expect("outline row");
+        assert!(
+            row.x < app.sidebar_width,
+            "the sidebar row, not the heading"
+        );
+
+        let messages = ui.click(&app, center(row));
+        apply(&mut app, messages);
+
+        assert_eq!(app.outline_cursor, 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
