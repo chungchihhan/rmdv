@@ -47,7 +47,7 @@ fn pressing_blank_toolbar_space_moves_the_window() {
     let mut ui = PointerUi::new();
     let at = blank_toolbar_point(&mut ui, &app);
     let messages = ui.click(&app, at);
-    assert!(drags(&messages), "{messages:?}");
+    assert_eq!(drags(&messages), APP_DRAWS_TITLEBAR, "{messages:?}");
     assert!(!zooms(&messages), "one click does not zoom");
 }
 
@@ -78,7 +78,7 @@ fn double_clicking_blank_toolbar_space_zooms_the_window() {
     let at = blank_toolbar_point(&mut ui, &app);
     let mut messages = ui.click(&app, at);
     messages.extend(ui.click(&app, at));
-    assert!(zooms(&messages), "{messages:?}");
+    assert_eq!(zooms(&messages), APP_DRAWS_TITLEBAR, "{messages:?}");
 }
 
 #[test]
@@ -88,7 +88,7 @@ fn revealed_hover_toolbar_moves_the_window() {
     let mut ui = PointerUi::new();
     let at = blank_toolbar_point(&mut ui, &app);
     let messages = ui.click(&app, at);
-    assert!(drags(&messages), "{messages:?}");
+    assert_eq!(drags(&messages), APP_DRAWS_TITLEBAR, "{messages:?}");
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn sidebar_header_moves_the_window() {
         Point::new(title.x + 4.0, (title.y - 6.0).max(1.0)),
     ] {
         let messages = ui.click(&app, at);
-        assert!(drags(&messages), "{at:?}: {messages:?}");
+        assert_eq!(drags(&messages), APP_DRAWS_TITLEBAR, "{at:?}: {messages:?}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -491,6 +491,44 @@ fn disabled_toolbar_controls_do_not_move_or_zoom_the_window() {
         assert!(!drags(&messages), "{label}: {messages:?}");
         assert!(!zooms(&messages), "{label}: {messages:?}");
     }
+}
+
+#[test]
+fn window_drag_area_acts_only_where_rmdv_draws_the_titlebar() {
+    use iced::advanced::renderer::Headless;
+    let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+        iced::Font::DEFAULT,
+        iced::Pixels(16.0),
+        Some("tiny-skia"),
+    ))
+    .expect("headless tiny-skia renderer");
+    let size = Size::new(200.0, 40.0);
+    let at = Point::new(100.0, 20.0);
+    let press = |titlebar_hidden: bool, renderer: &mut iced::Renderer| {
+        let area: Element<'_, Message> = titlebar_drag_area(
+            Space::new().width(Length::Fill).height(Length::Fill),
+            titlebar_hidden,
+        );
+        let mut ui = UserInterface::build(area, size, Cache::default(), renderer);
+        let mut messages = Vec::new();
+        let _ = ui.update(
+            &[
+                Event::Mouse(mouse::Event::CursorMoved { position: at }),
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            ],
+            mouse::Cursor::Available(at),
+            renderer,
+            &mut iced::advanced::clipboard::Null,
+            &mut messages,
+        );
+        messages
+    };
+    assert!(drags(&press(true, &mut renderer)));
+    assert!(
+        press(false, &mut renderer).is_empty(),
+        "under a native title bar the chrome does not move the window"
+    );
+    assert_eq!(APP_DRAWS_TITLEBAR, cfg!(target_os = "macos"));
 }
 
 #[test]
