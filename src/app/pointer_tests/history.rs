@@ -49,6 +49,9 @@ fn run(app: &mut App, ui: &mut PointerUi, task: Task<Message>) {
             tokio::time::timeout(Duration::from_millis(200), stream.next()).await
         });
         match next {
+            // A toast's expiry timer runs on the wall clock; a slow machine
+            // would clear the toast before the test reads it.
+            Ok(Some(iced_runtime::Action::Output(Message::ToastExpire(_)))) => {}
             Ok(Some(iced_runtime::Action::Output(message))) => {
                 let task = app.update(message);
                 run(app, ui, task);
