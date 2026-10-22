@@ -345,6 +345,16 @@ pub enum Message {
         result: Result<(PathBuf, tree::ExpandedFolderSnapshot), String>,
     },
     WindowResized(iced::window::Id, iced::Size),
+    /// The red close button (or the platform's close) asked to close.
+    WindowCloseRequested(iced::window::Id),
+    /// ⌘Q (the app menu's Quit) asked to quit; macOS only.
+    QuitRequested,
+    /// Close confirmation: save, then close if the save succeeds.
+    CloseConfirmSave,
+    /// Close confirmation: close without saving.
+    CloseConfirmDiscard,
+    /// Close confirmation: keep the window open.
+    CloseConfirmCancel,
     WindowUnfocused(iced::window::Id),
     RefreshWindowMode(iced::window::Id),
     RefreshWindowModeSettled(iced::window::Id),

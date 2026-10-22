@@ -9,6 +9,8 @@ impl App {
             self.settings_open = false;
         }
         let mut task = self.dispatch_message(msg);
+        // ⌘Q reads this from AppKit, outside the update loop.
+        crate::macos_quit::set_unsaved(self.dirty);
         if let Some(glass) = self.sync_glass() {
             task = Task::batch([task, glass]);
         }
@@ -21,7 +23,9 @@ impl App {
     fn dispatch_message(&mut self, msg: Message) -> Task<Message> {
         // A clean Zen editor can keep focus under the replace confirmation;
         // its Enter must not type into the buffer.
-        if self.quick_slot_replace.is_some() && matches!(msg, Message::EditorAction(_)) {
+        if (self.quick_slot_replace.is_some() || self.close_confirm.is_some())
+            && matches!(msg, Message::EditorAction(_))
+        {
             return Task::none();
         }
         if let Some(rel) = self.queued_snap.take() {
@@ -393,6 +397,14 @@ impl App {
             }
             Message::QuickSlotClose => self.close_active_quick_slot(),
             Message::QuickSlotCloseWindow => self.close_quick_slot_window(),
+            Message::WindowCloseRequested(id) => self.request_window_close(Some(id)),
+            Message::QuitRequested => self.request_window_close(None),
+            Message::CloseConfirmSave => self.close_confirm_save(),
+            Message::CloseConfirmDiscard => self.close_confirm_discard(),
+            Message::CloseConfirmCancel => {
+                self.close_confirm = None;
+                Task::none()
+            }
             Message::QuickSlotCycle(delta) => {
                 let active = self.quick_slots.active;
                 let start = active.unwrap_or(if delta < 0 {
@@ -2209,6 +2221,11 @@ impl App {
                 // An older write may finish after a newer save was queued. Only
                 // advance the persisted baseline when this is still the source
                 // shown by the app; otherwise the newer write owns the state.
+                // A close confirmed with Save waits on this write.
+                let close_waits = self
+                    .close_after_save
+                    .as_ref()
+                    .is_some_and(|pending| pending.text == saved_source);
                 if self.source == saved_source {
                     self.saved_source = saved_source;
                     let current = self
@@ -2218,7 +2235,12 @@ impl App {
                         .unwrap_or_else(|| self.source.clone());
                     self.dirty = current != self.saved_source;
                 }
-                self.show_toast("✓ Saved".into())
+                let close = if close_waits {
+                    self.close_after_save_settled()
+                } else {
+                    Task::none()
+                };
+                Task::batch([self.show_toast("✓ Saved".into()), close])
             }
             Message::FileSaved {
                 result: Err(e),
@@ -2230,6 +2252,8 @@ impl App {
                 if self.source == saved_source {
                     self.dirty = true;
                 }
+                // The close waiting on a save does not happen.
+                self.close_after_save = None;
                 let message = format!("save failed: {e}");
                 match self.file.clone() {
                     Some(path) => self.set_error_for(message, path),

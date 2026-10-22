@@ -452,6 +452,13 @@ pub struct App {
     quick_slots_undo: Option<crate::quick_slots::ClearUndo>,
     /// Open "replace slot?" confirmation; it owns the keyboard while set.
     quick_slot_replace: Option<QuickSlotReplace>,
+    /// Open "save before closing?" confirmation; it owns the keyboard while
+    /// set.
+    close_confirm: Option<CloseConfirm>,
+    /// A close that waits for this save (the text it writes) to succeed.
+    close_after_save: Option<CloseAfterSave>,
+    /// The window close was sent; no further close request applies.
+    window_closing: bool,
     pub quick_slots_modifier_held: bool,
     quick_slots_rail_revealed: bool,
     quick_slots_modifier_generation: u64,
@@ -637,6 +644,9 @@ impl Default for App {
             quick_slots_root: None,
             quick_slots_undo: None,
             quick_slot_replace: None,
+            close_confirm: None,
+            close_after_save: None,
+            window_closing: false,
             quick_slots_modifier_held: false,
             quick_slots_rail_revealed: false,
             quick_slots_modifier_generation: 0,
@@ -1726,6 +1736,8 @@ impl App {
         crate::native_pinch::install();
         // Finder delivers document opens through AppKit rather than argv.
         crate::macos_open::install();
+        // ⌘Q with unsaved edits asks first, as the red close button does.
+        crate::macos_quit::install();
         let mut app = Self::default();
         let mut errs = Vec::new();
         let mut combined = crate::theme_load::bundled().clone();
@@ -2840,6 +2852,7 @@ impl App {
         let quick_slots_allowed =
             quick_slots_shortcuts_enabled(overlay_open, vault_open, focused, editing, self.dirty);
         let slot_replace_open = self.quick_slot_replace.is_some();
+        let close_confirm_open = self.close_confirm.is_some();
         let keys = iced::event::listen_with(|ev, status, _id| {
             let is_keyboard = matches!(
                 &ev,
@@ -2878,7 +2891,11 @@ impl App {
                 quick_slots_allowed,
                 settings_open,
             ),
-            (slot_replace_open, self.reader_select_all),
+            (
+                slot_replace_open,
+                self.reader_select_all,
+                close_confirm_open,
+            ),
         ))
         .map(
             |(
@@ -2897,7 +2914,7 @@ impl App {
                         quick_slots_allowed,
                         settings_open,
                     ),
-                    (slot_replace_open, select_all),
+                    (slot_replace_open, select_all, close_confirm_open),
                 ),
                 (ev, reader_copied),
             )| {
@@ -2941,6 +2958,14 @@ impl App {
                 // match shortcuts on the physical key's Latin character.
                 let key = latin_shortcut_key(key, physical, mods);
                 let modified_key = latin_shortcut_key(modified_key, physical, mods);
+                // The close confirmation owns the keyboard the same way.
+                if close_confirm_open {
+                    return if released {
+                        Message::Noop
+                    } else {
+                        close_confirm_key_message(&key, mods)
+                    };
+                }
                 let cmd = mods.command() || mods.control();
                 // Quick Slot chords are physical-key based so alternate
                 // layouts cannot turn a digit/arrow into a different action.
@@ -3302,6 +3327,8 @@ impl App {
         let ipc = iced::Subscription::run(ipc_subscription_stream);
         let native_pinch = crate::native_pinch::subscription().map(Message::MindmapNativePinch);
         let macos_open = crate::macos_open::subscription().map(Message::OpenFileFinderPath);
+        let macos_quit = crate::macos_quit::subscription().map(|()| Message::QuitRequested);
+        let close_requests = iced::window::close_requests().map(Message::WindowCloseRequested);
         let window_events = iced::window::events().filter_map(|(id, event)| match event {
             iced::window::Event::Unfocused => Some(Message::WindowUnfocused(id)),
             iced::window::Event::Opened { .. }
@@ -3337,6 +3364,8 @@ impl App {
             ipc,
             native_pinch,
             macos_open,
+            macos_quit,
+            close_requests,
         ])
     }
 
@@ -3910,6 +3939,11 @@ impl App {
             Some(pending) => quick_slot_replace_overlay(pending, pal),
             None => Space::new().into(),
         };
+        let close_confirm_layer: Element<'_, Message> = if self.close_confirm.is_some() {
+            close_confirm_overlay(self.file.as_deref(), pal)
+        } else {
+            Space::new().into()
+        };
         let toast_layer: Element<'_, Message> = match &self.toast {
             Some(t) => toast_overlay(t, pal),
             None => Space::new().into(),
@@ -3930,6 +3964,7 @@ impl App {
         iced::widget::stack![
             base,
             slot_replace_layer,
+            close_confirm_layer,
             progress_layer,
             toast_layer,
             update_layer

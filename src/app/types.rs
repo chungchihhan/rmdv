@@ -93,6 +93,21 @@ pub(super) struct PendingIpcFileOpen {
     pub(super) nav: Option<PendingNav>,
 }
 
+/// A window close that waits for the user to save or drop unsaved edits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CloseConfirm {
+    /// The window to close; `None` for a quit (⌘Q), which closes the latest.
+    pub(super) window: Option<iced::window::Id>,
+}
+
+/// A close confirmed with Save: it goes ahead once the write of `text`
+/// succeeds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct CloseAfterSave {
+    pub(super) window: Option<iced::window::Id>,
+    pub(super) text: String,
+}
+
 /// An assignment that waits for the user to confirm replacing an occupied slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct QuickSlotReplace {
