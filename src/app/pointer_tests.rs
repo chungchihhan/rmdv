@@ -874,4 +874,55 @@ mod group2 {
         let mut ui = PointerUi::new();
         assert!(ui.id_bounds(&app, "toast-close").is_none());
     }
+
+    // --- 4. Open-file error card: Dismiss and Reveal in Finder --------------
+
+    #[test]
+    fn open_error_card_offers_dismiss_and_reveal() {
+        let mut app = long_doc_app();
+        let missing = std::env::temp_dir()
+            .join("rmdv-pointer-missing")
+            .join("gone.md");
+        let _ = app.update(Message::Open(missing.clone()));
+        let generation = app.file_refresh_generation;
+        let _ = app.update(Message::FileLoadCompleted {
+            generation,
+            result: Err("No such file or directory".into()),
+        });
+        assert!(app.error.is_some());
+
+        let mut ui = PointerUi::new();
+        let reveal = ui
+            .text_bounds(&app, "Reveal in Finder")
+            .expect("the error card has Reveal in Finder");
+        let messages = ui.click(&app, center(reveal));
+        assert!(
+            has(&messages, |m| matches!(m, Message::RevealPath(p) if *p == missing)),
+            "Reveal targets the file that failed to open: {messages:?}"
+        );
+
+        let dismiss = ui
+            .text_bounds(&app, "Dismiss")
+            .expect("the error card has Dismiss");
+        let messages = ui.click(&app, center(dismiss));
+        apply(&mut app, messages);
+        assert!(app.error.is_none());
+        assert!(
+            ui.text_bounds(&app, "Couldn't open file").is_none(),
+            "the card is gone"
+        );
+        assert_eq!(
+            app.file.as_deref(),
+            Some(Path::new("/tmp/pointer-long.md")),
+            "the open document shows again"
+        );
+    }
+
+    #[test]
+    fn reveal_target_falls_back_to_the_nearest_existing_folder() {
+        let base = std::env::temp_dir();
+        let missing = base.join("rmdv-pointer-missing").join("gone.md");
+        assert_eq!(reveal_target(&missing), base);
+        assert_eq!(reveal_target(&base), base);
+    }
 }

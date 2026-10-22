@@ -32,6 +32,30 @@ pub(in crate::app) fn primary_button<'a>(
         })
 }
 
+/// Quiet outlined pill that sits beside a [`primary_button`] as the
+/// secondary choice.
+pub(in crate::app) fn secondary_button<'a>(
+    label: &'a str,
+    pal: Palette,
+) -> button::Button<'a, Message> {
+    button(text(label).size(13).color(pal.muted))
+        .padding(Padding::from([8, 14]))
+        .style(move |_, status| button::Style {
+            background: match status {
+                button::Status::Hovered => Some(Background::Color(pal.hover())),
+                button::Status::Pressed => Some(Background::Color(pal.active())),
+                _ => None,
+            },
+            text_color: pal.muted,
+            border: Border {
+                color: pal.border(),
+                width: 1.0,
+                radius: theme::radius::PILL.into(),
+            },
+            ..Default::default()
+        })
+}
+
 pub(in crate::app) fn ghost_lu<'a>(code: char, pal: Palette) -> button::Button<'a, Message> {
     button(icon::glyph(code, 14.0, pal.muted))
         .padding(Padding::from([4, 8]))

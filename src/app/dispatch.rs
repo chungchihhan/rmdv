@@ -41,6 +41,15 @@ impl App {
         match msg {
             Message::Open(p) => self.load_file_unless_dirty(p),
             Message::Refresh => self.refresh_status(),
+            Message::DismissError => {
+                self.error = None;
+                self.error_path = None;
+                Task::none()
+            }
+            Message::RevealPath(path) => match Self::reveal_file_in_finder(&reveal_target(&path)) {
+                Ok(()) => self.show_toast("Revealed in Finder".to_string()),
+                Err(error) => self.show_error_toast(error),
+            },
             Message::RevealFileInFinder => {
                 let Some(path) = self.focused_file_path() else {
                     return self.show_toast("No file open".into());
@@ -2198,7 +2207,11 @@ impl App {
                 if self.source == saved_source {
                     self.dirty = true;
                 }
-                self.error = Some(format!("save failed: {e}"));
+                let message = format!("save failed: {e}");
+                match self.file.clone() {
+                    Some(path) => self.set_error_for(message, path),
+                    None => self.error = Some(message),
+                }
                 Task::none()
             }
             Message::OpenImageZoom(url) => {
@@ -2438,7 +2451,19 @@ impl App {
                     // this read before it reached the update loop.
                     return Task::none();
                 }
-                self.update(Message::FileLoaded(result))
+                let failed_path = self
+                    .generic_load
+                    .take()
+                    .filter(|(load, _)| *load == generation)
+                    .map(|(_, path)| path);
+                let failure = result.as_ref().err().cloned();
+                let task = self.update(Message::FileLoaded(result));
+                if let (Some(error), Some(path)) = (failure, failed_path) {
+                    if self.error.as_ref() == Some(&error) {
+                        self.set_error_for(error, path);
+                    }
+                }
+                task
             }
             Message::RefreshFileLoaded { request, result } => {
                 let current = self.pending_refresh_file.as_ref() == Some(&request)

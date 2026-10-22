@@ -16,6 +16,10 @@ pub enum Message {
     OpenVaultSearch,
     Refresh,
     RevealFileInFinder,
+    /// Reveal this path (or its nearest existing folder) in Finder.
+    RevealPath(PathBuf),
+    /// Close the error card and show what is beneath it.
+    DismissError,
     CopyFilePath,
     VaultQueryChanged(String),
     /// Run the search for the current query (Enter when the query has changed).

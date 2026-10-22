@@ -161,6 +161,12 @@ pub struct App {
     pub line_spacing: theme::LineSpacing,
     pub show_footer: bool,
     pub error: Option<String>,
+    /// The file or folder the error card's Reveal in Finder shows, with the
+    /// error text it belongs to; a different error hides the button.
+    error_path: Option<(String, PathBuf)>,
+    /// The path of the newest generic file load and its refresh generation,
+    /// so a failed read can name the file it tried to open.
+    generic_load: Option<(u64, PathBuf)>,
     pub query: String,
     pub matches: Matches,
     pub match_idx: usize,
@@ -484,6 +490,8 @@ impl Default for App {
             line_spacing: prefs.line_spacing,
             show_footer: prefs.show_footer,
             error: None,
+            error_path: None,
+            generic_load: None,
             query: String::new(),
             matches: Matches::default(),
             match_idx: 0,
@@ -957,6 +965,7 @@ impl App {
         self.cancel_refresh_tracking();
         self.bump_file_refresh_generation();
         let generation = self.file_refresh_generation;
+        self.generic_load = Some((generation, path.clone()));
         Task::perform(load_file(path), move |result| Message::FileLoadCompleted {
             generation,
             result,
@@ -1469,10 +1478,25 @@ impl App {
                 if let Some(full) = self.full_mindmap.as_mut() {
                     full.load_error = Some(message);
                 } else {
-                    self.error = Some(message);
+                    self.set_error_for(message, path);
                 }
             }
         }
+    }
+
+    /// Show `message` on the error card with a Reveal in Finder for `path`.
+    fn set_error_for(&mut self, message: String, path: PathBuf) {
+        self.error_path = Some((message.clone(), path));
+        self.error = Some(message);
+    }
+
+    /// The path the error card can reveal: only while the error it was
+    /// recorded for is still the one shown.
+    fn error_reveal_path(&self) -> Option<&Path> {
+        self.error_path
+            .as_ref()
+            .filter(|(message, _)| self.error.as_ref() == Some(message))
+            .map(|(_, path)| path.as_path())
     }
 
     fn show_toast(&mut self, text: String) -> Task<Message> {
@@ -3342,12 +3366,24 @@ impl App {
                 reader_fill,
             )
         } else if let Some(err) = &self.error {
+            let mut actions =
+                irow![secondary_button("Dismiss", pal).on_press(Message::DismissError)]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center);
+            if let Some(path) = self.error_reveal_path() {
+                actions = actions.push(
+                    secondary_button("Reveal in Finder", pal)
+                        .on_press(Message::RevealPath(path.to_path_buf())),
+                );
+            }
+            actions = actions
+                .push(primary_button("Open Folder", pal).on_press(Message::OpenFolderPicker));
             centered_card(
                 column![
                     text("Couldn't open file").size(20).color(pal.fg),
                     text(err.clone()).color(pal.muted).size(13),
                     Space::new().height(8),
-                    primary_button("Open Folder", pal).on_press(Message::OpenFolderPicker),
+                    actions,
                 ]
                 .spacing(10)
                 .align_x(iced::Alignment::Center)
@@ -3853,6 +3889,15 @@ fn toast_duration(toast: &Toast) -> std::time::Duration {
     } else {
         std::time::Duration::from_millis(1500)
     }
+}
+
+/// The path Finder can reveal for `path`: the path itself, or its nearest
+/// existing folder when it no longer exists.
+fn reveal_target(path: &Path) -> PathBuf {
+    path.ancestors()
+        .find(|ancestor| ancestor.exists())
+        .unwrap_or(path)
+        .to_path_buf()
 }
 
 #[cfg(test)]

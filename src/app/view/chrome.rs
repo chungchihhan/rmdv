@@ -7,7 +7,7 @@ use iced::widget::column;
 
 /// Bottom-center banner inviting the user to install a downloaded update.
 pub(in crate::app) fn update_banner<'a>(version: &str, pal: Palette) -> Element<'a, Message> {
-    use iced::widget::{button, container, row, text as text_w};
+    use iced::widget::{container, row, text as text_w};
     // A small accent dot signals "something new", matching the warm accent the
     // rest of the UI uses for its single highlight color.
     let dot = container(Space::new().width(7).height(7)).style(move |_| container::Style {
@@ -24,23 +24,7 @@ pub(in crate::app) fn update_banner<'a>(version: &str, pal: Palette) -> Element<
     // Primary action uses the shared accent-pill button; "Later" is a quiet
     // ghost so the two read as primary/secondary, not two competing buttons.
     let install = primary_button("Install & Restart", pal).on_press(Message::InstallUpdate);
-    let later = button(text_w("Later").size(13.0).color(pal.muted))
-        .padding(Padding::from([8, 14]))
-        .style(move |_, status| button::Style {
-            background: match status {
-                button::Status::Hovered => Some(Background::Color(pal.hover())),
-                button::Status::Pressed => Some(Background::Color(pal.active())),
-                _ => None,
-            },
-            text_color: pal.muted,
-            border: Border {
-                color: pal.border(),
-                width: 1.0,
-                radius: theme::radius::PILL.into(),
-            },
-            ..Default::default()
-        })
-        .on_press(Message::DismissUpdate);
+    let later = secondary_button("Later", pal).on_press(Message::DismissUpdate);
     let bar = container(
         row![dot, label, Space::new().width(8), install, later]
             .spacing(10)
