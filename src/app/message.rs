@@ -211,6 +211,8 @@ pub enum Message {
     FontSizeReset,
     /// Settings → Line spacing.
     SetLineSpacing(crate::theme::LineSpacing),
+    /// Settings → Toolbar: shown on hover or always.
+    SetToolbarMode(crate::prefs::ToolbarMode),
     ToggleFooter,
     ToggleSoftSyntax,
     /// Window glass: off → sidebar → whole window (macOS).

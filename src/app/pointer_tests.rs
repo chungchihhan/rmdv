@@ -1588,3 +1588,7 @@ mod group3 {
             .all(|(_, delay)| delay.is_zero()));
     }
 }
+
+// --- P2: the top toolbar ------------------------------------------------------
+
+mod toolbar;
