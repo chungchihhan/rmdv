@@ -132,7 +132,7 @@ pub use types::{
     PendingWatcherReload, SidebarTab, ThemeEntry, Toast, ToastAction, ViewMode, ZenRestoreState,
 };
 use view::*;
-pub(crate) use view::{action_tip, sleek_scrollable_style};
+pub(crate) use view::{reader_tip, sleek_scrollable_style};
 
 fn quick_slots_rail_left_offset(sidebar_open: bool, sidebar_width: f32, full_mindmap: bool) -> f32 {
     if sidebar_open && !full_mindmap {

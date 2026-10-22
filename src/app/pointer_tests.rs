@@ -1558,4 +1558,33 @@ mod group3 {
         assert!(app.tree_cursor_shown, "the copied row is shown");
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn reader_tooltips_wait_before_they_open() {
+        let mut app = App::default();
+        let _ = app.update(Message::FileLoaded(Ok((
+            PathBuf::from("/tmp/pointer-tip-delay.md"),
+            "# Heading\n\ntext\n\n```rust\nfn main() {}\n```\n".into(),
+        ))));
+        let mut ui = PointerUi::new();
+        let _ = tip_log::take_delays();
+        let _ = ui.text_bounds(&app, "\u{0}");
+        let delays = tip_log::take_delays();
+        for label in ["Copy Code", "Collapse section"] {
+            let delay = delays
+                .iter()
+                .find(|(tip, _)| tip == label)
+                .map(|(_, delay)| *delay)
+                .unwrap_or_else(|| panic!("missing tooltip {label:?} in {delays:?}"));
+            assert!(
+                delay >= std::time::Duration::from_millis(300),
+                "{label} opens after a sweep-proof delay, got {delay:?}"
+            );
+        }
+        // Chrome icon buttons keep their instant tooltips.
+        assert!(delays
+            .iter()
+            .filter(|(tip, _)| tip.starts_with("Hide Sidebar") || tip.starts_with("Settings"))
+            .all(|(_, delay)| delay.is_zero()));
+    }
 }

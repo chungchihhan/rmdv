@@ -191,7 +191,7 @@ pub(crate) fn render_heading_with_chevron<'a>(
     } else {
         "Collapse section"
     };
-    let chev = crate::app::action_tip(chev, action, None, tooltip::Position::Left, *pal);
+    let chev = crate::app::reader_tip(chev, action, tooltip::Position::Left, *pal);
     let chev_layer = container(chev)
         .width(Length::Fill)
         .height(Length::Fill)
@@ -660,7 +660,7 @@ fn render_block<'a>(
             let code_str = code.to_string();
             let icon_glyph = crate::icon::glyph(crate::icon::ic::COPY, 13.0, pal_c.muted);
             let copy_btn =
-                container(crate::app::action_tip(
+                container(crate::app::reader_tip(
                     mouse_area(container(icon_glyph).padding(Padding::from([4, 6])).style(
                         move |_| container::Style {
                             background: Some(pal_c.code_bg.into()),
@@ -675,7 +675,6 @@ fn render_block<'a>(
                     .interaction(iced::mouse::Interaction::Pointer)
                     .on_press(Message::CopyCode(code_str)),
                     "Copy Code",
-                    None,
                     tooltip::Position::Left,
                     pal_c,
                 ))

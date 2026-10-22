@@ -16,4 +16,4 @@ pub(super) use settings::*;
 pub(super) use sidebar::*;
 pub(super) use vault_search::*;
 pub(super) use widgets::*;
-pub(crate) use widgets::{action_tip, sleek_scrollable_style};
+pub(crate) use widgets::{reader_tip, sleek_scrollable_style};

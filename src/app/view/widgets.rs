@@ -82,8 +82,42 @@ pub(crate) fn action_tip<'a>(
     position: iced::widget::tooltip::Position,
     pal: Palette,
 ) -> Element<'a, Message> {
+    tip(
+        content,
+        action,
+        shortcut,
+        position,
+        std::time::Duration::ZERO,
+        pal,
+    )
+}
+
+/// Wait before a reader tooltip opens. Fold chevrons and Copy Code buttons
+/// repeat down the document; a pointer sweeping past them opens none, and so
+/// never relayouts the reader.
+const READER_TIP_DELAY: std::time::Duration = std::time::Duration::from_millis(400);
+
+/// [`action_tip`] for controls inside the document (fold chevrons, Copy
+/// Code): it opens only after the pointer rests on the control.
+pub(crate) fn reader_tip<'a>(
+    content: impl Into<Element<'a, Message>>,
+    action: &'a str,
+    position: iced::widget::tooltip::Position,
+    pal: Palette,
+) -> Element<'a, Message> {
+    tip(content, action, None, position, READER_TIP_DELAY, pal)
+}
+
+fn tip<'a>(
+    content: impl Into<Element<'a, Message>>,
+    action: &'a str,
+    shortcut: Option<&'a str>,
+    position: iced::widget::tooltip::Position,
+    delay: std::time::Duration,
+    pal: Palette,
+) -> Element<'a, Message> {
     #[cfg(test)]
-    tip_log::record(action, shortcut);
+    tip_log::record(action, shortcut, delay);
     let mut label = irow![text(action).size(11).color(pal.fg)]
         .spacing(8)
         .align_y(iced::Alignment::Center);
@@ -106,7 +140,9 @@ pub(crate) fn action_tip<'a>(
             },
             ..Default::default()
         });
-    iced::widget::tooltip(content, pill, position).into()
+    iced::widget::tooltip(content, pill, position)
+        .delay(delay)
+        .into()
 }
 
 /// Test-only record of the tooltips built by `view`: a tooltip's body is an
@@ -117,6 +153,8 @@ pub(crate) mod tip_log {
 
     thread_local! {
         static LABELS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+        static DELAYS: RefCell<Vec<(String, std::time::Duration)>> =
+            const { RefCell::new(Vec::new()) };
     }
 
     /// The text an [`action_tip`](super::action_tip) shows, as one string.
@@ -127,13 +165,21 @@ pub(crate) mod tip_log {
         }
     }
 
-    pub(crate) fn record(action: &str, shortcut: Option<&str>) {
+    pub(crate) fn record(action: &str, shortcut: Option<&str>, delay: std::time::Duration) {
         LABELS.with(|labels| labels.borrow_mut().push(label(action, shortcut)));
+        DELAYS.with(|delays| delays.borrow_mut().push((label(action, shortcut), delay)));
     }
 
     /// Labels recorded since the last call.
     pub(crate) fn take() -> Vec<String> {
+        DELAYS.with(|delays| delays.borrow_mut().clear());
         LABELS.with(|labels| std::mem::take(&mut *labels.borrow_mut()))
+    }
+
+    /// Labels with their open delays, recorded since the last call.
+    pub(crate) fn take_delays() -> Vec<(String, std::time::Duration)> {
+        LABELS.with(|labels| labels.borrow_mut().clear());
+        DELAYS.with(|delays| std::mem::take(&mut *delays.borrow_mut()))
     }
 }
 
