@@ -317,6 +317,8 @@ pub struct App {
     /// Bumped on every band enter and leave; a hide delay that started under
     /// an older generation does nothing.
     toolbar_hover_generation: u64,
+    /// Where the hover band last sat in the widget tree (`App::toolbar_band_slot`).
+    toolbar_band_at: Option<ToolbarBandSlot>,
     /// Last document text known to have been persisted successfully. `source`
     /// may contain an unsaved Zen edit after switching back to rendered mode.
     pub saved_source: String,
@@ -605,6 +607,7 @@ impl Default for App {
             toolbar_hovered: false,
             toolbar_revealed: false,
             toolbar_hover_generation: 0,
+            toolbar_band_at: None,
             saved_source: String::new(),
             dirty: false,
             edit_history: crate::history::SnapshotStack::default(),

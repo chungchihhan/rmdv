@@ -716,3 +716,76 @@ fn always_mode_body_offset_matches_the_reader_padding() {
         app.body_offset()
     );
 }
+
+/// `tree_fixture` with alpha.md open, the pointer in the hover band, and the
+/// toolbar revealed.
+fn revealed_in_band(tag: &str) -> (App, PathBuf, PointerUi) {
+    let (app, dir) = tree_fixture(tag);
+    let mut app = app;
+    let _ = app.update(Message::FileLoaded(Ok((
+        dir.join("alpha.md"),
+        "# Alpha\n".into(),
+    ))));
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, Point::new(800.0, 400.0));
+    let (messages, _) = ui.move_to(&app, Point::new(800.0, 20.0));
+    assert_eq!(hover_count(&messages, true), 1, "{messages:?}");
+    apply(&mut app, messages);
+    assert!(app.toolbar_revealed);
+    (app, dir, ui)
+}
+
+#[test]
+fn hover_toolbar_hides_after_vault_search_took_its_band() {
+    let (mut app, dir, mut ui) = revealed_in_band("toolbar-stale-vault");
+    apply(&mut app, vec![Message::OpenVaultSearch]);
+    assert!(app.vault_open);
+    // The pointer leaves while the vault page has no band.
+    let messages = ui.move_to(&app, Point::new(800.0, 400.0)).0;
+    apply(&mut app, messages);
+    apply(&mut app, vec![Message::VaultClose]);
+    let messages = ui.move_to(&app, Point::new(810.0, 400.0)).0;
+    apply(&mut app, messages);
+    assert!(
+        ui.id_bounds(&app, "toolbar").is_none(),
+        "the toolbar is not left open with the pointer elsewhere"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn hover_toolbar_hides_after_a_mode_switch_took_its_band() {
+    let (mut app, dir, mut ui) = revealed_in_band("toolbar-stale-mode");
+    apply(&mut app, vec![Message::SetToolbarMode(ToolbarMode::Always)]);
+    let messages = ui.move_to(&app, Point::new(800.0, 400.0)).0;
+    apply(&mut app, messages);
+    apply(
+        &mut app,
+        vec![Message::SetToolbarMode(ToolbarMode::OnHover)],
+    );
+    let messages = ui.move_to(&app, Point::new(810.0, 400.0)).0;
+    apply(&mut app, messages);
+    assert!(
+        ui.id_bounds(&app, "toolbar").is_none(),
+        "the toolbar is not left open with the pointer elsewhere"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn hover_toolbar_follows_its_band_when_the_find_bar_moves_it() {
+    // The find bar pushes the band down: a pointer left on the find bar
+    // is outside it, and one moved into the band reveals it again.
+    let (mut app, dir, mut ui) = revealed_in_band("toolbar-stale-find");
+    apply(&mut app, vec![Message::ToggleSearch]);
+    assert!(app.search_open);
+    let messages = ui.move_to(&app, Point::new(801.0, 20.0)).0;
+    apply(&mut app, messages);
+    let messages = ui.move_to(&app, Point::new(802.0, 21.0)).0;
+    apply(&mut app, messages);
+    assert!(
+        !app.toolbar_revealed,
+        "a pointer on the find bar is not in the band"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

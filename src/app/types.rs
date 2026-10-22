@@ -232,3 +232,11 @@ pub(super) struct FileFinderMemo {
     pub(super) files_len: usize,
     pub(super) results: Vec<(PathBuf, String, i32)>,
 }
+
+/// How `view` wraps the hover toolbar's band (`App::toolbar_band_slot`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ToolbarBandSlot {
+    pub find_bar: bool,
+    pub sidebar: bool,
+    pub glass_corner: bool,
+}

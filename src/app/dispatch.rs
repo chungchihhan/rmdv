@@ -11,6 +11,7 @@ impl App {
         let mut task = self.dispatch_message(msg);
         // ⌘Q reads this from AppKit, outside the update loop.
         crate::macos_quit::set_unsaved(self.dirty);
+        self.sync_toolbar_band();
         if let Some(glass) = self.sync_glass() {
             task = Task::batch([task, glass]);
         }

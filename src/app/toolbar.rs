@@ -23,6 +23,39 @@ impl App {
         )
     }
 
+    /// Where the hover band sits in the widget tree, or `None` while it is
+    /// not drawn (Always mode, the vault search page). `view` wraps the band
+    /// differently with the find bar open, beside the sidebar, and under
+    /// whole-window glass; each change builds a new band.
+    pub(super) fn toolbar_band_slot(&self) -> Option<ToolbarBandSlot> {
+        let full_mindmap = self.full_mindmap.is_some();
+        let vault_page = self.vault_open && !self.settings_open && !full_mindmap;
+        if self.prefs.toolbar == crate::prefs::ToolbarMode::Always || vault_page {
+            return None;
+        }
+        let sidebar = !full_mindmap && self.sidebar_open && self.workspace.is_some();
+        Some(ToolbarBandSlot {
+            find_bar: self.search_open && !full_mindmap,
+            sidebar,
+            glass_corner: sidebar && self.glass() == Glass::Window,
+        })
+    }
+
+    /// A new band starts unhovered and never reports leaving the old one,
+    /// so the hover it held is dropped with it. A band that has the pointer
+    /// reports entering on the next event, which reveals the toolbar again.
+    pub(super) fn sync_toolbar_band(&mut self) {
+        let slot = self.toolbar_band_slot();
+        if slot == self.toolbar_band_at {
+            return;
+        }
+        self.toolbar_band_at = slot;
+        self.toolbar_hovered = false;
+        self.toolbar_revealed = false;
+        // Cancels a pending hide.
+        self.toolbar_hover_generation = self.toolbar_hover_generation.wrapping_add(1);
+    }
+
     /// A toolbar segment: show `target`, through the same transitions as its
     /// shortcut (⌘E, ⌘M, ⌘⇧M, Esc). Settings and vault search close first
     /// so the chosen view shows.
