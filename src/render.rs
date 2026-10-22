@@ -144,6 +144,9 @@ pub fn render<'a>(
         .into()
 }
 
+/// Side of the square that a heading's fold chevron answers clicks in.
+const FOLD_CHEVRON_HIT: f32 = 24.0;
+
 pub(crate) fn render_heading_with_chevron<'a>(
     id: BlockId,
     b: &'a Block,
@@ -175,20 +178,26 @@ pub(crate) fn render_heading_with_chevron<'a>(
     } else {
         iced::Color::TRANSPARENT
     };
+    // Only the chevron folds; the rest of the row is text to select.
     let chev = mouse_area(
-        container(crate::icon::glyph(glyph, 14.0, color)).padding(Padding::from([0, 4])),
+        container(crate::icon::glyph(glyph, 14.0, color))
+            .center_x(Length::Fixed(FOLD_CHEVRON_HIT))
+            .center_y(Length::Fixed(FOLD_CHEVRON_HIT)),
     )
     .interaction(iced::mouse::Interaction::Pointer)
     .on_press(Message::ToggleFold(id));
+    let action = if folded {
+        "Expand section"
+    } else {
+        "Collapse section"
+    };
+    let chev = crate::app::action_tip(chev, action, None, tooltip::Position::Left, *pal);
     let chev_layer = container(chev)
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(iced::alignment::Horizontal::Right)
         .align_y(iced::alignment::Vertical::Center);
-    let head_clickable = mouse_area(container(head).width(Length::Fill))
-        .interaction(iced::mouse::Interaction::Pointer)
-        .on_press(Message::ToggleFold(id));
-    let stacked = stack![head_clickable, chev_layer];
+    let stacked = stack![container(head).width(Length::Fill), chev_layer];
     container(
         mouse_area(stacked)
             .on_enter(Message::HeadingHoverEnter(id))

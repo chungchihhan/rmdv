@@ -1209,4 +1209,76 @@ mod group3 {
         let mut ui = PointerUi::new();
         assert_tips(&tips(&mut ui, &app), &["Copy Code"]);
     }
+
+    // --- 2. Heading rows: only the chevron folds -----------------------------
+
+    fn heading_app() -> App {
+        let mut app = App::default();
+        let _ = app.update(Message::FileLoaded(Ok((
+            PathBuf::from("/tmp/pointer-heading.md"),
+            "# Fold Me\n\nbody text\n\n## Next Part\n\nmore text\n".into(),
+        ))));
+        app
+    }
+
+    fn glyph(code: char) -> String {
+        code.to_string()
+    }
+
+    /// Bounds of the first heading's fold chevron (drawn even while hidden).
+    fn chevron_bounds(ui: &mut PointerUi, app: &App, code: char) -> Rectangle {
+        ui.text_bounds(app, &glyph(code)).expect("fold chevron")
+    }
+
+    #[test]
+    fn clicking_blank_heading_space_does_not_fold() {
+        let mut app = heading_app();
+        let mut ui = PointerUi::new();
+        let chevron = chevron_bounds(&mut ui, &app, crate::icon::ic::CHEVRON_DOWN);
+        // Between the short heading text and the chevron at the row's end.
+        let blank = Point::new(chevron.x - 150.0, chevron.center_y());
+        let messages = ui.move_to(&app, blank).0;
+        apply(&mut app, messages);
+
+        let (_, cursor) = ui.move_to(&app, blank);
+        assert_ne!(
+            cursor,
+            mouse::Interaction::Pointer,
+            "blank heading space does not look clickable"
+        );
+        let messages = ui.click(&app, blank);
+        assert!(
+            !has(&messages, |m| matches!(m, Message::ToggleFold(_))),
+            "a click right of the heading text must not fold: {messages:?}"
+        );
+    }
+
+    #[test]
+    fn heading_chevron_has_a_24px_hit_target_and_a_tooltip() {
+        let mut app = heading_app();
+        let mut ui = PointerUi::new();
+        let chevron = chevron_bounds(&mut ui, &app, crate::icon::ic::CHEVRON_DOWN);
+        // Hover shows the chevron.
+        let messages = ui.move_to(&app, chevron.center()).0;
+        apply(&mut app, messages);
+        assert!(
+            tips(&mut ui, &app).iter().any(|t| t == "Collapse section"),
+            "the chevron names its action"
+        );
+
+        // 10 px off the glyph's center, inside a 24x24 target.
+        let near = Point::new(chevron.center_x() - 10.0, chevron.center_y() + 10.0);
+        let (_, cursor) = ui.move_to(&app, near);
+        assert_eq!(cursor, mouse::Interaction::Pointer);
+        let messages = ui.click(&app, near);
+        assert!(
+            has(&messages, |m| matches!(m, Message::ToggleFold(_))),
+            "the chevron folds: {messages:?}"
+        );
+        apply(&mut app, messages);
+        assert!(
+            tips(&mut ui, &app).iter().any(|t| t == "Expand section"),
+            "a folded heading offers Expand"
+        );
+    }
 }
