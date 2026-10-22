@@ -897,7 +897,10 @@ mod group2 {
             .expect("the error card has Reveal in Finder");
         let messages = ui.click(&app, center(reveal));
         assert!(
-            has(&messages, |m| matches!(m, Message::RevealPath(p) if *p == missing)),
+            has(
+                &messages,
+                |m| matches!(m, Message::RevealPath(p) if *p == missing)
+            ),
             "Reveal targets the file that failed to open: {messages:?}"
         );
 
@@ -924,5 +927,90 @@ mod group2 {
         let missing = base.join("rmdv-pointer-missing").join("gone.md");
         assert_eq!(reveal_target(&missing), base);
         assert_eq!(reveal_target(&base), base);
+    }
+
+    // --- 5. Dropped files and folders ---------------------------------------
+
+    fn drop_fixture(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let dir = std::env::temp_dir().join(format!("rmdv-drop-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("fixture dir");
+        let a = dir.join("a.md");
+        let b = dir.join("b.md");
+        std::fs::write(&a, "# alpha\n").expect("a.md");
+        std::fs::write(&b, "# beta\n").expect("b.md");
+        let dir = canonicalize_existing_path(dir);
+        (dir.clone(), dir.join("a.md"), dir.join("b.md"))
+    }
+
+    #[test]
+    fn dropping_a_folder_opens_it_as_the_workspace() {
+        let (dir, ..) = drop_fixture("folder");
+        let mut app = App::default();
+        apply(&mut app, vec![dropped_path_message(dir.clone())]);
+        assert_eq!(app.workspace.as_deref(), Some(dir.as_path()));
+        assert!(app.error.is_none(), "{:?}", app.error);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropping_a_folder_over_settings_shows_the_workspace() {
+        let (dir, ..) = drop_fixture("settings");
+        let mut app = App::default();
+        let _ = app.update(Message::OpenSettings);
+        assert!(app.settings_open);
+        apply(&mut app, vec![dropped_path_message(dir.clone())]);
+        assert_eq!(app.workspace.as_deref(), Some(dir.as_path()));
+        assert!(!app.settings_open, "the dropped folder is not hidden");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropping_a_file_closes_an_open_overlay() {
+        let (dir, a, b) = drop_fixture("overlay");
+        let mut app = App::default();
+        let _ = app.update(Message::FileLoaded(Ok((a, "# alpha\n".into()))));
+        let _ = app.update(Message::OpenCommandPalette);
+        assert_ne!(app.overlay, Overlay::None);
+        let _ = app.update(dropped_path_message(b));
+        assert_eq!(app.overlay, Overlay::None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropping_with_unsaved_zen_edits_keeps_the_edits() {
+        use iced::widget::text_editor::{Action, Edit, Motion};
+        let (dir, a, b) = drop_fixture("dirty");
+        let mut app = App::default();
+        let _ = app.update(Message::FileLoaded(Ok((a.clone(), "# alpha\n".into()))));
+        let _ = app.update(Message::ToggleViewMode);
+        let _ = app.update(Message::EditorAction(Action::Move(Motion::DocumentEnd)));
+        let _ = app.update(Message::EditorAction(Action::Edit(Edit::Insert('z'))));
+        assert!(app.dirty);
+        let edited = app.editor.as_ref().map(|ed| ed.text()).expect("editor");
+
+        apply(&mut app, vec![dropped_path_message(b)]);
+        assert_eq!(app.file.as_deref(), Some(a.as_path()), "the file stays");
+        assert!(app.dirty);
+        assert_eq!(
+            app.editor.as_ref().map(|ed| ed.text()),
+            Some(edited.clone())
+        );
+        assert!(
+            app.toast
+                .as_ref()
+                .and_then(|t| t.action.as_ref())
+                .is_some_and(|action| matches!(action.message, Message::SaveFile)),
+            "the guard toast offers Save"
+        );
+
+        let (other, ..) = drop_fixture("dirty-folder");
+        apply(&mut app, vec![dropped_path_message(other.clone())]);
+        assert_eq!(app.workspace.as_deref(), Some(other.as_path()));
+        assert_eq!(app.file.as_deref(), Some(a.as_path()));
+        assert!(app.dirty);
+        assert_eq!(app.editor.as_ref().map(|ed| ed.text()), Some(edited));
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::remove_dir_all(&other);
     }
 }

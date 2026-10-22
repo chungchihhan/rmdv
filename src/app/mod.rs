@@ -2778,7 +2778,7 @@ impl App {
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let dnd = iced::event::listen_with(|ev, _status, _id| match ev {
             iced::Event::Window(iced::window::Event::FileDropped(path)) => {
-                Some(Message::Open(path))
+                Some(dropped_path_message(path))
             }
             _ => None,
         });
@@ -3889,6 +3889,13 @@ fn toast_duration(toast: &Toast) -> std::time::Duration {
     } else {
         std::time::Duration::from_millis(1500)
     }
+}
+
+/// The message a file or folder dropped on the window sends. It shares the
+/// Finder open path: a folder opens as the workspace, a file honors Full
+/// Mindmap and the unsaved-edits guard, and an open overlay closes.
+fn dropped_path_message(path: PathBuf) -> Message {
+    Message::OpenFileFinderPath(path)
 }
 
 /// The path Finder can reveal for `path`: the path itself, or its nearest
