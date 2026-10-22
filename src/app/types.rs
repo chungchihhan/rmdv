@@ -299,3 +299,23 @@ impl NavHistory {
         }
     }
 }
+
+/// The link under the pointer, and the destination its pill shows.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct HoveredLink {
+    /// The link as written; a leave for another link leaves this one shown.
+    pub(super) url: String,
+    pub(super) label: String,
+}
+
+/// What the reader shows under the pointer. When it changes (a scroll,
+/// another file, another view, a modal), a link's pill no longer matches
+/// what is under the pointer.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct LinkPage {
+    pub(super) file: Option<PathBuf>,
+    pub(super) view_mode: ViewMode,
+    pub(super) full_mindmap: bool,
+    pub(super) overlay: Overlay,
+    pub(super) offset: Option<f32>,
+}

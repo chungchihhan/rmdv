@@ -129,6 +129,10 @@ pub enum Message {
         actual: Option<String>,
     },
     OpenLink(String),
+    /// The pointer entered a link (its destination); sent once per link.
+    LinkHovered(String),
+    /// The pointer left that link.
+    LinkLeft(String),
     ToggleTheme,
     SetTheme(ThemePreset),
     SetCustomTheme(String),

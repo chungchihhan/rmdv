@@ -9,6 +9,11 @@ later commits add only what rmdv needs to select across reader blocks:
   selection range set from outside.
 - `Rich::operate` hands its `State` to `Operation::custom`, so a parent
   widget can find every reader text widget and its bounds.
+- Link hover messages go out only when the hovered link changes (once on
+  enter, once on leave), not on every hover or selection change. A new
+  `Rich::on_link_leave` hook names the link that was left.
+- `text::Style::link_hover` (`LinkHover`: fill and corner radius) tints a
+  hovered link instead of drawing a second underline over it.
 
 Keep changes small and listed here so a later upstream release can replace
 this copy.

@@ -177,3 +177,182 @@ fn the_background_open_is_open_dash_g() {
         "a target that reads as a flag is not passed to open"
     );
 }
+
+// --- 1. Link hover -------------------------------------------------------------
+
+/// A few frames, as after the runtime redraws: the reader reports its
+/// viewport and lays out.
+fn settle(app: &mut App, ui: &mut PointerUi) {
+    for _ in 0..3 {
+        let (messages, _) = ui.send(
+            app,
+            Point::new(5.0, 5.0),
+            vec![Event::Window(iced::window::Event::RedrawRequested(
+                std::time::Instant::now(),
+            ))],
+        );
+        for message in messages {
+            send(app, message);
+        }
+    }
+}
+
+/// Sweeps the pointer over the window until a link reports the pointer;
+/// returns where.
+fn find_link(app: &App, ui: &mut PointerUi) -> Option<(Point, Vec<Message>)> {
+    for y in (60..400).step_by(6) {
+        for x in (200..1200).step_by(24) {
+            let at = Point::new(x as f32, y as f32);
+            let (messages, _) = ui.move_to(app, at);
+            if messages
+                .iter()
+                .any(|m| matches!(m, Message::LinkHovered(_)))
+            {
+                return Some((at, messages));
+            }
+        }
+    }
+    None
+}
+
+fn link_messages(messages: &[Message]) -> Vec<String> {
+    messages
+        .iter()
+        .filter(|m| matches!(m, Message::LinkHovered(_) | Message::LinkLeft(_)))
+        .map(|m| format!("{m:?}"))
+        .collect()
+}
+
+#[test]
+fn hovering_a_reader_link_sends_one_message_and_shows_its_destination() {
+    let (mut app, dir) = fixture("hover");
+    let a = dir.join("a.md");
+    std::fs::write(
+        &a,
+        "# A\n\n[a long link to the notes file in sub](sub/NOTES.MD#part)\n",
+    )
+    .expect("a.md");
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(a.clone()));
+    settle(&mut app, &mut ui);
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "no pill at rest"
+    );
+
+    let (at, entered) = find_link(&app, &mut ui).expect("a link under the pointer");
+    assert_eq!(
+        link_messages(&entered),
+        vec![r#"LinkHovered("sub/NOTES.MD#part")"#.to_string()]
+    );
+    for message in entered {
+        send(&mut app, message);
+    }
+    assert_eq!(
+        ui.text_containing(&app, "sub/NOTES.MD").as_deref(),
+        Some("sub/NOTES.MD#part"),
+        "the pill names the workspace-relative destination"
+    );
+    for dx in [3.0, 6.0, 9.0] {
+        let (messages, _) = ui.move_to(&app, Point::new(at.x + dx, at.y));
+        assert!(
+            link_messages(&messages).is_empty(),
+            "moves inside the link send nothing: {messages:?}"
+        );
+    }
+    let (left, _) = ui.move_to(&app, Point::new(at.x, at.y + 200.0));
+    assert_eq!(
+        link_messages(&left),
+        vec![r#"LinkLeft("sub/NOTES.MD#part")"#.to_string()]
+    );
+    for message in left {
+        send(&mut app, message);
+    }
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "the pill hides"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_link_pill_shows_paths_relative_to_the_workspace() {
+    let (mut app, dir) = fixture("labels");
+    let notes = dir.join("sub").join("NOTES.MD");
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(notes));
+    for (url, label) in [
+        ("../a.md#top", "a.md#top"),
+        ("./other.md", "sub/other.md"),
+        ("#part", "#part"),
+        ("https://example.com/page", "https://example.com/page"),
+    ] {
+        send(&mut app, Message::LinkHovered(url.into()));
+        assert_eq!(
+            ui.text_containing(&app, label).as_deref(),
+            Some(label),
+            "{url}"
+        );
+        send(&mut app, Message::LinkLeft(url.into()));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn leaving_one_link_after_entering_the_next_keeps_the_next() {
+    let (mut app, dir) = fixture("order");
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(dir.join("a.md")));
+    // Two links in different blocks: the lower one reports the enter
+    // before the upper one reports the leave.
+    send(&mut app, Message::LinkHovered("sub/x.md".into()));
+    send(&mut app, Message::LinkHovered("sub/y.md".into()));
+    send(&mut app, Message::LinkLeft("sub/x.md".into()));
+    assert_eq!(
+        ui.text_containing(&app, "sub/y.md").as_deref(),
+        Some("sub/y.md")
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn scrolling_or_navigating_hides_the_link_pill() {
+    let (mut app, dir) = fixture("hide");
+    let a = dir.join("a.md");
+    let mut long = String::from("# A\n\n");
+    for i in 0..200 {
+        long.push_str(&format!(
+            "Paragraph {i} with enough words to fill a line.\n\n"
+        ));
+    }
+    std::fs::write(&a, &long).expect("a.md");
+    let mut ui = PointerUi::new();
+    send(&mut app, Message::Open(a.clone()));
+    settle(&mut app, &mut ui);
+
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    assert!(ui.text_containing(&app, "sub/NOTES.MD").is_some());
+    for message in ui.wheel(&app, Point::new(700.0, 420.0)) {
+        send(&mut app, message);
+    }
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "scrolling hides the pill"
+    );
+
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::Open(dir.join("conf.yaml")));
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "opening another file hides the pill"
+    );
+
+    send(&mut app, Message::Open(a));
+    send(&mut app, Message::LinkHovered("sub/NOTES.MD".into()));
+    send(&mut app, Message::ToggleMindmap);
+    assert!(
+        ui.text_containing(&app, "sub/NOTES.MD").is_none(),
+        "the mind map hides the pill"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

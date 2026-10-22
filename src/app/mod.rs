@@ -478,6 +478,8 @@ pub struct App {
     quick_slot_body_restore: Option<f32>,
     /// Back and Forward navigation history.
     history: NavHistory,
+    /// The link under the pointer; its destination shows bottom left.
+    hovered_link: Option<HoveredLink>,
     /// Links handed to the OS, with whether they open in the background.
     /// Tests record them here instead of launching a browser.
     #[cfg(test)]
@@ -693,6 +695,7 @@ impl Default for App {
             quick_slot_preview_restore_guard: None,
             quick_slot_body_restore: None,
             history: NavHistory::default(),
+            hovered_link: None,
             #[cfg(test)]
             external_opens: Vec::new(),
             quick_slot_preview_restore: None,
@@ -1603,6 +1606,19 @@ impl App {
 
     fn show_toast(&mut self, text: String) -> Task<Message> {
         self.show_toast_with_action(text, None)
+    }
+
+    fn link_page(&self) -> LinkPage {
+        LinkPage {
+            file: self.file.clone(),
+            view_mode: self.view_mode,
+            full_mindmap: self.full_mindmap.is_some(),
+            overlay: self.overlay,
+            offset: self
+                .body_viewport
+                .as_ref()
+                .map(|viewport| viewport.absolute_offset().y),
+        }
     }
 
     /// Hands a link target to the OS: a URL to the browser, a local file
@@ -4040,10 +4056,23 @@ impl App {
         } else {
             Space::new().into()
         };
+        let link_pill_layer: Element<'_, Message> = match &self.hovered_link {
+            Some(link) => link_pill(
+                &link.label,
+                pal,
+                if sidebar_visible {
+                    self.sidebar_width
+                } else {
+                    0.0
+                },
+            ),
+            None => Space::new().into(),
+        };
         let base: Element<'_, Message> = iced::widget::stack![
             Element::from(main),
             footer_layer,
             kb_button_layer,
+            link_pill_layer,
             quick_slots_layer,
             overlay_layer
         ]

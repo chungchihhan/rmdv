@@ -8,7 +8,12 @@ impl App {
         if self.settings_open && msg.leaves_settings() {
             self.settings_open = false;
         }
+        // Only while a link pill shows: the snapshot clones the path.
+        let link_page = self.hovered_link.is_some().then(|| self.link_page());
         let mut task = self.dispatch_message(msg);
+        if link_page.is_some_and(|page| page != self.link_page()) {
+            self.hovered_link = None;
+        }
         // ⌘Q reads this from AppKit, outside the update loop.
         crate::macos_quit::set_unsaved(self.dirty);
         self.sync_toolbar_band();
@@ -3754,6 +3759,20 @@ impl App {
                     return Task::batch([assets, scroll, followup]);
                 }
                 Task::batch([assets, followup])
+            }
+            Message::LinkHovered(url) => {
+                let label =
+                    link_destination_label(&url, self.file.as_deref(), self.workspace.as_deref());
+                self.hovered_link = Some(HoveredLink { url, label });
+                Task::none()
+            }
+            Message::LinkLeft(url) => {
+                // Moving straight from one link to another can report the
+                // new link's enter before the old one's leave.
+                if self.hovered_link.as_ref().is_some_and(|h| h.url == url) {
+                    self.hovered_link = None;
+                }
+                Task::none()
             }
             Message::Noop => Task::none(),
             Message::ToggleAutoFocusOnNav => {

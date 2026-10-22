@@ -234,7 +234,7 @@ pub fn data_view<'a>(
                 .line_height(iced::widget::text::LineHeight::Relative(1.55)),
         );
     }
-    container(rich_text_links(out, pal.selection))
+    container(rich_text_links(out, TextFills::of(pal)))
         .padding(Padding::from([28, 32]))
         .width(Length::Fill)
         .into()
@@ -257,7 +257,7 @@ pub fn data_view_owned(code: String, pal: &Palette, typ: &Typography) -> Element
                 .line_height(iced::widget::text::LineHeight::Relative(1.55)),
         );
     }
-    container(rich_text_links(out, pal.selection))
+    container(rich_text_links(out, TextFills::of(pal)))
         .padding(Padding::from([28, 32]))
         .width(Length::Fill)
         .into()
@@ -608,14 +608,14 @@ fn render_block<'a>(
     match b {
         Block::Heading { level, inlines, .. } => {
             let spans = inline_spans(inlines, pal, typ.heading_size(*level), &mut ctx);
-            rich_text_spaced(spans, crate::theme::HEADING_LINE_HEIGHT, pal.selection)
+            rich_text_spaced(spans, crate::theme::HEADING_LINE_HEIGHT, TextFills::of(pal))
         }
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, &mut ctx);
             rich_text_spaced(
                 spans,
                 paragraph_line_height(inlines, typ.line_height),
-                pal.selection,
+                TextFills::of(pal),
             )
         }
         Block::CodeBlock { code, spans, .. } => {
@@ -645,7 +645,7 @@ fn render_block<'a>(
                     &mut ctx,
                 );
             }
-            let body = container(rich_text_links(out, pal_c.selection))
+            let body = container(rich_text_links(out, TextFills::of(&pal_c)))
                 .padding(Padding::from([10, 12]))
                 .style(move |_| container::Style {
                     background: Some(pal_c.code_bg.into()),
@@ -813,7 +813,7 @@ fn for_text_runs<'a>(text_str: &'a str, mut visit: impl FnMut(&'a str, bool)) {
     }
 }
 
-use crate::selectable::{rich_text_links, rich_text_spaced};
+use crate::selectable::{rich_text_links, rich_text_spaced, TextFills};
 
 /// CJK body text reads best at about 1.75 em leading where Latin uses 1.5
 /// (Notion default), because ideographs fill the whole em box. The scale is
@@ -1446,7 +1446,7 @@ fn render_block_inner<'a>(
             rich_text_spaced(
                 spans,
                 paragraph_line_height(inlines, typ.line_height),
-                pal.selection,
+                TextFills::of(pal),
             )
         }
         _ => render_block(b, pal, typ, ctx.query, ctx.current_in_block, img),
@@ -1483,7 +1483,7 @@ fn render_table<'a>(
                 },
                 ctx,
             );
-            rich_text_links(spans, pal.selection)
+            rich_text_links(spans, TextFills::of(pal))
         } else {
             text("").into()
         };
@@ -1494,7 +1494,7 @@ fn render_table<'a>(
         for column_index in 0..cols {
             let content: Element<'a, Message> = if let Some(cell) = row_cells.get(column_index) {
                 let spans = inline_spans(cell, pal, typ.body_size, ctx);
-                rich_text_links(spans, pal.selection)
+                rich_text_links(spans, TextFills::of(pal))
             } else {
                 text("").into()
             };

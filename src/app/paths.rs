@@ -42,6 +42,73 @@ pub(super) fn link_opens_in_app(path: &std::path::Path) -> bool {
     crate::picker::is_markdown_path(&path.with_extension(ext.to_ascii_lowercase()))
 }
 
+/// What the link pill shows for `url`: a web link or a `#fragment` as
+/// written; a local link as the file it resolves to, relative to the
+/// workspace (or from `~` outside it), keeping its `#fragment`. Long labels
+/// keep their start and end.
+pub(super) fn link_destination_label(
+    url: &str,
+    current_file: Option<&std::path::Path>,
+    workspace: Option<&std::path::Path>,
+) -> String {
+    let (target, fragment) = match url.split_once('#') {
+        Some((target, fragment)) => (target, Some(fragment)),
+        None => (url, None),
+    };
+    let label = match resolve_image_path(target, current_file) {
+        Some(path) if !target.is_empty() && !is_external_link(target) => {
+            let path = normalize_lexically(&path);
+            let mut label = match workspace.and_then(|root| path.strip_prefix(root).ok()) {
+                Some(rest) => rest.display().to_string(),
+                None => match dirs::home_dir().and_then(|h| path.strip_prefix(h).ok()) {
+                    Some(rest) => format!("~/{}", rest.display()),
+                    None => path.display().to_string(),
+                },
+            };
+            if let Some(fragment) = fragment {
+                label.push('#');
+                label.push_str(fragment);
+            }
+            label
+        }
+        _ => url.to_string(),
+    };
+    shorten_middle(&label, LINK_LABEL_MAX_CHARS)
+}
+
+const LINK_LABEL_MAX_CHARS: usize = 120;
+
+fn shorten_middle(s: &str, max: usize) -> String {
+    let count = s.chars().count();
+    if count <= max {
+        return s.to_string();
+    }
+    let tail = max / 3;
+    let head = max - tail - 1;
+    let mut out: String = s.chars().take(head).collect();
+    out.push('…');
+    out.extend(s.chars().skip(count - tail));
+    out
+}
+
+/// `a/./b/../c` as `a/c`, without touching the filesystem.
+fn normalize_lexically(path: &std::path::Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !out.pop() {
+                    out.push("..");
+                }
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
 /// `open -g <url>`: opens a link without bringing its app to the front.
 /// `None` for a target that `open` would read as an option.
 #[cfg(target_os = "macos")]
