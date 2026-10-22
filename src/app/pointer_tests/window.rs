@@ -127,3 +127,18 @@ fn window_drag_and_zoom_act_only_outside_fullscreen() {
         app.update(Message::WindowTitlebarDoubleClick)
     ));
 }
+
+// --- 3. Window minimum size -----------------------------------------------------
+
+#[test]
+fn window_keeps_a_minimum_size() {
+    for transparent in [false, true] {
+        let settings = window_settings(transparent);
+        assert_eq!(settings.min_size, Some(Size::new(640.0, 420.0)));
+        assert!(
+            settings.size.width >= 640.0 && settings.size.height >= 420.0,
+            "the default size fits the minimum: {:?}",
+            settings.size
+        );
+    }
+}

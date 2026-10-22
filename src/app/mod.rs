@@ -110,6 +110,8 @@ mod full_mindmap;
 mod full_mindmap_state;
 mod full_mindmap_view;
 mod ipc_handler;
+mod lifecycle;
+pub use lifecycle::window_settings;
 pub(crate) mod keys;
 mod loading;
 mod message;
