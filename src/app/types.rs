@@ -186,6 +186,9 @@ pub struct Toast {
     pub id: u64,
     pub text: String,
     pub action: Option<ToastAction>,
+    /// A failure report: it stays as long as an action toast and can be
+    /// closed.
+    pub error: bool,
 }
 
 #[derive(Debug, Clone)]

@@ -45,18 +45,17 @@ impl App {
                 let Some(path) = self.focused_file_path() else {
                     return self.show_toast("No file open".into());
                 };
-                let label = match Self::reveal_file_in_finder(&path) {
-                    Ok(()) => "Revealed in Finder".to_string(),
-                    Err(error) => error,
-                };
-                self.show_toast(label)
+                match Self::reveal_file_in_finder(&path) {
+                    Ok(()) => self.show_toast("Revealed in Finder".to_string()),
+                    Err(error) => self.show_error_toast(error),
+                }
             }
             Message::CopyFilePath => {
                 let Some(path) = self.focused_file_path() else {
                     return self.show_toast("No file open".into());
                 };
                 let Some(expected) = path.to_str().map(str::to_owned) else {
-                    return self.show_toast("File path cannot be copied as text".into());
+                    return self.show_error_toast("File path cannot be copied as text".into());
                 };
                 self.pending_clipboard_copy = Some(expected.clone());
                 let toast = self.show_toast("Copying file path…".into());
@@ -90,7 +89,7 @@ impl App {
                 if actual.as_deref() == Some(expected.as_str()) {
                     self.show_toast("File path copied".into())
                 } else {
-                    self.show_toast("Couldn't copy file path".into())
+                    self.show_error_toast("Couldn't copy file path".into())
                 }
             }
             Message::OpenFileFinderPath(p) => {
@@ -450,7 +449,8 @@ impl App {
                         }
                         if self.dirty {
                             self.invalidate_pending_quick_slot_restore();
-                            return self.show_toast(self.unsaved_edits_open_message());
+                            return self
+                                .show_unsaved_edits_toast(self.unsaved_edits_open_message());
                         }
                         self.update(Message::FileLoaded(Ok((path, source))))
                     }
@@ -1277,7 +1277,7 @@ impl App {
                     }
                     self.pending_nav = None;
                     self.invalidate_pending_quick_slot_restore();
-                    return self.show_toast(self.unsaved_edits_open_message());
+                    return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
                 }
                 match result {
                     Err(error) => {
@@ -2011,7 +2011,11 @@ impl App {
                                 ),
                                 Err(e) => format!("Screenshot failed: {e}"),
                             };
-                            self.show_toast(msg)
+                            if saved.is_ok() {
+                                self.show_toast(msg)
+                            } else {
+                                self.show_error_toast(msg)
+                            }
                         }
                     }
                 } else {
@@ -2498,7 +2502,7 @@ impl App {
                     // affect the next successful open after this one is blocked.
                     self.pending_nav = None;
                     self.invalidate_pending_quick_slot_restore();
-                    return self.show_toast(self.unsaved_edits_open_message());
+                    return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
                 }
                 // Non-refresh loads supersede a refresh transaction. The
                 // refresh-owned path calls `apply_loaded_file` directly after
@@ -2792,7 +2796,7 @@ impl App {
                     // apply() relaunches + exits on success; only returns on error.
                     if let Err(e) = crate::update::apply(ready) {
                         self.pending_update = None;
-                        return self.show_toast(format!("Update failed: {e}"));
+                        return self.show_error_toast(format!("Update failed: {e}"));
                     }
                 }
                 Task::none()

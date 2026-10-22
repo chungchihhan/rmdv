@@ -650,6 +650,7 @@ mod group2 {
     use crate::icon::ic;
     use iced::advanced::widget::operation::Focusable;
     use iced::keyboard;
+    use std::time::Duration;
 
     /// Reports whether the focusable widget with `id` is focused.
     struct FocusProbe {
@@ -818,5 +819,59 @@ mod group2 {
                 "after the {glyph:?} chevron, typing and Enter go to the input"
             );
         }
+    }
+
+    // --- 3. Toasts: Save action, longer errors, close button ----------------
+
+    #[test]
+    fn dirty_guard_toast_has_a_save_button() {
+        let mut app = long_doc_app();
+        app.dirty = true;
+        let _ = app.update(Message::Open(PathBuf::from("/tmp/pointer-other.md")));
+        assert!(app.toast.as_ref().is_some_and(|t| t.text.contains("⌘S")));
+
+        let mut ui = PointerUi::new();
+        let save = ui
+            .text_bounds(&app, "Save")
+            .expect("the guard toast has a Save button");
+        let messages = ui.click(&app, center(save));
+        assert!(
+            has(&messages, |m| matches!(m, Message::SaveFile)),
+            "{messages:?}"
+        );
+    }
+
+    #[test]
+    fn error_toast_stays_longer_and_has_a_close_button() {
+        let mut app = long_doc_app();
+        app.pending_clipboard_copy = Some("/tmp/x".into());
+        let _ = app.update(Message::ClipboardCopyChecked {
+            expected: "/tmp/x".into(),
+            actual: None,
+        });
+        let toast = app.toast.clone().expect("error toast");
+        assert_eq!(toast_duration(&toast), Duration::from_secs(8));
+
+        let mut ui = PointerUi::new();
+        let close = ui
+            .id_bounds(&app, "toast-close")
+            .expect("an error toast has a close button");
+        let messages = ui.click(&app, center(close));
+        apply(&mut app, messages);
+        assert!(app.toast.is_none(), "the close button hides the toast");
+    }
+
+    #[test]
+    fn info_toast_stays_short_without_a_close_button() {
+        let mut app = long_doc_app();
+        app.pending_clipboard_copy = Some("/tmp/x".into());
+        let _ = app.update(Message::ClipboardCopyChecked {
+            expected: "/tmp/x".into(),
+            actual: Some("/tmp/x".into()),
+        });
+        let toast = app.toast.clone().expect("info toast");
+        assert_eq!(toast_duration(&toast), Duration::from_millis(1500));
+        let mut ui = PointerUi::new();
+        assert!(ui.id_bounds(&app, "toast-close").is_none());
     }
 }

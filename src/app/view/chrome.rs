@@ -123,6 +123,13 @@ pub(in crate::app) fn toast_overlay<'a>(toast: &Toast, pal: Palette) -> Element<
             .on_press(action.message.clone());
         content = content.push(action_button);
     }
+    // Toasts that stay long (an action or an error) can be closed early.
+    if toast.action.is_some() || toast.error {
+        content = content.push(
+            container(ghost_lu(ic::X, pal).on_press(Message::ToastExpire(toast.id)))
+                .id(App::toast_close_id()),
+        );
+    }
     let bubble = container(content)
         .padding([8, 14])
         .style(move |_| container::Style {

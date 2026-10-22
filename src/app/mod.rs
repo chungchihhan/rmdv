@@ -920,7 +920,7 @@ impl App {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Some(self.show_toast(format!(
+        Some(self.show_unsaved_edits_toast(format!(
             "unsaved edits in {name} \u{2014} press \u{2318}S to save before opening another file"
         )))
     }
@@ -1489,19 +1489,45 @@ impl App {
         )
     }
 
+    fn show_error_toast(&mut self, text: String) -> Task<Message> {
+        self.push_toast(text, None, true)
+    }
+
+    /// The dirty-guard toast: it names the unsaved file and offers Save.
+    fn show_unsaved_edits_toast(&mut self, text: String) -> Task<Message> {
+        self.show_toast_with_action(
+            text,
+            Some(ToastAction {
+                label: "Save".to_string(),
+                message: Message::SaveFile,
+            }),
+        )
+    }
+
     fn show_toast_with_action(
         &mut self,
         text: String,
         action: Option<ToastAction>,
     ) -> Task<Message> {
+        self.push_toast(text, action, false)
+    }
+
+    fn push_toast(
+        &mut self,
+        text: String,
+        action: Option<ToastAction>,
+        error: bool,
+    ) -> Task<Message> {
         self.toast_seq = self.toast_seq.wrapping_add(1);
         let id = self.toast_seq;
-        let duration = if action.is_some() {
-            std::time::Duration::from_secs(8)
-        } else {
-            std::time::Duration::from_millis(1500)
+        let toast = Toast {
+            id,
+            text,
+            action,
+            error,
         };
-        self.toast = Some(Toast { id, text, action });
+        let duration = toast_duration(&toast);
+        self.toast = Some(toast);
         Task::perform(
             async move { tokio::time::sleep(duration).await },
             move |_| Message::ToastExpire(id),
@@ -1522,6 +1548,9 @@ impl App {
     }
     fn editor_id() -> iced::widget::Id {
         iced::widget::Id::new("zen-editor")
+    }
+    fn toast_close_id() -> iced::widget::Id {
+        iced::widget::Id::new("toast-close")
     }
     fn search_input_id() -> iced::widget::Id {
         iced::widget::Id::new("search-input")
@@ -3813,6 +3842,16 @@ fn block_contains_diagram_hash(block: &Block, hash: u64) -> bool {
                 .any(|block| block_contains_diagram_hash(block, hash))
         }),
         _ => false,
+    }
+}
+
+/// How long a toast stays on screen: a toast with an action button or an
+/// error stays long enough to read and act on; a status note goes quickly.
+fn toast_duration(toast: &Toast) -> std::time::Duration {
+    if toast.action.is_some() || toast.error {
+        std::time::Duration::from_secs(8)
+    } else {
+        std::time::Duration::from_millis(1500)
     }
 }
 
