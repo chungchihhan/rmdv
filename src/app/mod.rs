@@ -3779,9 +3779,18 @@ impl App {
         };
 
         // Always: the toolbar sits above everything in the reader panel; the
-        // panel's own fill shows through it.
+        // panel's own fill shows through it. It is a layer over the reader's
+        // reserved top strip, not a column row: a stack stops at the press
+        // the toolbar takes, so the Zen editor below keeps its focus.
         let reader_with_search: Element<'_, Message> = if toolbar_always {
-            column![
+            stack![
+                container(reader_with_search)
+                    .padding(Padding {
+                        top: TOOLBAR_H,
+                        ..Padding::ZERO
+                    })
+                    .width(Length::Fill)
+                    .height(Length::Fill),
                 toolbar(
                     self,
                     pal,
@@ -3792,8 +3801,9 @@ impl App {
                         hairline: false,
                     },
                 ),
-                reader_with_search,
             ]
+            .width(Length::Fill)
+            .height(Length::Fill)
             .into()
         } else {
             reader_with_search

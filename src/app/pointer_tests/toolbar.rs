@@ -655,3 +655,42 @@ fn zen_editor_text_starts_below_the_toolbar_in_both_modes() {
         "switching modes does not move the editor text"
     );
 }
+
+// --- Review fixes: focus, padding, and stale hover --------------------------------
+
+#[test]
+fn always_toolbar_clicks_keep_the_zen_editor_focused() {
+    use super::group2::apply_ui;
+    let mut app = always(long_doc_app());
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+    apply_ui(&mut app, &mut ui, vec![Message::ToggleViewMode]);
+    assert_eq!(ui.focused(&app, "zen-editor"), Some(true));
+    let typed = ui.type_char(&app, 'x');
+    apply_ui(&mut app, &mut ui, typed);
+    assert!(app.dirty, "the typed key reached the editor");
+
+    // Save, the current Edit segment, and the toolbar's blank space (the
+    // file name). The messages are not applied: the press alone decides
+    // whether the editor keeps its focus.
+    let save = glyph_at(&mut ui, &app, ic::SAVE).expect("Save");
+    let edit = ui.text_bounds(&app, "Edit").expect("Edit segment");
+    let name = ui.text_bounds(&app, "pointer-long.md").expect("file name");
+    for (what, at) in [
+        ("Save", center(save)),
+        ("Edit", center(edit)),
+        ("blank space", center(name)),
+    ] {
+        let _ = ui.click(&app, at);
+        assert_eq!(
+            ui.focused(&app, "zen-editor"),
+            Some(true),
+            "a click on the toolbar's {what} keeps the editor focused"
+        );
+        let typed = ui.type_char(&app, 'y');
+        assert!(
+            has(&typed, |m| matches!(m, Message::EditorAction(_))),
+            "typing after a click on {what} reaches the editor: {typed:?}"
+        );
+    }
+}

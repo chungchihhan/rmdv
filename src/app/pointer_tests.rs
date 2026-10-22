@@ -16,6 +16,7 @@ const WINDOW: Size = Size::new(1280.0, 800.0);
 struct PointerUi {
     renderer: iced::Renderer,
     cache: Option<Cache>,
+    size: Size,
 }
 
 /// Locates a widget's bounds by the text it shows or by its container id.
@@ -63,6 +64,15 @@ impl PointerUi {
         Self {
             renderer,
             cache: None,
+            size: WINDOW,
+        }
+    }
+
+    /// A window of `size` instead of the default.
+    fn sized(size: Size) -> Self {
+        Self {
+            size,
+            ..Self::new()
         }
     }
 
@@ -75,7 +85,7 @@ impl PointerUi {
         events: Vec<Event>,
     ) -> (Vec<Message>, mouse::Interaction) {
         let cache = self.cache.take().unwrap_or_default();
-        let mut ui = UserInterface::build(app.view(), WINDOW, cache, &mut self.renderer);
+        let mut ui = UserInterface::build(app.view(), self.size, cache, &mut self.renderer);
         let mut messages = Vec::new();
         let mut clipboard = iced::advanced::clipboard::Null;
         let (state, _) = ui.update(
@@ -145,7 +155,7 @@ impl PointerUi {
 
     fn find(&mut self, app: &App, mut find: Find<'_>) -> Option<(Rectangle, Option<String>)> {
         let cache = self.cache.take().unwrap_or_default();
-        let mut ui = UserInterface::build(app.view(), WINDOW, cache, &mut self.renderer);
+        let mut ui = UserInterface::build(app.view(), self.size, cache, &mut self.renderer);
         ui.operate(&self.renderer, &mut find);
         self.cache = Some(ui.into_cache());
         find.found.map(|bounds| (bounds, find.found_text))
@@ -764,14 +774,14 @@ mod group2 {
     }
 
     impl PointerUi {
-        fn operate(&mut self, app: &App, operation: &mut dyn Operation) {
+        pub(super) fn operate(&mut self, app: &App, operation: &mut dyn Operation) {
             let cache = self.cache.take().unwrap_or_default();
-            let mut ui = UserInterface::build(app.view(), WINDOW, cache, &mut self.renderer);
+            let mut ui = UserInterface::build(app.view(), self.size, cache, &mut self.renderer);
             ui.operate(&self.renderer, operation);
             self.cache = Some(ui.into_cache());
         }
 
-        fn focused(&mut self, app: &App, id: &'static str) -> Option<bool> {
+        pub(super) fn focused(&mut self, app: &App, id: &'static str) -> Option<bool> {
             let mut probe = FocusProbe {
                 id: Id::new(id),
                 focused: None,
@@ -780,7 +790,7 @@ mod group2 {
             probe.focused
         }
 
-        fn type_char(&mut self, app: &App, c: char) -> Vec<Message> {
+        pub(super) fn type_char(&mut self, app: &App, c: char) -> Vec<Message> {
             let event = Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Character(c.to_string().into()),
                 modified_key: keyboard::Key::Character(c.to_string().into()),
@@ -825,7 +835,7 @@ mod group2 {
 
     /// Like `apply`, and also runs the widget operations (focus, scroll) the
     /// tasks ask for on `ui`, as the runtime does after an update.
-    fn apply_ui(app: &mut App, ui: &mut PointerUi, messages: Vec<Message>) {
+    pub(super) fn apply_ui(app: &mut App, ui: &mut PointerUi, messages: Vec<Message>) {
         for message in messages {
             let (follow_ups, operations) = drain(app.update(message));
             for mut operation in operations {
