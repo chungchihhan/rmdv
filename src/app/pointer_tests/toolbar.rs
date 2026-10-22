@@ -526,3 +526,94 @@ fn full_mindmap_segment_enters_and_read_leaves_it() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- 6. Screenshots for owner review --------------------------------------------
+
+/// Renders the toolbar to PNG files for review. Run with
+/// `RMDV_TOOLBAR_SHOTS=<dir> cargo test --release --lib toolbar_screenshots -- --ignored`.
+/// Headless tiny-skia; no window opens.
+#[test]
+#[ignore = "writes review screenshots; set RMDV_TOOLBAR_SHOTS"]
+fn toolbar_screenshots() {
+    use iced::advanced::renderer::Headless;
+    let Some(dir) = std::env::var_os("RMDV_TOOLBAR_SHOTS").map(PathBuf::from) else {
+        return;
+    };
+    std::fs::create_dir_all(&dir).expect("shot dir");
+    {
+        let fonts = iced::advanced::graphics::text::font_system();
+        let mut fonts = fonts.write().expect("font system");
+        for font in crate::fonts::BUNDLED {
+            fonts.load_font(std::borrow::Cow::Borrowed(font));
+        }
+    }
+    let scale = 2.0;
+    let shoot = |app: &App, name: &str, height: f32| {
+        let mut renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
+            iced::Font::with_name("Inter"),
+            iced::Pixels(16.0),
+            Some("tiny-skia"),
+        ))
+        .expect("headless tiny-skia renderer");
+        let size = Size::new(WINDOW.width, height);
+        let mut ui = UserInterface::build(app.view(), size, Cache::default(), &mut renderer);
+        let pal = app.palette;
+        ui.draw(
+            &mut renderer,
+            &app.theme(),
+            &iced::advanced::renderer::Style { text_color: pal.fg },
+            mouse::Cursor::Unavailable,
+        );
+        let (w, h) = ((size.width * scale) as u32, (size.height * scale) as u32);
+        let rgba = renderer.screenshot(iced::Size::new(w, h), scale, pal.bg);
+        let path = dir.join(name);
+        image::RgbaImage::from_raw(w, h, rgba)
+            .expect("rgba buffer")
+            .save(&path)
+            .expect("write png");
+        eprintln!("wrote {}", path.display());
+    };
+    for (preset, tag) in [
+        (crate::theme::ThemePreset::OneLight, "light"),
+        (crate::theme::ThemePreset::OneDark, "dark"),
+    ] {
+        // Always mode, dirty file, sidebar hidden: Show Sidebar, name, dot,
+        // the view switch with Read selected, Save enabled.
+        let mut app = always(dirty_app());
+        let _ = app.update(Message::ToolbarView(ToolbarView::Read));
+        let _ = app.update(Message::SetTheme(preset));
+        let _ = app.update(Message::SetGlass(crate::macos_vibrancy::Glass::Off));
+        app.toast = None;
+        shoot(&app, &format!("toolbar-always-dirty-{tag}.png"), 160.0);
+        shoot(
+            &app,
+            &format!("window-always-dirty-{tag}.png"),
+            WINDOW.height,
+        );
+        // On hover, revealed over edit mode.
+        let mut app = dirty_app();
+        let _ = app.update(Message::SetTheme(preset));
+        let _ = app.update(Message::SetGlass(crate::macos_vibrancy::Glass::Off));
+        let _ = app.update(Message::ToolbarHover(true));
+        app.toast = None;
+        shoot(&app, &format!("toolbar-hover-edit-{tag}.png"), 160.0);
+    }
+    // Document mind map with its panel toggle, sidebar open.
+    let (app, ws) = tree_fixture("toolbar-shots");
+    let mut app = always(app);
+    let alpha = ws.join("alpha.md");
+    let _ = app.update(Message::FileLoaded(Ok((
+        alpha,
+        "# Alpha\n\n## One\n\n## Two\n".into(),
+    ))));
+    let _ = app.update(Message::SetTheme(crate::theme::ThemePreset::OneLight));
+    let _ = app.update(Message::SetGlass(crate::macos_vibrancy::Glass::Off));
+    let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
+    app.toast = None;
+    shoot(
+        &app,
+        "window-always-mindmap-sidebar-light.png",
+        WINDOW.height,
+    );
+    let _ = std::fs::remove_dir_all(&ws);
+}
