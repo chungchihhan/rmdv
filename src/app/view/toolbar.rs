@@ -130,7 +130,8 @@ pub(in crate::app) fn toolbar<'a>(
     let label = |s: &'a str| -> Element<'a, Message> { text(s).size(12).into() };
     let segments = irow![
         action_tip(
-            segment(ToolbarView::Read, label("Read"), has_file),
+            // In Full Mindmap, Read leaves it even with no file open, as Back.
+            segment(ToolbarView::Read, label("Read"), has_file || full_mindmap),
             "Read",
             read_key,
             Position::Bottom,

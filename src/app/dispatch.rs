@@ -836,7 +836,7 @@ impl App {
                 }
                 Task::none()
             }
-            Message::ToolbarView(_) => Task::none(),
+            Message::ToolbarView(target) => self.toolbar_view(target),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a
                 // finite magnification delta while a graph owns the visible

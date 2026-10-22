@@ -1,7 +1,7 @@
 //! The top toolbar (MDV-048 P2): its setting, hover reveal, controls, and
 //! the dirty marks in the toolbar and the window title.
 
-use super::group3::{assert_tips, tips, tree_fixture};
+use super::group3::{assert_tips, full_mindmap_app, tips, tree_fixture};
 use super::*;
 use crate::icon::ic;
 use crate::prefs::ToolbarMode;
@@ -402,4 +402,127 @@ fn always_mode_has_no_hover_band() {
     let _ = ui.move_to(&app, Point::new(640.0, 400.0));
     let (messages, _) = ui.move_to(&app, Point::new(640.0, 10.0));
     assert!(!has(&messages, |m| matches!(m, Message::ToolbarHover(_))));
+}
+
+// --- 4. View switching, Zen exit and save, mind maps ------------------------------
+
+#[test]
+fn view_switch_moves_between_read_edit_and_mind_map() {
+    let mut app = long_doc_app();
+    let _ = app.update(Message::ToolbarView(ToolbarView::Read));
+    assert_eq!(app.view_mode, ViewMode::Rendered, "Read on Read stays");
+    let _ = app.update(Message::ToolbarView(ToolbarView::Edit));
+    assert_eq!(app.view_mode, ViewMode::Raw);
+    assert!(app.editor.is_some());
+    let _ = app.update(Message::ToolbarView(ToolbarView::Edit));
+    assert_eq!(app.view_mode, ViewMode::Raw, "Edit on Edit stays");
+    let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    let _ = app.update(Message::ToolbarView(ToolbarView::Edit));
+    assert_eq!(app.view_mode, ViewMode::Raw);
+    let _ = app.update(Message::ToolbarView(ToolbarView::Read));
+    assert_eq!(app.view_mode, ViewMode::Rendered);
+    assert!(app.editor.is_none());
+    let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
+    let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
+    assert_eq!(
+        app.view_mode,
+        ViewMode::Mindmap,
+        "Mind Map on Mind Map stays"
+    );
+    let _ = app.update(Message::ToolbarView(ToolbarView::Read));
+    assert_eq!(app.view_mode, ViewMode::Rendered);
+}
+
+#[test]
+fn view_switch_leaves_settings_and_vault_search_to_show_the_view() {
+    let mut app = long_doc_app();
+    let _ = app.update(Message::OpenSettings);
+    let _ = app.update(Message::ToolbarView(ToolbarView::Read));
+    assert!(!app.settings_open, "Read shows the reader");
+    app.vault_open = true;
+    let _ = app.update(Message::ToolbarView(ToolbarView::Edit));
+    assert!(!app.vault_open);
+    assert_eq!(app.view_mode, ViewMode::Raw);
+}
+
+#[test]
+fn hover_toolbar_leaves_edit_mode_and_saves() {
+    let mut app = dirty_app();
+    let _ = app.update(Message::ToolbarHover(true));
+    let mut ui = PointerUi::new();
+    let save = glyph_at(&mut ui, &app, ic::SAVE).expect("Save in edit mode");
+    let messages = ui.click(&app, center(save));
+    assert!(has(&messages, |m| matches!(m, Message::SaveFile)));
+    let read = ui.text_bounds(&app, "Read").expect("Read segment");
+    let messages = ui.click(&app, center(read));
+    apply(&mut app, messages);
+    assert_eq!(app.view_mode, ViewMode::Rendered, "Read leaves edit mode");
+    assert!(app.dirty, "the edit is kept, unsaved");
+}
+
+#[test]
+fn document_mind_map_switches_back_and_toggles_its_panel_from_the_toolbar() {
+    let mut app = long_doc_app();
+    let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
+    let _ = app.update(Message::ToolbarHover(true));
+    let open = app.mindmap_panel_open;
+    let mut ui = PointerUi::new();
+    let (glyph, label) = if open {
+        (ic::PANEL_RIGHT_CLOSE, "Hide Panel  ⌘⌥B")
+    } else {
+        (ic::PANEL_RIGHT_OPEN, "Show Panel  ⌘⌥B")
+    };
+    assert_tips(&tips(&mut ui, &app), &[label]);
+    let toggle = glyph_at(&mut ui, &app, glyph).expect("panel toggle");
+    assert!(toggle.y < TOOLBAR_H);
+    let messages = ui.click(&app, center(toggle));
+    apply(&mut app, messages);
+    assert_eq!(app.mindmap_panel_open, !open);
+    let read = ui.text_bounds(&app, "Read").expect("Read segment");
+    let messages = ui.click(&app, center(read));
+    apply(&mut app, messages);
+    assert_eq!(app.view_mode, ViewMode::Rendered);
+}
+
+#[test]
+fn full_mindmap_segment_enters_and_read_leaves_it() {
+    let (mut app, dir) = full_mindmap_app("toolbar-fmm");
+    let _ = app.update(Message::ToolbarHover(true));
+    let mut ui = PointerUi::new();
+    let back = ui.text_bounds(&app, "Back").expect("Back pill stays");
+    assert!(
+        back.y >= TOOLBAR_BAND_H,
+        "the Back island sits below the hover band: {back:?}"
+    );
+    let bar = ui
+        .id_bounds(&app, "toolbar")
+        .expect("toolbar over Full Mindmap");
+    assert!(
+        bar.y + bar.height <= back.y,
+        "the toolbar does not cover Back"
+    );
+    let read = ui.text_bounds(&app, "Read").expect("Read segment");
+    let messages = ui.click(&app, center(read));
+    apply(&mut app, messages);
+    assert!(app.full_mindmap.is_none(), "Read leaves Full Mindmap");
+    assert_eq!(app.view_mode, ViewMode::Rendered);
+
+    let alpha = dir.join("alpha.md");
+    let _ = app.update(Message::FileLoaded(Ok((alpha, "# Alpha\n".into()))));
+    let _ = app.update(Message::ToolbarView(ToolbarView::FullMindmap));
+    assert!(
+        app.full_mindmap.is_some(),
+        "the Full Mindmap segment enters it"
+    );
+    let _ = app.update(Message::ToolbarView(ToolbarView::FullMindmap));
+    assert!(app.full_mindmap.is_some(), "and pressing it again stays");
+    let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
+    assert!(app.full_mindmap.is_none());
+    assert_eq!(
+        app.view_mode,
+        ViewMode::Mindmap,
+        "Mind Map leaves to the document mind map"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
 }

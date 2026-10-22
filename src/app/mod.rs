@@ -107,6 +107,7 @@ mod preview_worker;
 mod scroll_tasks;
 mod settings;
 mod slots;
+mod toolbar;
 mod types;
 mod view;
 use full_mindmap_state::*;

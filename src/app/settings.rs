@@ -229,26 +229,6 @@ impl App {
         self.restore_body_scroll()
     }
 
-    /// The pointer entered or left the hover toolbar's band. Entering shows
-    /// the toolbar at once; leaving hides it after a short delay, which a
-    /// return to the band cancels.
-    pub(super) fn toolbar_hover(&mut self, entered: bool) -> Task<Message> {
-        self.toolbar_hovered = entered;
-        self.toolbar_hover_generation = self.toolbar_hover_generation.wrapping_add(1);
-        if entered {
-            self.toolbar_revealed = true;
-            return Task::none();
-        }
-        if !self.toolbar_revealed {
-            return Task::none();
-        }
-        let generation = self.toolbar_hover_generation;
-        Task::perform(
-            async { tokio::time::sleep(TOOLBAR_HIDE_DELAY).await },
-            move |_| Message::ToolbarHideAfter(generation),
-        )
-    }
-
     pub(super) fn set_glass_opacity(&mut self, opacity: f32) -> Task<Message> {
         // Snap to the slider step so stored values stay on round percents.
         let snapped = (opacity / GLASS_OPACITY_STEP).round() * GLASS_OPACITY_STEP;
