@@ -24,6 +24,9 @@ const ZOOM_MAX: f32 = 4.0;
 const KEYBOARD_ZOOM_FACTOR: f32 = 1.25;
 const ANIM_DURATION: Duration = Duration::from_millis(220);
 const ZOOM_ANIM_DURATION: Duration = Duration::from_millis(140);
+/// How far (screen px) the pointer may move between press and release and
+/// still count as a click. Beyond it the press becomes a pan.
+const CLICK_SLOP: f32 = 4.0;
 
 #[derive(Debug, Clone, Copy)]
 struct Anim {
@@ -343,6 +346,9 @@ pub struct MindmapState<Id = BlockId> {
     /// A `Weak` keeps the allocation from being reused by a different list.
     anim_nodes: Option<std::sync::Weak<Vec<MNode<Id>>>>,
     hovered_idx: Option<usize>,
+    /// The node under the left-button press. Its action runs on release,
+    /// and only when the pointer did not move past [`CLICK_SLOP`].
+    pressed: Option<Id>,
     touch_points: Vec<(touch::Finger, Point)>,
     touch_span: Option<f32>,
     native_pinch_log: Option<f64>,
@@ -368,6 +374,7 @@ impl<Id> Default for MindmapState<Id> {
             last_layout_generation: None,
             anim_nodes: None,
             hovered_idx: None,
+            pressed: None,
             touch_points: Vec::new(),
             touch_span: None,
             native_pinch_log: None,
@@ -856,6 +863,18 @@ where
         }
     }
 
+    /// The node whose box contains the canvas point `pos`, at its rendered
+    /// (animated) position.
+    fn node_at(&self, state: &MindmapState<Id>, pos: Point) -> Option<usize> {
+        let z = if state.initialized { state.zoom } else { 1.0 };
+        let wx = (pos.x - state.pan.x) / z;
+        let wy = (pos.y - state.pan.y) / z;
+        (0..self.nodes.len()).find(|&i| {
+            let (nx, ny) = self.pos(state, i);
+            wx >= nx && wx <= nx + NODE_W && wy >= ny && wy <= ny + NODE_H
+        })
+    }
+
     /// Get rendered (animated) position for a node.
     fn pos(&self, state: &MindmapState<Id>, idx: usize) -> (f32, f32) {
         let n = &self.nodes[idx];
@@ -1010,28 +1029,11 @@ where
                 let Some(pos) = cursor.position_in(bounds) else {
                     return None;
                 };
-                // Hit-test in world space against animated positions.
-                let wx = (pos.x - state.pan.x) / state.zoom;
-                let wy = (pos.y - state.pan.y) / state.zoom;
-                for (i, n) in self.nodes.iter().enumerate() {
-                    let (nx, ny) = self.pos(state, i);
-                    if wx >= nx && wx <= nx + NODE_W && wy >= ny && wy <= ny + NODE_H {
-                        if let Some(id) = n.id.clone() {
-                            let msg = if n.children.is_empty() && !n.has_hidden_children {
-                                if self.autocenter {
-                                    self.snap_focus_to_node(state, i, bounds);
-                                }
-                                (self.on_select)(id)
-                            } else {
-                                (self.on_toggle)(id)
-                            };
-                            return Some(canvas::Action::publish(msg).and_capture());
-                        }
-                        break;
-                    }
-                }
-                // Begin pan drag (and remember press point so a stationary release
-                // can be treated as a click-on-empty deselect).
+                // Every press may become a drag, even on a node. The node's
+                // action waits for a release without movement.
+                state.pressed = self
+                    .node_at(state, pos)
+                    .and_then(|i| self.nodes[i].id.clone());
                 state.drag_origin = Some(pos);
                 state.drag_pan_origin = state.pan;
                 state.drag_moved = false;
@@ -1047,27 +1049,20 @@ where
                     };
                     let dx = pos.x - origin.x;
                     let dy = pos.y - origin.y;
-                    if dx.abs() > 3.0 || dy.abs() > 3.0 {
-                        state.drag_moved = true;
+                    if !state.drag_moved && dx.hypot(dy) <= CLICK_SLOP {
+                        // Still a click: the canvas stays put.
+                        return Some(canvas::Action::capture());
                     }
+                    state.drag_moved = true;
                     state.pan.x = state.drag_pan_origin.x + dx;
                     state.pan.y = state.drag_pan_origin.y + dy;
                     return Some(canvas::Action::request_redraw().and_capture());
                 }
                 // Hover tracking: highlight the node under the cursor so we
                 // can show a tooltip for truncated labels in draw().
-                let new_hover = cursor.position_in(bounds).and_then(|pos| {
-                    let wx = (pos.x - state.pan.x) / state.zoom;
-                    let wy = (pos.y - state.pan.y) / state.zoom;
-                    self.nodes.iter().enumerate().find_map(|(i, _)| {
-                        let (nx, ny) = self.pos(state, i);
-                        if wx >= nx && wx <= nx + NODE_W && wy >= ny && wy <= ny + NODE_H {
-                            Some(i)
-                        } else {
-                            None
-                        }
-                    })
-                });
+                let new_hover = cursor
+                    .position_in(bounds)
+                    .and_then(|pos| self.node_at(state, pos));
                 if new_hover != state.hovered_idx {
                     state.hovered_idx = new_hover;
                     return Some(canvas::Action::request_redraw());
@@ -1082,18 +1077,34 @@ where
                 None
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                if state.drag_origin.is_some() {
-                    let moved = state.drag_moved;
-                    state.drag_origin = None;
-                    state.drag_moved = false;
-                    if !moved && self.selected.is_some() {
+                state.drag_origin.take()?;
+                let moved = std::mem::take(&mut state.drag_moved);
+                let pressed = state.pressed.take();
+                if moved {
+                    return Some(canvas::Action::capture());
+                }
+                let Some(id) = pressed else {
+                    // A still click on empty canvas.
+                    if self.selected.is_some() {
                         return Some(
                             canvas::Action::publish(self.on_deselect.clone()).and_capture(),
                         );
                     }
                     return Some(canvas::Action::capture());
-                }
-                None
+                };
+                let Some(i) = self.nodes.iter().position(|n| n.id.as_ref() == Some(&id)) else {
+                    return Some(canvas::Action::capture());
+                };
+                let n = &self.nodes[i];
+                let msg = if n.children.is_empty() && !n.has_hidden_children {
+                    if self.autocenter {
+                        self.snap_focus_to_node(state, i, bounds);
+                    }
+                    (self.on_select)(id)
+                } else {
+                    (self.on_toggle)(id)
+                };
+                Some(canvas::Action::publish(msg).and_capture())
             }
             iced::Event::Window(window::Event::RedrawRequested(_)) => {
                 self.sync_anim(state);
@@ -1365,20 +1376,17 @@ where
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        if state.drag_origin.is_some() {
+        if state.drag_origin.is_some() && state.drag_moved {
             return mouse::Interaction::Grabbing;
         }
         let Some(pos) = cursor.position_in(bounds) else {
             return mouse::Interaction::default();
         };
-        let z = if state.initialized { state.zoom } else { 1.0 };
-        let wx = (pos.x - state.pan.x) / z;
-        let wy = (pos.y - state.pan.y) / z;
-        for (i, n) in self.nodes.iter().enumerate() {
-            let (nx, ny) = self.pos(state, i);
-            if n.id.is_some() && wx >= nx && wx <= nx + NODE_W && wy >= ny && wy <= ny + NODE_H {
-                return mouse::Interaction::Pointer;
-            }
+        if self
+            .node_at(state, pos)
+            .is_some_and(|i| self.nodes[i].id.is_some())
+        {
+            return mouse::Interaction::Pointer;
         }
         mouse::Interaction::Grab
     }
@@ -2260,6 +2268,157 @@ mod tests {
         assert_eq!(state.zoom, ZOOM_MIN);
         assert!(set_zoom_about(&mut state, anchor, 1.0));
         assert_eq!(state.zoom, 1.0);
+    }
+
+    // --- Pointer model (MDV-048 P4) -------------------------------------
+
+    /// What a pointer test program publishes.
+    #[derive(Debug, Clone, PartialEq)]
+    enum Ev {
+        Toggle(PathId),
+        Select(PathId),
+        Deselect,
+    }
+
+    fn pointer_program(
+        nodes: Vec<MNode<PathId>>,
+        selected: Option<PathId>,
+    ) -> MindmapProgram<'static, PathId, Ev> {
+        MindmapProgram {
+            nodes: std::sync::Arc::new(nodes),
+            content_size: Size::new(1200.0, 900.0),
+            palette: Palette::ONE_DARK,
+            background: Palette::ONE_DARK.bg,
+            selected,
+            focus: None,
+            panel_open: false,
+            panel_width: 360.0,
+            autocenter: true,
+            layout_generation: Some(1),
+            keyboard_zoom_enabled: false,
+            native_pinch_log: 0.0,
+            on_toggle: Box::new(Ev::Toggle),
+            on_select: Box::new(Ev::Select),
+            on_deselect: Ev::Deselect,
+        }
+    }
+
+    const POINTER_BOUNDS: Rectangle = Rectangle {
+        x: 0.0,
+        y: 0.0,
+        width: 1000.0,
+        height: 800.0,
+    };
+
+    /// Sends one event at `at`; returns the published message.
+    fn pointer_send(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        event: iced::Event,
+        at: Point,
+    ) -> Option<Ev> {
+        canvas::Program::update(
+            program,
+            state,
+            &event,
+            POINTER_BOUNDS,
+            mouse::Cursor::Available(at),
+        )
+        .and_then(|action| action.into_inner().0)
+    }
+
+    fn press_at(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        at: Point,
+    ) -> Option<Ev> {
+        pointer_send(
+            program,
+            state,
+            iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+            at,
+        )
+    }
+
+    fn move_at(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        at: Point,
+    ) -> Option<Ev> {
+        pointer_send(
+            program,
+            state,
+            iced::Event::Mouse(mouse::Event::CursorMoved { position: at }),
+            at,
+        )
+    }
+
+    fn release_at(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        at: Point,
+    ) -> Option<Ev> {
+        pointer_send(
+            program,
+            state,
+            iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            at,
+        )
+    }
+
+    fn node_idx(program: &MindmapProgram<'static, PathId, Ev>, path: &str) -> usize {
+        program
+            .nodes
+            .iter()
+            .position(|node| node.id.as_ref().is_some_and(|id| id.0 == path))
+            .expect("node in graph")
+    }
+
+    /// Screen center of a node at zoom 1 and no pan.
+    fn node_center(program: &MindmapProgram<'static, PathId, Ev>, path: &str) -> Point {
+        let node = &program.nodes[node_idx(program, path)];
+        Point::new(node.x + NODE_W / 2.0, node.y + NODE_H / 2.0)
+    }
+
+    const DOWNLOADS: &str = "/Users/me/Downloads";
+    const DOCUMENTS: &str = "/Users/me/Documents";
+
+    fn notes_graph() -> Vec<MNode<PathId>> {
+        folder_graph(Some(PathId("/Users/me/Documents/Notes".into())))
+    }
+
+    #[test]
+    fn a_node_acts_on_release_and_a_drag_from_it_pans() {
+        let mut program = pointer_program(notes_graph(), None);
+        // Measure the pointer alone, without the focus pan.
+        program.autocenter = false;
+        let mut state = MindmapState::default();
+        let leaf = node_center(&program, DOWNLOADS);
+
+        assert_eq!(press_at(&program, &mut state, leaf), None, "press waits");
+        assert_eq!(
+            release_at(&program, &mut state, leaf),
+            Some(Ev::Select(PathId(DOWNLOADS.into()))),
+            "a still release is the click"
+        );
+
+        // A small wobble is still a click.
+        assert_eq!(press_at(&program, &mut state, leaf), None);
+        let wobble = Point::new(leaf.x + 2.0, leaf.y + 1.0);
+        assert_eq!(move_at(&program, &mut state, wobble), None);
+        assert_eq!(state.pan, Vector::ZERO, "a wobble does not pan");
+        assert!(release_at(&program, &mut state, wobble).is_some());
+
+        // A drag that starts on a node pans the canvas and clicks nothing.
+        let pan_before = state.pan;
+        assert_eq!(press_at(&program, &mut state, leaf), None);
+        let far = Point::new(leaf.x + 40.0, leaf.y + 10.0);
+        assert_eq!(move_at(&program, &mut state, far), None);
+        assert_eq!(release_at(&program, &mut state, far), None);
+        assert_eq!(
+            state.pan,
+            Vector::new(pan_before.x + 40.0, pan_before.y + 10.0)
+        );
     }
 
     #[test]
