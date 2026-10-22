@@ -466,6 +466,60 @@ fn welcome_page_without_recent_items_shows_no_recent_section() {
     assert!(ui.text_bounds(&app, "Recent Folders").is_none());
 }
 
+// --- Review fixes ---------------------------------------------------------------
+
+#[test]
+fn installing_an_update_with_unsaved_edits_asks_to_save_first() {
+    let mut app = dirty_app();
+    app.pending_update = Some(crate::update::ReadyUpdate {
+        version: "9.9.9".into(),
+        notes_url: None,
+        artifact: std::env::temp_dir().join("rmdv-no-such-update.tar.gz"),
+        sha256: String::new(),
+    });
+    let _ = app.update(Message::InstallUpdate);
+    assert!(app.pending_update.is_some(), "the update stays offered");
+    let toast = app.toast.as_ref().expect("a toast explains");
+    assert!(toast.text.contains("unsaved edits"), "{}", toast.text);
+    assert!(
+        matches!(
+            toast.action.as_ref().map(|a| &a.message),
+            Some(Message::SaveFile)
+        ),
+        "the toast offers Save"
+    );
+}
+
+fn ipc_close(app: &mut App) -> crate::ipc::Response {
+    let (tx, mut rx) = futures::channel::oneshot::channel();
+    let _ = app.update(Message::Ipc(
+        crate::ipc::Request {
+            id: 7,
+            cmd: crate::ipc::Cmd::Close,
+        },
+        std::sync::Arc::new(std::sync::Mutex::new(Some(tx))),
+    ));
+    rx.try_recv()
+        .ok()
+        .flatten()
+        .expect("the close request is answered")
+}
+
+#[test]
+fn ipc_close_asks_before_dropping_unsaved_edits() {
+    let mut app = dirty_app();
+    let response = ipc_close(&mut app);
+    assert_eq!(app.close_confirm, Some(CloseConfirm { window: None }));
+    assert!(!app.window_closing);
+    assert!(!response.ok, "{response:?}");
+
+    let mut clean = long_doc_app();
+    let response = ipc_close(&mut clean);
+    assert!(response.ok, "{response:?}");
+    assert!(clean.close_confirm.is_none());
+    assert!(clean.window_closing);
+}
+
 // --- Review screenshots ---------------------------------------------------------
 
 #[test]

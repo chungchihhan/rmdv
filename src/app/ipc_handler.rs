@@ -88,8 +88,13 @@ impl App {
                 Response::ok(id)
             }
             Cmd::Close => {
-                follow_up = iced::window::latest().and_then(|wid| iced::window::close(wid));
-                Response::ok(id)
+                // The same path as ⌘Q: unsaved edits ask in the window first.
+                follow_up = self.request_window_close(None);
+                if self.close_confirm.is_some() {
+                    Response::err(id, "unsaved edits; confirm in the window or save first")
+                } else {
+                    Response::ok(id)
+                }
             }
             Cmd::Mode { mode, focus } => {
                 let is_pdf = is_pdf_path(self.file.as_deref());

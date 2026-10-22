@@ -2878,6 +2878,16 @@ impl App {
                 Task::none()
             }
             Message::InstallUpdate => {
+                // Installing relaunches rmdv, which would drop unsaved edits.
+                if self.dirty && self.pending_update.is_some() {
+                    return self.show_unsaved_edits_toast(format!(
+                        "unsaved edits in {}; save or discard before installing the update",
+                        self.file
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    ));
+                }
                 if let Some(ready) = &self.pending_update {
                     // apply() relaunches + exits on success; only returns on error.
                     if let Err(e) = crate::update::apply(ready) {
