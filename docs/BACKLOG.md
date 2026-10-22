@@ -22,6 +22,7 @@ a design for the owner, not code. Sources:
 
 | ID | Priority | State | Outcome | Acceptance | Plan | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
+| MDV-048 | P1 | in progress | Smooth pointer support: every flow works with the mouse or trackpad (no dead ends, context menus, consistent gestures, visible controls), keyboard shortcuts unchanged. | Per-phase tests and review; owner trial build per phase. | [`MDV-048`](plans/active/MDV-048-pointer-support.md) | — |
 | MDV-045 | P3 | done | Website screenshots: seven uniform full-screen-size captures (1470x956 logical, 2x) in a window frame with shadow; plain hero. | Before/after shown to the owner; deployed by the owner (rmdv-site `34037c9a`, 2026-10-18). Merged at `2fd7e5f`. | — | — |
 | MDV-046 | P3 | proposed | Re-test cold start and parse numbers on a quiet machine (v0.8.0 claims). | Recorded numbers next to the v0.8.0 claims; docs flag cleared or corrected. | — | Quiet machine. |
 | MDV-047 | P3 | proposed | Promo videos: README GIF and an agent-scenario short clip. | Owner records with the manual tour; files stored and linked. | — | Owner recording time. |
