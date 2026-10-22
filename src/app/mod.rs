@@ -1793,11 +1793,15 @@ impl App {
         }
     }
 
+    /// Window title. The native title text stays hidden; the string still
+    /// names the window in Mission Control and the Window menu, so it carries
+    /// a bullet while the file has unsaved edits.
     pub fn title(&self) -> String {
         match &self.file {
             Some(p) => format!(
-                "rmdv — {}",
-                p.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+                "rmdv — {}{}",
+                p.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                if self.dirty { " •" } else { "" }
             ),
             None => "rmdv".into(),
         }

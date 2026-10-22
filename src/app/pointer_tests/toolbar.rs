@@ -67,3 +67,24 @@ fn toolbar_setting_row_has_a_clickable_segmented_control() {
     apply(&mut app, messages);
     assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
 }
+
+// --- 5. Window title marks unsaved edits -------------------------------------
+
+/// `long_doc_app` in edit mode with one typed character.
+fn dirty_app() -> App {
+    let mut app = long_doc_app();
+    let _ = app.update(Message::ToggleViewMode);
+    let _ = app.update(Message::EditorAction(
+        iced::widget::text_editor::Action::Edit(iced::widget::text_editor::Edit::Insert('x')),
+    ));
+    assert!(app.dirty, "typing makes the file dirty");
+    app
+}
+
+#[test]
+fn window_title_shows_a_bullet_while_the_file_is_dirty() {
+    let clean = long_doc_app();
+    assert_eq!(clean.title(), "rmdv — pointer-long.md");
+    assert_eq!(dirty_app().title(), "rmdv — pointer-long.md •");
+    assert_eq!(App::default().title(), "rmdv");
+}
