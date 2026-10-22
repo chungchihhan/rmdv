@@ -251,3 +251,155 @@ fn always_toolbar_reserves_its_height_without_moving_the_text() {
     let hover_toolbar = PointerUi::new().id_bounds(&hover, "toolbar");
     assert!(hover_toolbar.is_none(), "On hover starts hidden");
 }
+
+// --- 3. Hover reveal -----------------------------------------------------------
+
+fn hover_count(messages: &[Message], entered: bool) -> usize {
+    messages
+        .iter()
+        .filter(|m| matches!(m, Message::ToolbarHover(e) if *e == entered))
+        .count()
+}
+
+/// Waits for the messages a task yields, timers included.
+fn wait_outputs(task: Task<Message>) -> Vec<Message> {
+    use iced::futures::StreamExt;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .expect("tokio runtime");
+    let Some(stream) = iced_runtime::task::into_stream(task) else {
+        return Vec::new();
+    };
+    runtime.block_on(
+        stream
+            .filter_map(|action| async move {
+                match action {
+                    iced_runtime::Action::Output(message) => Some(message),
+                    _ => None,
+                }
+            })
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn hover_toolbar_appears_at_the_top_edge_and_hides_after_a_delay() {
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    let (messages, _) = ui.move_to(&app, Point::new(640.0, 400.0));
+    assert_eq!(hover_count(&messages, true), 0);
+    assert!(ui.id_bounds(&app, "toolbar").is_none(), "hidden at first");
+
+    // Entering the top band publishes one message and shows the toolbar.
+    let (messages, _) = ui.move_to(&app, Point::new(640.0, 30.0));
+    assert_eq!(hover_count(&messages, true), 1, "{messages:?}");
+    apply(&mut app, messages);
+    let bar = ui.id_bounds(&app, "toolbar").expect("revealed");
+    assert_eq!(bar.y, 0.0);
+    // Moving inside the band and over the toolbar publishes nothing more.
+    for x in [600.0, 500.0, 300.0] {
+        let (messages, _) = ui.move_to(&app, Point::new(x, 12.0));
+        assert!(
+            !has(&messages, |m| matches!(m, Message::ToolbarHover(_))),
+            "no message on plain moves: {messages:?}"
+        );
+    }
+
+    // Leaving publishes one message; the toolbar stays for the delay.
+    let (messages, _) = ui.move_to(&app, Point::new(640.0, 400.0));
+    assert_eq!(hover_count(&messages, false), 1, "{messages:?}");
+    let mut hide = Vec::new();
+    for message in messages {
+        hide.extend(wait_outputs(app.update(message)));
+    }
+    assert!(
+        ui.id_bounds(&app, "toolbar").is_some(),
+        "stays during the delay"
+    );
+    assert!(
+        has(&hide, |m| matches!(m, Message::ToolbarHideAfter(_))),
+        "the delay ends in a hide message: {hide:?}"
+    );
+    apply(&mut app, hide);
+    assert!(
+        ui.id_bounds(&app, "toolbar").is_none(),
+        "hidden after the delay"
+    );
+}
+
+#[test]
+fn returning_to_the_band_cancels_the_pending_hide() {
+    let mut app = long_doc_app();
+    let _ = app.update(Message::ToolbarHover(true));
+    let _ = app.update(Message::ToolbarHover(false));
+    let stale = app.toolbar_hover_generation;
+    let _ = app.update(Message::ToolbarHover(true));
+    let _ = app.update(Message::ToolbarHideAfter(stale));
+    assert!(app.toolbar_revealed, "a stale hide does nothing");
+    let _ = app.update(Message::ToolbarHover(false));
+    let current = app.toolbar_hover_generation;
+    let _ = app.update(Message::ToolbarHideAfter(current));
+    assert!(!app.toolbar_revealed);
+}
+
+#[test]
+fn hidden_band_leaves_the_content_its_pointer() {
+    let app = long_doc_app();
+    let mut ui = PointerUi::new();
+    // Scroll text under the band, then probe its height.
+    for _ in 0..3 {
+        let _ = ui.wheel(&app, Point::new(640.0, 400.0));
+    }
+    let text_under_band = (1..20).any(|step| {
+        let (_, cursor) = ui.move_to(&app, Point::new(640.0, step as f32 * 2.0));
+        cursor == mouse::Interaction::Text
+    });
+    assert!(
+        text_under_band,
+        "the reader keeps its text cursor under the band"
+    );
+}
+
+#[test]
+fn revealed_toolbar_takes_presses_on_its_blank_space() {
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    // Text scrolled under the band shows the text cursor there.
+    for _ in 0..3 {
+        let _ = ui.wheel(&app, Point::new(640.0, 400.0));
+    }
+    let probes: Vec<Point> = (1..16)
+        .map(|step| Point::new(400.0 + step as f32 * 8.0, 16.0))
+        .collect();
+    let under: Vec<Point> = probes
+        .iter()
+        .copied()
+        .filter(|at| ui.move_to(&app, *at).1 == mouse::Interaction::Text)
+        .collect();
+    assert!(!under.is_empty(), "text lies under the band");
+    let _ = app.update(Message::ToolbarHover(true));
+    let bar = ui.id_bounds(&app, "toolbar").expect("revealed");
+    let name = ui.text_bounds(&app, "pointer-long.md").expect("name");
+    for at in under {
+        if at.x > name.x - 4.0 && at.x < name.x + name.width + 4.0 {
+            continue;
+        }
+        assert!(bar.contains(at));
+        let (_, cursor) = ui.move_to(&app, at);
+        assert_ne!(
+            cursor,
+            mouse::Interaction::Text,
+            "the reader's text cursor does not show through the toolbar at {at:?}"
+        );
+    }
+}
+
+#[test]
+fn always_mode_has_no_hover_band() {
+    let app = always(long_doc_app());
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+    let (messages, _) = ui.move_to(&app, Point::new(640.0, 10.0));
+    assert!(!has(&messages, |m| matches!(m, Message::ToolbarHover(_))));
+}

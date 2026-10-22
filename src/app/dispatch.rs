@@ -829,9 +829,14 @@ impl App {
             }
             Message::SetLineSpacing(spacing) => self.set_line_spacing(spacing),
             Message::SetToolbarMode(mode) => self.set_toolbar_mode(mode),
-            Message::ToolbarHover(_) | Message::ToolbarHideAfter(_) | Message::ToolbarView(_) => {
+            Message::ToolbarHover(entered) => self.toolbar_hover(entered),
+            Message::ToolbarHideAfter(generation) => {
+                if generation == self.toolbar_hover_generation && !self.toolbar_hovered {
+                    self.toolbar_revealed = false;
+                }
                 Task::none()
             }
+            Message::ToolbarView(_) => Task::none(),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a
                 // finite magnification delta while a graph owns the visible
