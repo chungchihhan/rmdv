@@ -4,6 +4,7 @@ use super::*;
 // Explicit import: the `column!` macro is otherwise ambiguous between the glob
 // import and iced's exported macro.
 use iced::widget::column;
+use iced::widget::tooltip::Position;
 
 /// Bottom-center banner inviting the user to install a downloaded update.
 pub(in crate::app) fn update_banner<'a>(version: &str, pal: Palette) -> Element<'a, Message> {
@@ -289,9 +290,15 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
             },
             ..Default::default()
         });
-    let close_btn = mouse_area(close_btn_inner)
-        .interaction(iced::mouse::Interaction::Pointer)
-        .on_press(Message::CloseOverlay);
+    let close_btn = action_tip(
+        mouse_area(close_btn_inner)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_press(Message::CloseOverlay),
+        "Close",
+        Some("Esc"),
+        Position::Left,
+        pal,
+    );
     let close_overlay = container(close_btn)
         .padding(Padding::from([14, 16]))
         .align_x(iced::alignment::Horizontal::Right)
@@ -537,9 +544,27 @@ pub(in crate::app) fn search_bar_view<'a>(
                 })
                 .width(Length::Fill),
             text(counter).color(pal.muted).size(12),
-            ghost_lu(ic::CHEVRON_LEFT, pal).on_press(Message::FindStepClicked(false)),
-            ghost_lu(ic::CHEVRON_RIGHT, pal).on_press(Message::FindStepClicked(true)),
-            ghost_lu(ic::X, pal).on_press(Message::ToggleSearch),
+            action_tip(
+                ghost_lu(ic::CHEVRON_LEFT, pal).on_press(Message::FindStepClicked(false)),
+                "Previous Match",
+                Some("⇧↩"),
+                Position::Bottom,
+                pal,
+            ),
+            action_tip(
+                ghost_lu(ic::CHEVRON_RIGHT, pal).on_press(Message::FindStepClicked(true)),
+                "Next Match",
+                Some("↩"),
+                Position::Bottom,
+                pal,
+            ),
+            action_tip(
+                ghost_lu(ic::X, pal).on_press(Message::ToggleSearch),
+                "Close Find",
+                Some("Esc"),
+                Position::Bottom,
+                pal,
+            ),
         ]
         .padding(Padding::from([8, 14]))
         .spacing(10)

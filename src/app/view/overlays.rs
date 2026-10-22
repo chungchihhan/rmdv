@@ -15,8 +15,20 @@ pub(in crate::app) fn folder_picker_overlay<'a>(
         let mut crumb_row = iced::widget::Row::new()
             .spacing(2)
             .align_y(iced::Alignment::Center);
-        crumb_row = crumb_row.push(ghost_lu(ic::HOME, pal).on_press(Message::PickerHome));
-        crumb_row = crumb_row.push(ghost_lu(ic::ARROW_UP, pal).on_press(Message::PickerParent));
+        crumb_row = crumb_row.push(action_tip(
+            ghost_lu(ic::HOME, pal).on_press(Message::PickerHome),
+            "Home Folder",
+            None,
+            iced::widget::tooltip::Position::Bottom,
+            pal,
+        ));
+        crumb_row = crumb_row.push(action_tip(
+            ghost_lu(ic::ARROW_UP, pal).on_press(Message::PickerParent),
+            "Parent Folder",
+            Some("←"),
+            iced::widget::tooltip::Position::Bottom,
+            pal,
+        ));
         crumb_row = crumb_row.push(Space::new().width(8));
         for (label, path) in crumbs.iter() {
             crumb_row = crumb_row.push(text("/").color(pal.subtle).size(12));

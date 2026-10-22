@@ -4,6 +4,7 @@ use super::*;
 // Explicit import: the `column!` macro is otherwise ambiguous between the glob
 // import and iced's exported macro.
 use iced::widget::column;
+use iced::widget::tooltip::Position;
 
 pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a, Message> {
     let recently_scrolled = app
@@ -16,30 +17,8 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
         .unwrap_or("workspace");
     // Title row: workspace name on the left; the Files/Outline tabs, command-palette
     // button, and sidebar-collapse button pinned to the right beside each other.
-    let kbd_pill = |label: &'static str, pal: Palette| {
-        container(
-            text(label)
-                .size(11)
-                .color(pal.fg)
-                .shaping(iced::widget::text::Shaping::Advanced),
-        )
-        .padding(Padding::from([4, 8]))
-        .style(move |_| container::Style {
-            background: Some(pal.chip().into()),
-            border: Border {
-                color: pal.border(),
-                width: 1.0,
-                radius: theme::radius::SM.into(),
-            },
-            ..Default::default()
-        })
-    };
     let switch_tip = |inner: Element<'a, Message>| {
-        iced::widget::tooltip(
-            inner,
-            kbd_pill("← → switch", pal),
-            iced::widget::tooltip::Position::Bottom,
-        )
+        action_tip(inner, "Switch Tab", Some("← →"), Position::Bottom, pal)
     };
     // Only the (variable-length) title may be clipped on a narrow sidebar — the
     // control cluster stays unclipped so the collapse button is never cut off.
@@ -66,20 +45,26 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
             SidebarTab::Outline,
             pal
         )),
-        iced::widget::tooltip(
+        action_tip(
             ghost_lu(ic::COMMAND, pal).on_press(Message::OpenCommandPalette),
-            kbd_pill("⌘⇧P", pal),
-            iced::widget::tooltip::Position::Bottom,
+            "Command Palette",
+            Some("⌘⇧P"),
+            Position::Bottom,
+            pal,
         ),
-        iced::widget::tooltip(
+        action_tip(
             ghost_lu(ic::SETTINGS, pal).on_press(Message::ToggleSettings),
-            kbd_pill("⌘,", pal),
-            iced::widget::tooltip::Position::Bottom,
+            "Settings",
+            Some("⌘,"),
+            Position::Bottom,
+            pal,
         ),
-        iced::widget::tooltip(
+        action_tip(
             ghost_lu(ic::PANEL_LEFT_CLOSE, pal).on_press(Message::ToggleSidebar),
-            kbd_pill("⌘B", pal),
-            iced::widget::tooltip::Position::Bottom,
+            "Hide Sidebar",
+            Some("⌘B"),
+            Position::Bottom,
+            pal,
         ),
     ]
     .spacing(6)

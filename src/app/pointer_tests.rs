@@ -1121,4 +1121,92 @@ mod group3 {
         assert_eq!(app.outline_cursor, 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    // --- 4. Icon-button tooltips name the action and its shortcut ----------
+
+    /// Tooltip labels built for the current `view`.
+    fn tips(ui: &mut PointerUi, app: &App) -> Vec<String> {
+        let _ = tip_log::take();
+        let _ = ui.text_bounds(app, "\u{0}");
+        tip_log::take()
+    }
+
+    fn assert_tips(tips: &[String], expected: &[&str]) {
+        for label in expected {
+            assert!(
+                tips.iter().any(|tip| tip == label),
+                "missing tooltip {label:?} in {tips:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn action_tip_label_joins_action_and_shortcut() {
+        assert_eq!(
+            tip_log::label("Command Palette", Some("⌘⇧P")),
+            "Command Palette  ⌘⇧P"
+        );
+        assert_eq!(tip_log::label("Copy Code", None), "Copy Code");
+    }
+
+    #[test]
+    fn sidebar_header_tooltips_name_their_actions() {
+        let (app, dir) = tree_fixture("tips-sidebar");
+        let mut ui = PointerUi::new();
+        assert_tips(
+            &tips(&mut ui, &app),
+            &[
+                "Command Palette  ⌘⇧P",
+                "Settings  ⌘,",
+                "Hide Sidebar  ⌘B",
+                "Switch Tab  ← →",
+            ],
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn find_bar_tooltips_name_their_actions() {
+        let mut app = long_doc_app();
+        let _ = app.update(Message::ToggleSearch);
+        let mut ui = PointerUi::new();
+        assert_tips(
+            &tips(&mut ui, &app),
+            &["Previous Match  ⇧↩", "Next Match  ↩", "Close Find  Esc"],
+        );
+    }
+
+    #[test]
+    fn picker_and_viewer_tooltips_name_their_actions() {
+        let dir = std::env::temp_dir().join(format!("rmdv-tips-picker-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("child")).unwrap();
+        let mut app = App::default();
+        app.overlay = Overlay::FolderPicker;
+        app.picker = Some(Picker::new(Some(dir.clone()), PickerMode::OpenAny, false));
+        let mut ui = PointerUi::new();
+        assert_tips(&tips(&mut ui, &app), &["Home Folder", "Parent Folder  ←"]);
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut app = long_doc_app();
+        let _ = app.update(Message::OpenImageZoom("/tmp/rmdv-tips.png".into()));
+        assert_eq!(app.overlay, Overlay::ImageZoom);
+        let mut ui = PointerUi::new();
+        assert_tips(&tips(&mut ui, &app), &["Close  Esc"]);
+
+        let mut app = App::default();
+        let _ = app.update(Message::OpenSettings);
+        let mut ui = PointerUi::new();
+        assert_tips(&tips(&mut ui, &app), &["Close Settings  Esc"]);
+    }
+
+    #[test]
+    fn code_copy_button_has_a_tooltip() {
+        let mut app = App::default();
+        let _ = app.update(Message::FileLoaded(Ok((
+            PathBuf::from("/tmp/pointer-code.md"),
+            "# Code\n\n```rust\nfn main() {}\n```\n".into(),
+        ))));
+        let mut ui = PointerUi::new();
+        assert_tips(&tips(&mut ui, &app), &["Copy Code"]);
+    }
 }

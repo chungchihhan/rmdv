@@ -73,6 +73,70 @@ pub(in crate::app) fn ghost_lu<'a>(code: char, pal: Palette) -> button::Button<'
         })
 }
 
+/// Tooltip for an icon button: the action's name, then its shortcut when it
+/// has one ("Command Palette  ⌘⇧P").
+pub(crate) fn action_tip<'a>(
+    content: impl Into<Element<'a, Message>>,
+    action: &'a str,
+    shortcut: Option<&'a str>,
+    position: iced::widget::tooltip::Position,
+    pal: Palette,
+) -> Element<'a, Message> {
+    #[cfg(test)]
+    tip_log::record(action, shortcut);
+    let mut label = irow![text(action).size(11).color(pal.fg)]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
+    if let Some(shortcut) = shortcut {
+        label = label.push(
+            text(shortcut)
+                .size(11)
+                .color(pal.muted)
+                .shaping(iced::widget::text::Shaping::Advanced),
+        );
+    }
+    let pill = container(label)
+        .padding(Padding::from([4, 8]))
+        .style(move |_| container::Style {
+            background: Some(pal.chip().into()),
+            border: Border {
+                color: pal.border(),
+                width: 1.0,
+                radius: theme::radius::SM.into(),
+            },
+            ..Default::default()
+        });
+    iced::widget::tooltip(content, pill, position).into()
+}
+
+/// Test-only record of the tooltips built by `view`: a tooltip's body is an
+/// overlay that widget operations do not reach.
+#[cfg(test)]
+pub(crate) mod tip_log {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static LABELS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// The text an [`action_tip`](super::action_tip) shows, as one string.
+    pub(crate) fn label(action: &str, shortcut: Option<&str>) -> String {
+        match shortcut {
+            Some(shortcut) => format!("{action}  {shortcut}"),
+            None => action.to_string(),
+        }
+    }
+
+    pub(crate) fn record(action: &str, shortcut: Option<&str>) {
+        LABELS.with(|labels| labels.borrow_mut().push(label(action, shortcut)));
+    }
+
+    /// Labels recorded since the last call.
+    pub(crate) fn take() -> Vec<String> {
+        LABELS.with(|labels| std::mem::take(&mut *labels.borrow_mut()))
+    }
+}
+
 pub(in crate::app) fn centered_card<'a>(
     content: Element<'a, Message>,
     pal: Palette,

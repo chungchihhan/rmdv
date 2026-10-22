@@ -651,7 +651,7 @@ fn render_block<'a>(
             let code_str = code.to_string();
             let icon_glyph = crate::icon::glyph(crate::icon::ic::COPY, 13.0, pal_c.muted);
             let copy_btn =
-                container(
+                container(crate::app::action_tip(
                     mouse_area(container(icon_glyph).padding(Padding::from([4, 6])).style(
                         move |_| container::Style {
                             background: Some(pal_c.code_bg.into()),
@@ -665,7 +665,11 @@ fn render_block<'a>(
                     ))
                     .interaction(iced::mouse::Interaction::Pointer)
                     .on_press(Message::CopyCode(code_str)),
-                )
+                    "Copy Code",
+                    None,
+                    tooltip::Position::Left,
+                    pal_c,
+                ))
                 .padding(Padding::from([6, 8]))
                 .align_x(iced::alignment::Horizontal::Right)
                 .width(Length::Fill);
