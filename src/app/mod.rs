@@ -2703,6 +2703,8 @@ impl App {
             ("Reveal File in Finder  ⌘⌥R", Message::RevealFileInFinder),
             ("Copy Focused File Path  ⌘⌥C", Message::CopyFilePath),
             ("Find File in Workspace…  ⌘P", Message::OpenFileFinder),
+            ("Go Back  ⌘[", Message::HistoryGo(HistoryDir::Back)),
+            ("Go Forward  ⌘]", Message::HistoryGo(HistoryDir::Forward)),
             ("Toggle Sidebar  ⌘B", Message::ToggleSidebar),
             ("Toggle Hidden Files  ⌘⇧.", Message::ToggleHidden),
             ("Find in Document  ⌘F", Message::ToggleSearch),
@@ -3159,6 +3161,9 @@ impl App {
                     // global/fallback commands. Other document-only chords do
                     // nothing while its surface is visible.
                     if full_mindmap {
+                        if let Some(message) = history_key_message(&key, physical, mods) {
+                            return message;
+                        }
                         return match c.as_str() {
                             "p" if cmd && mods.shift() => Message::OpenCommandPalette,
                             "P" if cmd => Message::OpenCommandPalette,
@@ -3179,6 +3184,9 @@ impl App {
                             return Message::OpenVaultSearch;
                         }
                         return Message::Noop;
+                    }
+                    if let Some(message) = history_key_message(&key, physical, mods) {
+                        return message;
                     }
                     match c.as_str() {
                         "p" if cmd && mods.shift() => return Message::OpenCommandPalette,

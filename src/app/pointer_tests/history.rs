@@ -454,3 +454,71 @@ fn back_waits_while_a_modal_is_open() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- 3. ⌘[ and ⌘] ----------------------------------------------------------------
+
+#[test]
+fn command_brackets_go_back_and_forward() {
+    use iced::keyboard::key::{Code, Physical};
+    use iced::keyboard::{Key, Modifiers};
+    let ch = |c: &str| Key::Character(c.into());
+    let cmd = Modifiers::COMMAND;
+    let back = |m: Option<Message>| matches!(m, Some(Message::HistoryGo(HistoryDir::Back)));
+    let fwd = |m: Option<Message>| matches!(m, Some(Message::HistoryGo(HistoryDir::Forward)));
+    assert!(back(history_key_message(
+        &ch("["),
+        Physical::Code(Code::BracketLeft),
+        cmd
+    )));
+    assert!(fwd(history_key_message(
+        &ch("]"),
+        Physical::Code(Code::BracketRight),
+        cmd
+    )));
+    // A layout with another character on the bracket keys.
+    assert!(back(history_key_message(
+        &ch("ü"),
+        Physical::Code(Code::BracketLeft),
+        cmd
+    )));
+    assert!(fwd(history_key_message(
+        &ch("+"),
+        Physical::Code(Code::BracketRight),
+        cmd
+    )));
+    // Without ⌘, or with Shift or Option, the keys stay free.
+    for mods in [
+        Modifiers::empty(),
+        cmd | Modifiers::SHIFT,
+        cmd | Modifiers::ALT,
+    ] {
+        assert!(
+            history_key_message(&ch("["), Physical::Code(Code::BracketLeft), mods).is_none(),
+            "{mods:?}"
+        );
+    }
+    assert!(history_key_message(&ch("p"), Physical::Code(Code::KeyP), cmd).is_none());
+}
+
+#[test]
+fn palette_and_shortcut_sheet_list_go_back_and_go_forward() {
+    let app = App::default();
+    let items = app.command_items();
+    assert!(
+        items.iter().any(|(label, m)| *label == "Go Back  ⌘["
+            && matches!(m, Message::HistoryGo(HistoryDir::Back))),
+        "palette has Go Back"
+    );
+    assert!(
+        items.iter().any(|(label, m)| *label == "Go Forward  ⌘]"
+            && matches!(m, Message::HistoryGo(HistoryDir::Forward))),
+        "palette has Go Forward"
+    );
+
+    let mut app = App::default();
+    let _ = app.update(Message::ToggleShortcuts);
+    let mut ui = PointerUi::new();
+    assert!(ui.text_bounds(&app, "Go Back / Forward").is_some());
+    let back = ui.text_bounds(&app, "[").expect("the [ key cap");
+    assert!(back.y + back.height < 800.0, "on screen: {back:?}");
+}
