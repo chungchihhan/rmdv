@@ -33,7 +33,8 @@ pub enum MindmapDir {
 }
 
 /// What the folder picker's last row click did, for its double-click. The
-/// next left press always consumes it.
+/// next left press always consumes it; closing the picker drops a
+/// `Descended`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(super) enum PickerClick {
     #[default]

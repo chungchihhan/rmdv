@@ -232,3 +232,38 @@ fn picker_footer_has_no_open_this_folder_button_and_names_double_click() {
         "the Enter hint names the pointer path"
     );
 }
+
+#[test]
+fn a_folder_click_before_esc_does_not_swallow_the_next_click() {
+    // A click on a folder row descends; Esc then closes the picker. A click
+    // at the same spot right after must reach the document below, not
+    // count as the second click of a picker double-click.
+    let fx = Fixture::new("esc-below");
+    let words = vec!["word"; 600].join(" ");
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        PathBuf::from("/tmp/pointer-picker-esc-links.md"),
+        format!("[{words}](https://example.com/below)\n"),
+    ))));
+    let _ = app.update(Message::OpenFolderPicker);
+    app.picker = Some(Picker::new(
+        Some(fx.root.clone()),
+        PickerMode::OpenAny,
+        false,
+    ));
+    let mut ui = PointerUi::new();
+    let row = ui.text_bounds(&app, "alpha").expect("alpha row");
+    let at = Point::new(760.0, row.center_y());
+    let mut messages = ui.move_to(&app, at).0;
+    messages.extend(press_release(&mut ui, &app, at));
+    apply(&mut app, messages);
+    assert_eq!(app.overlay, Overlay::FolderPicker, "the click descended");
+
+    let _ = app.update(Message::CloseOverlay);
+    assert_eq!(app.overlay, Overlay::None);
+    let messages = press_release(&mut ui, &app, at);
+    assert!(
+        has(&messages, |m| matches!(m, Message::OpenLink(_))),
+        "the click reaches the link: {messages:?}"
+    );
+}

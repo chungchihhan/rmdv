@@ -18,6 +18,13 @@ impl App {
         crate::macos_quit::set_unsaved(self.dirty);
         self.sync_toolbar_band();
         self.sync_sidebar_peek();
+        // A folder click's double-click ends with the picker (Esc, an open,
+        // another overlay). `Closed` stays for the one press it swallows.
+        if self.overlay != Overlay::FolderPicker
+            && matches!(self.picker_click, PickerClick::Descended(_))
+        {
+            self.picker_click = PickerClick::Idle;
+        }
         if let Some(glass) = self.sync_glass() {
             task = Task::batch([task, glass]);
         }
