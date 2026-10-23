@@ -1572,7 +1572,10 @@ mod tests {
                 );
             }
             let after = (app.menu_state(), app.menu_titles(), app.menu_recent());
-            assert_eq!(before, after, "{surface}: an inert message changed the menu");
+            assert_eq!(
+                before, after,
+                "{surface}: an inert message changed the menu"
+            );
             let _ = app.update(Message::Noop);
             assert_eq!(
                 app.menu_pushed.computes,
