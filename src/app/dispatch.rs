@@ -10,7 +10,14 @@ impl App {
         }
         // Only while a link pill shows: the snapshot clones the path.
         let link_page = self.hovered_link.is_some().then(|| self.link_page());
+        // Only while a context menu is open.
+        let menu_scope = self.context_menu.is_some().then(|| self.menu_scope());
         let mut task = self.dispatch_message(msg);
+        // A menu closes when what is under it changes: an overlay, a view,
+        // a modal, the sidebar.
+        if menu_scope.is_some_and(|scope| scope != self.menu_scope()) {
+            self.context_menu = None;
+        }
         // Every way out of the viewer (Esc, a click beside the image, an
         // open from Finder or the CLI, Zen) frees what it holds: the sharper
         // raster alone can be 64 MB.
@@ -70,6 +77,9 @@ impl App {
             }
             tasks.push(Task::done(msg));
             return Task::batch(tasks);
+        }
+        if let Some(task) = self.context_menu_message(&msg) {
+            return task;
         }
         match msg {
             Message::Open(p) => self.load_file_unless_dirty(p),
@@ -2207,6 +2217,7 @@ impl App {
             }
             Message::WindowResized(id, size) => {
                 self.window_size = Some(size);
+                self.context_menu = None;
                 // The preview viewport height can change without a scroll
                 // event (for example when a window is tiled). Re-window and
                 // remeasure its retained layout deterministically.
@@ -2217,6 +2228,7 @@ impl App {
                 ])
             }
             Message::WindowUnfocused(id) => {
+                self.context_menu = None;
                 self.quick_slots_modifier_held = false;
                 self.quick_slots_rail_revealed = false;
                 self.quick_slots_modifier_generation =
@@ -4064,6 +4076,14 @@ impl App {
                 Task::none()
             }
             Message::Noop => Task::none(),
+            // Handled by `context_menu_message` above.
+            Message::PointerRightPress(_)
+            | Message::ContextMenuPointer(_)
+            | Message::ContextMenuHover(_)
+            | Message::ContextMenuMove(_)
+            | Message::ContextMenuActivate
+            | Message::ContextMenuChoose(_)
+            | Message::ContextMenuClose => Task::none(),
             Message::ToggleAutoFocusOnNav => {
                 self.prefs.auto_focus_on_nav = !self.prefs.auto_focus_on_nav;
                 self.save_prefs();

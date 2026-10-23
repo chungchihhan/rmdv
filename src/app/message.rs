@@ -79,6 +79,23 @@ pub enum Message {
         result: Result<(PathBuf, String), String>,
     },
     CloseOverlay,
+    /// A right press anywhere in the window, in window coordinates. A
+    /// context menu that a widget opens on the same press appears here.
+    PointerRightPress(iced::Point),
+    /// Pointer position over the open context menu; a changed position is
+    /// real motion (see [`Message::ListPointerMoved`]).
+    ContextMenuPointer(iced::Point),
+    /// Pointer motion over a context menu item; it highlights the item only
+    /// after real pointer motion.
+    ContextMenuHover(usize),
+    /// Up or Down in the open context menu: the next enabled item.
+    ContextMenuMove(isize),
+    /// Enter in the open context menu: choose the highlighted item.
+    ContextMenuActivate,
+    /// A click on a context menu item: close the menu, then run the item.
+    ContextMenuChoose(usize),
+    /// Close the context menu without choosing (Esc, a press outside it).
+    ContextMenuClose,
     PickerNavigate(PathBuf),
     PickerParent,
     PickerHome,

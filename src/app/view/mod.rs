@@ -4,6 +4,7 @@
 use super::*;
 
 mod chrome;
+mod context_menu;
 mod edge_peek;
 mod overlays;
 mod press_watch;
@@ -16,6 +17,7 @@ mod wheel_gate;
 mod widgets;
 
 pub(super) use chrome::*;
+pub(super) use context_menu::*;
 pub(super) use edge_peek::EdgePeek;
 #[cfg(test)]
 pub(super) use edge_peek::TEST_BUTTONS_DOWN;

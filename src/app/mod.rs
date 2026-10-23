@@ -120,6 +120,7 @@ fn editor_font() -> iced::Font {
     }
 }
 
+mod context_menu;
 mod dispatch;
 mod full_mindmap;
 mod full_mindmap_state;
@@ -142,6 +143,7 @@ mod toolbar;
 mod types;
 mod view;
 mod zoom_raster;
+use context_menu::*;
 use full_mindmap_state::*;
 
 pub use full_mindmap_state::{
@@ -249,6 +251,10 @@ pub struct App {
     /// Pointer motion over the overlay lists and vault results; gates hover
     /// selection on real motion.
     list_pointer: ListPointer,
+    /// The open context menu; at most one at a time.
+    context_menu: Option<ContextMenu>,
+    /// Where the latest right press was, in window coordinates.
+    right_press_at: Option<iced::Point>,
     /// Vault search results page (Zed-style) — full reader-area, not an overlay.
     /// Shown when `vault_open`; workspace-level, so it renders even with no file.
     pub vault_open: bool,
@@ -613,6 +619,8 @@ impl Default for App {
             overlay_query: String::new(),
             overlay_selected: 0,
             list_pointer: ListPointer::default(),
+            context_menu: None,
+            right_press_at: None,
             vault_open: false,
             vault_query: String::new(),
             vault_searched_query: None,
@@ -3091,6 +3099,7 @@ impl App {
             quick_slots_shortcuts_enabled(overlay_open, vault_open, focused, editing, self.dirty);
         let slot_replace_open = self.quick_slot_replace.is_some();
         let close_confirm_open = self.close_confirm.is_some();
+        let menu_open = self.context_menu.is_some();
         let keys = iced::event::listen_with(|ev, status, _id| {
             let is_keyboard = matches!(
                 &ev,
@@ -3134,6 +3143,7 @@ impl App {
                 self.reader_select_all,
                 close_confirm_open,
                 image_zoom_open,
+                menu_open,
             ),
         ))
         .map(
@@ -3153,7 +3163,7 @@ impl App {
                         quick_slots_allowed,
                         settings_open,
                     ),
-                    (slot_replace_open, select_all, close_confirm_open, image_zoom_open),
+                    (slot_replace_open, select_all, close_confirm_open, image_zoom_open, menu_open),
                 ),
                 (ev, reader_copied),
             )| {
@@ -3183,6 +3193,15 @@ impl App {
                 };
                 if is_primary_modifier_key(&key) {
                     return Message::QuickSlotsModifier(!released);
+                }
+                // An open context menu owns the keyboard, as a native menu
+                // does while it tracks.
+                if menu_open {
+                    return if released {
+                        Message::Noop
+                    } else {
+                        context_menu_key_message(&key)
+                    };
                 }
                 // The replace-slot confirmation owns the keyboard: nothing
                 // reaches the surfaces underneath it.
@@ -4294,6 +4313,10 @@ impl App {
             Some(u) => update_banner(&u.version, pal),
             None => Space::new().into(),
         };
+        let menu_layer: Element<'_, Message> = match &self.context_menu {
+            Some(menu) => context_menu_layer(menu, pal),
+            None => Space::new().into(),
+        };
         let root = iced::widget::stack![
             base,
             slot_replace_layer,
@@ -4301,6 +4324,7 @@ impl App {
             progress_layer,
             toast_layer,
             update_layer,
+            menu_layer,
             drop_layer
         ];
         // The picker's double-click: presses are reported only while the
@@ -4310,6 +4334,7 @@ impl App {
             self.overlay == Overlay::FolderPicker || self.picker_click != PickerClick::Idle;
         PressWatch::new(root)
             .on_press(watching.then_some(report))
+            .on_right_press(Message::PointerRightPress)
             .swallow_double(self.picker_click != PickerClick::Idle)
             .into()
     }

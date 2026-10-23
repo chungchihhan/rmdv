@@ -1655,3 +1655,7 @@ mod viewer;
 // --- P5: reader and editor gestures -------------------------------------------
 
 mod gestures;
+
+// --- P6: the shared context menu --------------------------------------------
+
+mod context_menu;
