@@ -344,6 +344,38 @@ fn no_peek_while_a_button_is_held() {
 }
 
 #[test]
+fn a_release_lost_to_a_window_drag_does_not_block_the_peek() {
+    // A window drag can swallow the button release (winit documents this
+    // for macOS). The band then asks the system whether a button is down.
+    use crate::app::view::TEST_BUTTONS_DOWN;
+    let (app, dir) = peek_app("drag");
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, READER);
+    let _ = ui.send(
+        &app,
+        READER,
+        vec![Event::Mouse(mouse::Event::ButtonPressed(
+            mouse::Button::Left,
+        ))],
+    );
+    // The drag is still on: no peek.
+    TEST_BUTTONS_DOWN.with(|down| down.set(Some(true)));
+    let (messages, _) = ui.move_to(&app, EDGE);
+    assert_eq!(peek_count(&messages, true), 0, "{messages:?}");
+    let _ = ui.move_to(&app, READER);
+    // The drag ended, but its release never arrived.
+    TEST_BUTTONS_DOWN.with(|down| down.set(Some(false)));
+    let (messages, _) = ui.move_to(&app, EDGE);
+    TEST_BUTTONS_DOWN.with(|down| down.set(None));
+    assert_eq!(
+        peek_count(&messages, true),
+        1,
+        "no button is down: {messages:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_peek_closes_for_overlays_and_full_mindmap() {
     let (mut app, dir) = peek_app("close");
     let _ = app.update(Message::SidebarPeek(true));

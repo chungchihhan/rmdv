@@ -5,10 +5,11 @@
 //! the peek (or nothing) as its content. It watches a thin band at its left
 //! edge: the pointer entering the band with no mouse button held publishes
 //! `on_enter` once. A press anywhere sets the held state, so a drag-select
-//! that reaches the edge does not reveal the sidebar. The band takes no
-//! input and shows no cursor of its own, so the content under it keeps its
-//! hover, cursor, and clicks. It publishes on entering only, never on plain
-//! moves.
+//! that reaches the edge does not reveal the sidebar. On macOS a pointer
+//! move also asks the system whether a button is still down, because a
+//! window drag can swallow the release. The band takes no input and shows
+//! no cursor of its own, so the content under it keeps its hover, cursor,
+//! and clicks. It publishes on entering only, never on plain moves.
 
 use crate::app::Message;
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
@@ -17,6 +18,33 @@ use iced::{Element, Event, Length, Rectangle, Size, Vector};
 
 /// Width of the band at the left window edge.
 pub(in crate::app) const EDGE_BAND_W: f32 = 5.0;
+
+/// Whether a mouse button is down, from the system rather than from
+/// events: a window drag can swallow the release (winit's `drag_window` on
+/// macOS "may prevent the button release event to be triggered").
+#[cfg(all(not(test), target_os = "macos"))]
+fn buttons_down() -> Option<bool> {
+    Some(objc2_app_kit::NSEvent::pressedMouseButtons() != 0)
+}
+
+/// Elsewhere the events alone tell.
+#[cfg(all(not(test), not(target_os = "macos")))]
+fn buttons_down() -> Option<bool> {
+    None
+}
+
+#[cfg(test)]
+thread_local! {
+    /// What [`buttons_down`] reports in tests; `None` as on platforms
+    /// without the query.
+    pub(in crate::app) static TEST_BUTTONS_DOWN: std::cell::Cell<Option<bool>> =
+        const { std::cell::Cell::new(None) };
+}
+
+#[cfg(test)]
+fn buttons_down() -> Option<bool> {
+    TEST_BUTTONS_DOWN.with(std::cell::Cell::get)
+}
 
 pub(in crate::app) struct EdgePeek<'a> {
     content: Element<'a, Message>,
@@ -118,6 +146,12 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for EdgePeek<'a> {
         match event {
             Event::Mouse(mouse::Event::ButtonPressed(_)) => state.held = true,
             Event::Mouse(mouse::Event::ButtonReleased(_)) => state.held = false,
+            // A held state whose release never came: ask the system.
+            Event::Mouse(mouse::Event::CursorMoved { .. }) if state.held => {
+                if let Some(down) = buttons_down() {
+                    state.held = down;
+                }
+            }
             _ => {}
         }
         let bounds = layout.bounds();

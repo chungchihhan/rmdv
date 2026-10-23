@@ -16,6 +16,8 @@ mod widgets;
 
 pub(super) use chrome::*;
 pub(super) use edge_peek::EdgePeek;
+#[cfg(test)]
+pub(super) use edge_peek::TEST_BUTTONS_DOWN;
 pub(super) use overlays::*;
 pub(super) use press_watch::PressWatch;
 pub(super) use settings::*;
