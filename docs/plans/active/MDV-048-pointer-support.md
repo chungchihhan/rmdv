@@ -101,6 +101,12 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
 - P7: CJK words come from the system dictionary through
   `CFStringTokenizer`, so the split follows macOS (for example 中文 and
   測試 are words, 分詞 may stay two). Keyboard word moves keep UAX #29.
+- P7: a block's copy button (code, math, diagram) confirms with a check
+  for 1.5 s instead of the "Copied" toast; menu copies keep the toast.
+  Reader blocks take no keyboard focus, so the button shows on hover
+  only.
+- P7: the reader scrollbar fades only in the reader; the sidebar, panel,
+  and table scrollbars keep the instant show and hide.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -143,6 +149,7 @@ Per phase:
 - 2026-10-24: P6 done on `feat/pointer-p6` (stacked on P5): shared in-app context menu; file tree menu with New File, New Folder, inline Rename and Move to Trash (macOS `NSFileManager`; other platforms show "not supported"); reader, Zen editor, mind map, outline, vault, finder and Quick Slot menus; tree row and sidebar divider double-click; middle click skipped (no target). 13 review findings: 12 fixed, 1 kept by decision (synchronous rescan). Trash tests clean up through a drop guard. lib 884 passed, integration all passed.
 
 - 2026-10-24: P7 reader selection on `feat/pointer-p7` (stacked on P6): a press in the margins, between blocks, or below the end starts a selection at the nearest text (I-beam there); drag past the viewport edge auto-scrolls and the selection follows across virtual window rebuilds; macOS double-click selects Chinese and Japanese dictionary words (`CFStringTokenizer`, vendored `iced_selection::word`); double/triple-click drags keep word/line granularity across blocks; Shift+click extends within and across blocks.
+- 2026-10-24: P7 reader affordances on `feat/pointer-p7`: hover-revealed copy buttons on code, math, and diagrams with a check after a copy (math click-anywhere copy removed), "Click to enlarge" on diagrams, read-only task checkboxes (not-allowed cursor, "Read-only"); reader scrollbar 150 ms fade (ticks only while fading), 6→10 px thumb on hover, 12 px hit area; wide-table edge shades. lib 909 passed, integration all passed.
 
 ## Decision log
 
