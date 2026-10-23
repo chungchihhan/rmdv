@@ -4,7 +4,7 @@ State: in progress
 Owner / accountable lead: gh-rmdv-orch
 Active writer: gh-rmdv-orch (one phase branch at a time)
 Created: 2026-10-22
-Updated: 2026-10-23
+Updated: 2026-10-24
 
 ## Outcome
 
@@ -83,6 +83,24 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   row patch is the fallback if the owner sees a hitch.
 - Rename, New File, or New Folder chosen from the sidebar peek pins the
   sidebar open, as Keep Sidebar Open does, because the rename needs the tree.
+- P7 (2026-10-24): Quick Slots get a pointer entry: a toolbar button that
+  toggles the same rail as a click-pinned popover; the ⌘-hold display
+  stays.
+- P7: no document breadcrumb; the centered toolbar file name covers it.
+- P7: drag-out to Finder is deferred; it needs an `NSDraggingSource`
+  bridge.
+- P7: the Zen editor gets no drag auto-scroll or scrollbar in this phase.
+  Iced 0.14's `text_editor` reports a drag only while the pointer is inside
+  its bounds (`cursor.position_in(bounds)?`, `text_editor.rs:1311`, and
+  only for a single-click drag) and draws no scrollbar, so both need a
+  vendored `text_editor` or a wrapper that replays `Action::Scroll` and a
+  clamped `Action::Drag`; left for a later phase.
+- P7: the reader's drag auto-scroll ticks every 16 ms only while a
+  selection drag is past the viewport's top or bottom edge, by a quarter of
+  the overshoot per tick (2 to 60 px); a release anywhere stops it.
+- P7: CJK words come from the system dictionary through
+  `CFStringTokenizer`, so the split follows macOS (for example 中文 and
+  測試 are words, 分詞 may stay two). Keyboard word moves keep UAX #29.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -123,6 +141,8 @@ Per phase:
 - 2026-10-23: P5 done on `feat/pointer-p5` (stacked on P4): mind map "Scroll pans" setting (default off) and drag pan outside the canvas; rmdv image and diagram viewer (proportional zoom, pan, pinch, Fit/−/100%/+, double-click, click beside closes, sharper diagram raster); reader pinch and ⌘+scroll font size (coalesced, one prefs write per gesture); editor trackpad scroll at finger speed; macOS two-finger swipe Back/Forward through an AppKit scroll monitor (feel unverified headless); 7 review findings fixed; lib 807 passed, integration all passed.
 - 2026-10-23: P5 trial build: Release dry run 39951643772, notarized (PR #75).
 - 2026-10-24: P6 done on `feat/pointer-p6` (stacked on P5): shared in-app context menu; file tree menu with New File, New Folder, inline Rename and Move to Trash (macOS `NSFileManager`; other platforms show "not supported"); reader, Zen editor, mind map, outline, vault, finder and Quick Slot menus; tree row and sidebar divider double-click; middle click skipped (no target). 13 review findings: 12 fixed, 1 kept by decision (synchronous rescan). Trash tests clean up through a drop guard. lib 884 passed, integration all passed.
+
+- 2026-10-24: P7 reader selection on `feat/pointer-p7` (stacked on P6): a press in the margins, between blocks, or below the end starts a selection at the nearest text (I-beam there); drag past the viewport edge auto-scrolls and the selection follows across virtual window rebuilds; macOS double-click selects Chinese and Japanese dictionary words (`CFStringTokenizer`, vendored `iced_selection::word`); double/triple-click drags keep word/line granularity across blocks; Shift+click extends within and across blocks.
 
 ## Decision log
 
