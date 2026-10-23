@@ -198,7 +198,11 @@ fn the_outline_shown_again_scrolls_to_the_marked_section() {
     send(&mut app, &mut ui, Message::SetSidebarTab(SidebarTab::Files));
     wheel_reader(&mut app, &mut ui, 400);
     assert!(app.outline_cursor > 40, "section {}", app.outline_cursor);
-    send(&mut app, &mut ui, Message::SetSidebarTab(SidebarTab::Outline));
+    send(
+        &mut app,
+        &mut ui,
+        Message::SetSidebarTab(SidebarTab::Outline),
+    );
     settle(&mut app, &mut ui);
     assert!(
         marked_row_in_view(&app),

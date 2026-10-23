@@ -439,7 +439,10 @@ fn the_overflow_shade_shows_over_the_table() {
         .filter(|y| *y < h as f32)
         .collect();
     assert!(rows.len() > 40, "{table:?}");
-    let same = rows.iter().filter(|y| at(left, **y) == at(right, **y)).count();
+    let same = rows
+        .iter()
+        .filter(|y| at(left, **y) == at(right, **y))
+        .count();
     assert!(
         same * 5 < rows.len(),
         "{same} of {} rows look the same at both edges: no shade shows",
@@ -472,17 +475,17 @@ fn a_copy_checks_only_the_block_it_came_from() {
         "```sh\nnpm install\n```\n\nBetween the two.\n\n```sh\nnpm install\n```\n",
     );
     let mut ui = PointerUi::new();
-    let (copy, check) = (
-        glyph(crate::icon::ic::COPY),
-        glyph(crate::icon::ic::CHECK),
-    );
+    let (copy, check) = (glyph(crate::icon::ic::COPY), glyph(crate::icon::ic::CHECK));
     assert_eq!(count_text(&mut ui, &app, &copy), 2);
     let button = ui.text_bounds(&app, &copy).expect("copy icon");
     let messages = ui.click(&app, center(button));
     assert!(copied(&messages).is_some(), "{messages:?}");
     apply(&mut app, messages);
     assert_eq!(
-        (count_text(&mut ui, &app, &check), count_text(&mut ui, &app, &copy)),
+        (
+            count_text(&mut ui, &app, &check),
+            count_text(&mut ui, &app, &copy)
+        ),
         (1, 1),
         "only the copied block shows the check"
     );

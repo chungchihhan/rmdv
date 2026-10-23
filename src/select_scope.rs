@@ -775,14 +775,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         // selection to the nearest text position.
         if let Some(ends) = shift_beside {
             if !shell.is_event_captured() {
-                extend_to(
-                    &mut self.content,
-                    child_tree,
-                    child,
-                    renderer,
-                    state,
-                    ends,
-                );
+                extend_to(&mut self.content, child_tree, child, renderer, state, ends);
                 shell.capture_event();
                 shell.request_redraw();
             }

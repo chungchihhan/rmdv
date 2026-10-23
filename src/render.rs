@@ -1254,12 +1254,9 @@ fn render_math_block<'a>(
                 .center_x(Length::Fill)
                 .padding(Padding::from([8.0, COPY_BUTTON_CLEARANCE]));
             let copied = img.copied == Some(copy_key(source));
-            HoverReveal::new(
-                formula,
-                copy_button(source, "Copy Math", copied, pal),
-            )
-            .pinned(copied)
-            .into()
+            HoverReveal::new(formula, copy_button(source, "Copy Math", copied, pal))
+                .pinned(copied)
+                .into()
         }
         Some(DiagramState::Err(msg)) => {
             let body = container(
@@ -2137,7 +2134,10 @@ fn copy_button<'a>(
     container(crate::app::reader_tip(
         mouse_area(face)
             .interaction(iced::mouse::Interaction::Pointer)
-            .on_press(Message::CopyBlockSource(source.to_string(), copy_key(source))),
+            .on_press(Message::CopyBlockSource(
+                source.to_string(),
+                copy_key(source),
+            )),
         action,
         tooltip::Position::Left,
         pal_c,
