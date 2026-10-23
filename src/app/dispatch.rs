@@ -11,6 +11,12 @@ impl App {
         // Only while a link pill shows: the snapshot clones the path.
         let link_page = self.hovered_link.is_some().then(|| self.link_page());
         let mut task = self.dispatch_message(msg);
+        // Every way out of the viewer (Esc, a click beside the image, an
+        // open from Finder or the CLI, Zen) frees what it holds: the sharper
+        // raster alone can be 64 MB.
+        if self.overlay != Overlay::ImageZoom {
+            self.drop_image_zoom();
+        }
         if link_page.is_some_and(|page| page != self.link_page()) {
             self.hovered_link = None;
         }
@@ -34,6 +40,13 @@ impl App {
             return task;
         }
         Task::batch([task, self.load_incomplete_expanded_folders()])
+    }
+
+    /// Forget the viewer's image and rasters.
+    fn drop_image_zoom(&mut self) {
+        self.zoom_url = None;
+        self.zoom_diagram = None;
+        self.image_zoom_raster = None;
     }
 
     fn dispatch_message(&mut self, msg: Message) -> Task<Message> {
@@ -517,9 +530,7 @@ impl App {
                 let was_zoom = self.overlay == Overlay::ImageZoom;
                 self.overlay = Overlay::None;
                 self.picker = None;
-                self.zoom_url = None;
-                self.zoom_diagram = None;
-                self.image_zoom_raster = None;
+                self.drop_image_zoom();
                 if was_zoom {
                     self.restore_body_scroll()
                 } else {

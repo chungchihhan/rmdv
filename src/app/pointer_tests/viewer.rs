@@ -483,6 +483,28 @@ fn a_sharper_raster_is_debounced_identified_and_dropped_when_stale() {
 }
 
 #[test]
+fn leaving_the_viewer_without_close_drops_its_rasters() {
+    let mut app = diagram_viewer_app();
+    let _ = app.update(Message::ImageZoomDetail(16));
+    let request = pending(&app).unwrap();
+    let _ = app.update(Message::ImageZoomRasterDue(request.id));
+    let _ = app.update(Message::ImageZoomRasterReady(
+        request.id,
+        Ok(tiny_handle(1600, 800)),
+    ));
+    assert!(app.image_zoom_raster.as_ref().unwrap().sharp.is_some());
+
+    // Finder "open with" (or the CLI) opens a file over the viewer.
+    let path = std::env::temp_dir().join(format!("rmdv-viewer-leave-{}.md", std::process::id()));
+    std::fs::write(&path, "# Other\n").expect("fixture");
+    let _ = app.update(Message::OpenFileFinderPath(path));
+    assert_eq!(app.overlay, Overlay::None);
+    assert!(app.image_zoom_raster.is_none(), "the sharp raster is freed");
+    assert!(app.zoom_diagram.is_none());
+    assert!(app.zoom_url.is_none());
+}
+
+#[test]
 fn a_failed_raster_clears_the_request_and_keeps_the_inline_one() {
     let mut app = diagram_viewer_app();
     let _ = app.update(Message::ImageZoomDetail(2));
