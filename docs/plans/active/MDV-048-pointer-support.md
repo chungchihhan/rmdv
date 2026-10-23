@@ -121,6 +121,8 @@ Per phase:
 - 2026-10-23: P4 done on `feat/pointer-p4` (rebased on polish): mind map pointer model (act on release, click selects, chevron folds, no jump, double-click, hover, zoom buttons, pan clamp, panel close, divider, root node, Full Mindmap preview actions, document double-click to the Reader); 10 review findings fixed; lib 732 passed before the rebase.
 - 2026-10-23: P4 rebased on polish (lib 758 passed); P4 trial build: Release dry run 39924838749, notarized.
 - 2026-10-23: P5 done on `feat/pointer-p5` (stacked on P4): mind map "Scroll pans" setting (default off) and drag pan outside the canvas; rmdv image and diagram viewer (proportional zoom, pan, pinch, Fit/−/100%/+, double-click, click beside closes, sharper diagram raster); reader pinch and ⌘+scroll font size (coalesced, one prefs write per gesture); editor trackpad scroll at finger speed; macOS two-finger swipe Back/Forward through an AppKit scroll monitor (feel unverified headless); 7 review findings fixed; lib 807 passed, integration all passed.
+- 2026-10-23: P5 trial build: Release dry run 39951643772, notarized (PR #75).
+- 2026-10-24: P6 done on `feat/pointer-p6` (stacked on P5): shared in-app context menu; file tree menu with New File, New Folder, inline Rename and Move to Trash (macOS `NSFileManager`; other platforms show "not supported"); reader, Zen editor, mind map, outline, vault, finder and Quick Slot menus; tree row and sidebar divider double-click; middle click skipped (no target). 13 review findings: 12 fixed, 1 kept by decision (synchronous rescan). Trash tests clean up through a drop guard. lib 884 passed, integration all passed.
 
 ## Decision log
 
