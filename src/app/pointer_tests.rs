@@ -1693,3 +1693,7 @@ mod editor_menu;
 // --- P6: mind map context menus ---------------------------------------------
 
 mod mindmap_menu;
+
+// --- P6: outline, vault, and finder context menus -----------------------------
+
+mod list_menus;

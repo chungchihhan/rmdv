@@ -1,0 +1,211 @@
+//! Context menus on outline rows, vault search hits, and file finder rows
+//! (MDV-048 P6). The Command Palette lists commands only: its rows have no
+//! menu.
+
+use super::group3::tree_fixture;
+use super::tree_menu::{menu_line, menu_lines, right_press, right_press_row, runs};
+use super::*;
+
+fn labels(app: &App) -> Vec<String> {
+    menu_lines(app)
+        .into_iter()
+        .map(|(label, ..)| label)
+        .collect()
+}
+
+#[test]
+fn an_outline_row_offers_go_to_and_copy_items() {
+    let (mut app, dir) = tree_fixture("outline-menu");
+    let _ = app.update(Message::FileLoaded(Ok((
+        dir.join("alpha.md"),
+        "# Outline One\n\ntext\n\n## Outline Two\n\ntext\n\n## Outline Three\n\ntext\n".into(),
+    ))));
+    app.sidebar_tab = SidebarTab::Outline;
+    assert_eq!(app.outline_cursor, 0);
+    let mut ui = PointerUi::new();
+
+    let messages = right_press_row(&mut app, &mut ui, "Outline Three");
+
+    assert!(
+        has(&messages, |m| matches!(m, Message::OutlineContextMenu(2))),
+        "the row asks for its menu: {messages:?}"
+    );
+    assert_eq!(
+        labels(&app),
+        ["Go to Heading", "Copy Heading Text", "Copy Link to Heading"]
+    );
+    let line = app.outline_sections[2].line;
+    assert_eq!(
+        menu_line(&app, "Go to Heading").2,
+        runs(Message::OutlineRowClicked { index: 2, line }),
+        "the same as a click"
+    );
+    assert_eq!(
+        menu_line(&app, "Copy Heading Text").2,
+        runs(Message::CopyCode("Outline Three".into()))
+    );
+    assert_eq!(
+        menu_line(&app, "Copy Link to Heading").2,
+        runs(Message::CopyCode("alpha.md#outline-three".into()))
+    );
+    assert_eq!(app.outline_cursor, 0, "a right press moves no cursor");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A file finder over `alpha.md`, `beta.md` and `sub/gamma.md`.
+fn finder(tag: &str) -> (App, PathBuf) {
+    let (mut app, dir) = tree_fixture(tag);
+    app.workspace_files = ["alpha.md", "beta.md", "sub/gamma.md"]
+        .iter()
+        .map(|name| dir.join(name))
+        .collect();
+    app.workspace_files_rev += 1;
+    // The file tree shows the same names; keep it out of the way.
+    app.sidebar_open = false;
+    let _ = app.update(Message::OpenFileFinder);
+    assert_eq!(app.overlay, Overlay::FileFinder);
+    (app, dir)
+}
+
+#[test]
+fn a_file_finder_row_offers_open_reveal_and_copy_path() {
+    let (mut app, dir) = finder("finder-menu");
+    let beta = dir.join("beta.md");
+    let selected = app.overlay_selected;
+    let mut ui = PointerUi::new();
+    let row = ui.text_bounds(&app, "beta.md").expect("finder row");
+
+    let messages = right_press(&mut app, &mut ui, center(row));
+
+    assert!(
+        has(&messages, |m| matches!(
+            m,
+            Message::FileFinderContextMenu(path) if *path == beta
+        )),
+        "the row asks for its menu: {messages:?}"
+    );
+    assert_eq!(labels(&app), ["Open", "Reveal in Finder", "Copy Path"]);
+    assert_eq!(
+        menu_line(&app, "Open").2,
+        runs(Message::OpenFileFinderPath(beta.clone())),
+        "the same as a click"
+    );
+    assert_eq!(
+        menu_line(&app, "Reveal in Finder").2,
+        runs(Message::RevealPath(beta.clone()))
+    );
+    assert_eq!(
+        menu_line(&app, "Copy Path").2,
+        runs(Message::CopyPath(beta.to_str().unwrap().to_owned()))
+    );
+    assert_eq!(app.overlay, Overlay::FileFinder, "the finder stays open");
+    assert_eq!(app.overlay_selected, selected, "the selection stays");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_query_field_under_a_menu_takes_no_typing_or_enter() {
+    let (mut app, dir) = finder("finder-menu-keys");
+    let mut ui = PointerUi::new();
+    let row = ui.text_bounds(&app, "beta.md").expect("finder row");
+    let _ = right_press(&mut app, &mut ui, center(row));
+    assert!(app.context_menu.is_some());
+
+    // The focused field still sees the keys; the menu owns them.
+    let _ = app.update(Message::OverlayQueryChanged("gam".into()));
+    assert_eq!(app.overlay_query, "", "typing goes to the menu");
+    let _ = app.update(Message::OverlayConfirm);
+    assert_eq!(app.overlay, Overlay::FileFinder, "Enter opens nothing");
+    assert!(app.file.is_none());
+    assert!(app.context_menu.is_some(), "the menu stays open");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // The vault page's field too.
+    let mut app = App::default();
+    app.workspace = Some(PathBuf::from("/w"));
+    let _ = app.update(Message::OpenVaultSearch);
+    let _ = app.update(Message::PointerRightPress(Point::new(10.0, 10.0)));
+    app.open_context_menu(vec![MenuEntry::item("Copy", Message::Noop)], None);
+    let _ = app.update(Message::VaultQueryChanged("needle".into()));
+    assert_eq!(app.vault_query, "");
+    let _ = app.update(Message::VaultEnter);
+    assert!(app.vault_open);
+    assert!(app.context_menu.is_some());
+}
+
+#[test]
+fn a_vault_hit_offers_open_reveal_and_copy_path() {
+    let (mut app, dir) = tree_fixture("vault-menu");
+    let beta = dir.join("beta.md");
+    let _ = app.update(Message::OpenVaultSearch);
+    app.vault_query = "needle".into();
+    app.vault_searched_query = Some("needle".into());
+    for line in [3, 9] {
+        app.vault_results.push(crate::vault_search::VaultHit {
+            path: beta.clone(),
+            line,
+            col_start: 0,
+            col_end: 6,
+            context: vec![crate::vault_search::ContextLine {
+                number: line,
+                text: format!("needle on line {line}"),
+                is_match: true,
+                spans: Vec::new(),
+            }],
+        });
+    }
+    app.vault_file_count = 1;
+    let cursor = app.vault_cursor;
+    let mut ui = PointerUi::new();
+    let row = ui
+        .find(
+            &app,
+            Find {
+                text: None,
+                // The line-number gutter of the second hit.
+                contains: Some("    9 "),
+                id: None,
+                found: None,
+                found_text: None,
+            },
+        )
+        .map(|(bounds, _)| bounds)
+        .expect("the second hit shows");
+
+    let messages = right_press(&mut app, &mut ui, center(row));
+
+    assert!(
+        has(&messages, |m| matches!(m, Message::VaultHitContextMenu(1))),
+        "the hit asks for its menu: {messages:?}"
+    );
+    assert_eq!(labels(&app), ["Open", "Reveal in Finder", "Copy Path"]);
+    assert_eq!(
+        menu_line(&app, "Open").2,
+        runs(Message::VaultOpenHit(1)),
+        "the same as a click"
+    );
+    assert_eq!(
+        menu_line(&app, "Reveal in Finder").2,
+        runs(Message::RevealPath(beta.clone()))
+    );
+    assert_eq!(
+        menu_line(&app, "Copy Path").2,
+        runs(Message::CopyPath(beta.to_str().unwrap().to_owned()))
+    );
+    assert!(app.vault_open);
+    assert_eq!(app.vault_cursor, cursor, "a right press moves no cursor");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_command_palette_row_has_no_menu() {
+    let mut app = App::default();
+    let _ = app.update(Message::OpenCommandPalette);
+    let mut ui = PointerUi::new();
+    let row = ui
+        .text_bounds(&app, "Toggle Sidebar  ⌘B")
+        .expect("palette row");
+    let _ = right_press(&mut app, &mut ui, center(row));
+    assert!(app.context_menu.is_none());
+    assert_eq!(app.overlay, Overlay::Command, "the palette stays open");
+}

@@ -132,6 +132,7 @@ mod ipc_handler;
 mod lifecycle;
 pub use lifecycle::window_settings;
 pub(crate) mod keys;
+mod list_menus;
 mod loading;
 mod message;
 mod mindmap_menu;

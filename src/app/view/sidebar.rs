@@ -403,7 +403,7 @@ pub(in crate::app) fn outline_row<'a>(
         .wrapping(text::Wrapping::None);
     let content =
         irow![Space::new().width(Length::Fixed(indent)), label].align_y(iced::Alignment::Center);
-    button(content)
+    let row = button(content)
         .padding(Padding::from([4, 8]))
         .width(Length::Fill)
         .height(Length::Fixed(SIDEBAR_ROW_H))
@@ -426,7 +426,9 @@ pub(in crate::app) fn outline_row<'a>(
         .on_press(Message::OutlineRowClicked {
             index,
             line: s.line,
-        })
+        });
+    mouse_area(row)
+        .on_right_press(Message::OutlineContextMenu(index))
         .into()
 }
 

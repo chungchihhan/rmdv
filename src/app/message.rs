@@ -520,6 +520,12 @@ pub enum Message {
     /// A right press on Full Mindmap: on a node (`Some`) or on empty canvas
     /// (`None`). Opens its context menu.
     FullMindmapContextMenu(Option<WorkspaceNodeId>),
+    /// A right press on outline row `index`: open its context menu.
+    OutlineContextMenu(usize),
+    /// A right press on vault search hit `index` (into `vault_results`).
+    VaultHitContextMenu(usize),
+    /// A right press on a file finder row.
+    FileFinderContextMenu(PathBuf),
     SaveFile,
     FileSaved {
         result: Result<(), String>,

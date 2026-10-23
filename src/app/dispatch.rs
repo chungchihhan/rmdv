@@ -73,6 +73,19 @@ impl App {
         {
             return Task::none();
         }
+        // So can the finder's and the vault page's query fields: while a
+        // context menu is open, typing and Enter belong to the menu.
+        if self.context_menu.is_some()
+            && matches!(
+                msg,
+                Message::OverlayQueryChanged(_)
+                    | Message::OverlayConfirm
+                    | Message::VaultQueryChanged(_)
+                    | Message::VaultEnter
+            )
+        {
+            return Task::none();
+        }
         if let Some(rel) = self.queued_snap.take() {
             // Drain any pending IPC-driven scroll BEFORE dispatching the new
             // message so the snap lands before further state mutation.
@@ -2460,6 +2473,9 @@ impl App {
                 None => self.show_toast("No value to copy".into()),
             },
             Message::FullMindmapContextMenu(target) => self.open_full_mindmap_context_menu(target),
+            Message::OutlineContextMenu(index) => self.open_outline_context_menu(index),
+            Message::VaultHitContextMenu(index) => self.open_vault_hit_context_menu(index),
+            Message::FileFinderContextMenu(path) => self.open_file_finder_context_menu(path),
             Message::EditorMenuCut => self.editor_menu_cut(),
             Message::EditorMenuCopy => self.editor_menu_copy(),
             Message::EditorMenuPaste => iced::clipboard::read().map(Message::EditorPasted),
