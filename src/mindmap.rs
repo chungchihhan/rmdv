@@ -1534,11 +1534,18 @@ where
             }
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(origin) = state.drag_origin {
-                    let Some(pos) = cursor.position_in(bounds) else {
-                        // The press left the canvas, so it is no longer a
-                        // click. Outside the canvas nothing pans.
-                        state.drag_moved = true;
-                        return None;
+                    let pos = match cursor.position_in(bounds) {
+                        Some(pos) => pos,
+                        None => {
+                            // The press left the canvas, so it is no longer
+                            // a click. The pan still follows the pointer over
+                            // a panel or a layer above the canvas; without a
+                            // position (past the window) it waits.
+                            state.drag_moved = true;
+                            cursor
+                                .land()
+                                .position_from(Point::new(bounds.x, bounds.y))?
+                        }
                     };
                     let dx = pos.x - origin.x;
                     let dy = pos.y - origin.y;
@@ -3004,7 +3011,12 @@ mod tests {
             None,
             "a release outside the canvas clicks nothing"
         );
-        assert_eq!(state.pan, Vector::ZERO, "outside the canvas nothing pans");
+        assert_eq!(
+            state.pan,
+            Vector::new(outside.x - leaf.x, 0.0),
+            "the pan follows the pointer outside the canvas"
+        );
+        state.pan = Vector::ZERO;
 
         // Out and back to the press point: the press already left.
         assert_eq!(press_at(&program, &mut state, leaf), None);
@@ -3912,5 +3924,76 @@ mod tests {
         state.pan = Vector::new(-2000.0, 0.0);
         let _ = wheel_at(&program, &mut state, pixels(10.0, 0.0), at);
         assert_eq!(state.pan, Vector::new(-1990.0, 0.0));
+    }
+
+    #[test]
+    fn a_drag_keeps_panning_outside_the_canvas() {
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        let mut state = live_state();
+        // A canvas that does not start at the window's corner.
+        let bounds = Rectangle {
+            x: 200.0,
+            y: 50.0,
+            width: 600.0,
+            height: 500.0,
+        };
+        let send = |state: &mut MindmapState<PathId>, event: mouse::Event, cursor| {
+            canvas::Program::update(&program, state, &iced::Event::Mouse(event), bounds, cursor)
+                .and_then(|action| action.into_inner().0)
+        };
+        let moved = |at: Point| mouse::Event::CursorMoved { position: at };
+        let press = Point::new(400.0, 300.0);
+        let at = mouse::Cursor::Available;
+
+        assert_eq!(
+            send(
+                &mut state,
+                mouse::Event::ButtonPressed(mouse::Button::Left),
+                at(press)
+            ),
+            None
+        );
+        // Over the panel on the right, then below the canvas.
+        let _ = send(
+            &mut state,
+            moved(Point::new(900.0, 320.0)),
+            at(Point::new(900.0, 320.0)),
+        );
+        assert_eq!(state.pan, Vector::new(500.0, 20.0));
+        let _ = send(
+            &mut state,
+            moved(Point::new(900.0, 700.0)),
+            at(Point::new(900.0, 700.0)),
+        );
+        assert_eq!(state.pan, Vector::new(500.0, 400.0));
+        // Over a layer above the canvas (a zoom button) the pan still
+        // follows.
+        let over = Point::new(700.0, 500.0);
+        let _ = send(&mut state, moved(over), mouse::Cursor::Levitating(over));
+        assert_eq!(state.pan, Vector::new(300.0, 200.0));
+        // Without a pointer position (past the window) the pan stays.
+        let _ = send(&mut state, moved(over), mouse::Cursor::Unavailable);
+        assert_eq!(state.pan, Vector::new(300.0, 200.0));
+
+        // Back inside and released where it started: still not a click.
+        let _ = send(&mut state, moved(press), at(press));
+        assert_eq!(state.pan, Vector::ZERO);
+        assert_eq!(
+            send(
+                &mut state,
+                mouse::Event::ButtonReleased(mouse::Button::Left),
+                at(press)
+            ),
+            None
+        );
+        assert!(state.drag_origin.is_none());
+        // With the button up, a move outside pans nothing.
+        let _ = send(
+            &mut state,
+            moved(Point::new(900.0, 320.0)),
+            at(Point::new(900.0, 320.0)),
+        );
+        assert_eq!(state.pan, Vector::ZERO);
     }
 }
