@@ -3575,6 +3575,12 @@ impl App {
         let mouse_history = iced::event::listen_with(|ev, _status, _id| mouse_history_message(&ev));
         let ipc = iced::Subscription::run(ipc_subscription_stream);
         let native_pinch = crate::native_pinch::subscription().map(Message::MindmapNativePinch);
+        let native_swipe = crate::native_swipe::subscription().map(|swipe| {
+            Message::NativeSwipe(match swipe {
+                crate::native_swipe::Swipe::Back => HistoryDir::Back,
+                crate::native_swipe::Swipe::Forward => HistoryDir::Forward,
+            })
+        });
         let macos_open = crate::macos_open::subscription().map(Message::OpenFileFinderPath);
         let macos_quit = crate::macos_quit::subscription().map(|()| Message::QuitRequested);
         let close_requests = iced::window::close_requests().map(Message::WindowCloseRequested);
@@ -3613,6 +3619,7 @@ impl App {
             window_events,
             ipc,
             native_pinch,
+            native_swipe,
             macos_open,
             macos_quit,
             close_requests,
@@ -3939,8 +3946,8 @@ impl App {
                 .direction(slim_scroll_direction())
                 .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
                 // ⌘+wheel changes the font size; the gate keeps it from
-                // also scrolling the reader.
-                let scroll: Element<'_, Message> = WheelGate::new(scroll, Gate::ReaderZoom).into();
+                // also scrolling the reader. It also arms a swipe (macOS).
+                let scroll: Element<'_, Message> = WheelGate::new(scroll, Gate::Reader).into();
                 if select_all {
                     stack![
                         scroll,

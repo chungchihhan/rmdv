@@ -236,3 +236,146 @@ fn trackpad_scrolls_the_editor_by_the_finger_distance() {
     );
     assert_eq!(scroll_lines(&messages), vec![4], "{messages:?}");
 }
+
+// --- Two-finger swipe between pages (macOS bridge) -------------------------
+
+/// A reader with a twelve-column table (wider than the reading column, so
+/// it scrolls horizontally) above a long run of paragraphs.
+fn wide_table_app() -> App {
+    let cols = 12;
+    let mut source = String::from("|");
+    for c in 0..cols {
+        source.push_str(&format!(" Column {c} heading |"));
+    }
+    source.push_str("\n|");
+    for _ in 0..cols {
+        source.push_str(" --- |");
+    }
+    source.push('\n');
+    for r in 0..6 {
+        source.push('|');
+        for c in 0..cols {
+            source.push_str(&format!(" cell {r}-{c} with words |"));
+        }
+        source.push('\n');
+    }
+    source.push('\n');
+    for i in 0..200 {
+        source.push_str(&format!(
+            "Paragraph {i} with enough words to fill a reader line here.\n\n"
+        ));
+    }
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        std::path::PathBuf::from("/tmp/pointer-wide-table.md"),
+        source,
+    ))));
+    app
+}
+
+/// The heights (y, every 8 px) where the probe finds a horizontal
+/// scroller under the pointer at `x`.
+fn hscroll_rows(ui: &mut PointerUi, app: &App, x: f32) -> Vec<f32> {
+    (5..100)
+        .map(|i| i as f32 * 8.0)
+        .filter(|y| {
+            let mut probe = HScrollProbe::new(Point::new(x, *y));
+            ui.operate(app, &mut probe);
+            probe.found()
+        })
+        .collect()
+}
+
+#[test]
+fn the_probe_finds_a_wide_table_under_the_pointer_and_follows_the_scroll() {
+    let app = wide_table_app();
+    let mut ui = PointerUi::new();
+    let column = ui.id_bounds(&app, "reader-column").expect("reader column");
+    let x = column.center_x();
+    let rows = hscroll_rows(&mut ui, &app, x);
+    assert!(
+        !rows.is_empty() && rows.len() < 40,
+        "the table near the top scrolls horizontally: {rows:?}"
+    );
+    let below = rows.last().copied().unwrap_or_default() + 120.0;
+    let mut probe = HScrollProbe::new(Point::new(x, below));
+    ui.operate(&app, &mut probe);
+    assert!(!probe.found(), "the paragraphs below do not");
+
+    // Scrolled down, the table has left the top of the reader.
+    let _ = ui.send(
+        &app,
+        Point::new(x, 400.0),
+        vec![Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -1500.0 },
+        })],
+    );
+    assert_eq!(hscroll_rows(&mut ui, &app, x), Vec::<f32>::new());
+
+    // A document without a table has nothing to scroll sideways.
+    let plain = long_doc_app();
+    let mut ui = PointerUi::new();
+    assert_eq!(hscroll_rows(&mut ui, &plain, x), Vec::<f32>::new());
+}
+
+fn swipe_fixture(tag: &str) -> (App, PathBuf) {
+    let dir = std::env::temp_dir().join(format!("rmdv-swipe-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("fixture dir");
+    let earlier = dir.join("earlier.md");
+    std::fs::write(&earlier, "# Earlier\n").expect("earlier.md");
+    let mut app = long_doc_app();
+    app.history.back.push(HistoryEntry {
+        path: earlier.clone(),
+        position: 0.0,
+        mode: ViewMode::Rendered,
+    });
+    (app, earlier)
+}
+
+#[test]
+fn a_swipe_is_armed_only_on_the_reader_toward_a_stop() {
+    use crate::native_swipe::{BACK, FORWARD};
+    let (mut app, earlier) = swipe_fixture("arm");
+    assert_eq!(app.swipe_directions(), BACK);
+    app.history.forward.push(HistoryEntry {
+        path: earlier,
+        position: 0.0,
+        mode: ViewMode::Rendered,
+    });
+    assert_eq!(app.swipe_directions(), BACK | FORWARD);
+
+    let _ = app.update(Message::OpenCommandPalette);
+    assert_eq!(app.swipe_directions(), 0, "an overlay owns the pointer");
+    let _ = app.update(Message::CloseOverlay);
+    assert_eq!(app.swipe_directions(), BACK | FORWARD);
+
+    let _ = app.update(Message::ToggleMindmap);
+    assert_eq!(app.swipe_directions(), 0, "the mind map keeps its scroll");
+    let _ = app.update(Message::ToggleMindmap);
+    let _ = app.update(Message::ToggleViewMode);
+    assert_eq!(app.view_mode, ViewMode::Raw);
+    assert_eq!(app.swipe_directions(), 0, "the editor keeps its scroll");
+
+    let empty = long_doc_app();
+    assert_eq!(empty.swipe_directions(), 0, "no stop either way");
+}
+
+#[test]
+fn a_swipe_goes_back_like_the_back_button() {
+    let (mut app, earlier) = swipe_fixture("go");
+    let _ = app.update(Message::NativeSwipe(HistoryDir::Forward));
+    assert!(app.history.pending.is_none(), "no stop ahead");
+
+    let _ = app.update(Message::OpenCommandPalette);
+    let _ = app.update(Message::NativeSwipe(HistoryDir::Back));
+    assert!(app.history.pending.is_none(), "not under an overlay");
+    let _ = app.update(Message::CloseOverlay);
+
+    let _ = app.update(Message::NativeSwipe(HistoryDir::Back));
+    assert_eq!(
+        app.history.pending,
+        Some((HistoryDir::Back, earlier)),
+        "the swipe starts the Back load"
+    );
+}

@@ -5,8 +5,10 @@
 //! `event::listen` subscription cannot stop that. [`WheelGate`] wraps the
 //! scrollable (or the editor) and sees each wheel event first:
 //!
-//! - [`Gate::ReaderZoom`]: ⌘+wheel changes the reader font size and does not
-//!   also scroll the reader.
+//! - [`Gate::Reader`]: ⌘+wheel changes the reader font size and does not
+//!   also scroll the reader. On macOS the gate also tells the swipe bridge
+//!   (`crate::native_swipe`) whether the pointer is over the reader and
+//!   over nothing that scrolls horizontally ([`HScrollProbe`]).
 //! - [`Gate::EditorScroll`]: a trackpad (pixel) scroll moves the editor by
 //!   the finger distance. Iced's `text_editor` turns `y` pixels into `y / 4`
 //!   lines, about five times the finger distance at a 20 px line. A mouse
@@ -16,13 +18,14 @@ use crate::app::Message;
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
 use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout, Shell};
 use iced::keyboard;
-use iced::{Element, Event, Length, Rectangle, Size, Vector};
+use iced::{Element, Event, Length, Point, Rectangle, Size, Vector};
 
 /// What the gate does with the wheel events it takes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::app) enum Gate {
-    /// ⌘+wheel publishes [`Message::ReaderZoomBy`].
-    ReaderZoom,
+    /// ⌘+wheel publishes [`Message::ReaderZoomBy`]; the pointer position
+    /// arms a two-finger swipe.
+    Reader,
     /// Pixel scrolls publish the editor's scroll action; `line_height` is
     /// the editor's line height in logical pixels.
     EditorScroll { line_height: f32 },
@@ -47,7 +50,7 @@ impl WheelGate<'_> {
     /// the message to publish if there is one.
     fn take_wheel(&self, state: &mut State, delta: mouse::ScrollDelta) -> Option<Option<Message>> {
         match self.gate {
-            Gate::ReaderZoom => {
+            Gate::Reader => {
                 if !state.modifiers.command() {
                     return None;
                 }
@@ -72,6 +75,127 @@ impl WheelGate<'_> {
                 }
             },
         }
+    }
+}
+
+impl WheelGate<'_> {
+    /// Tell the swipe bridge whether a swipe may start at the pointer: over
+    /// the reader and over no horizontal scroller. Only while a swipe is
+    /// armed, so other platforms and other states pay nothing.
+    fn sync_swipe_pointer(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &iced::Renderer,
+    ) {
+        let moved = matches!(
+            event,
+            Event::Mouse(
+                mouse::Event::CursorMoved { .. }
+                    | mouse::Event::WheelScrolled { .. }
+                    | mouse::Event::CursorLeft
+            )
+        );
+        if !moved || crate::native_swipe::armed() == 0 {
+            return;
+        }
+        let ok = match cursor.position_over(layout.bounds()) {
+            Some(at) => {
+                let mut probe = HScrollProbe::new(at);
+                self.content.as_widget_mut().operate(
+                    &mut tree.children[0],
+                    child_layout(layout),
+                    renderer,
+                    &mut probe,
+                );
+                !probe.found()
+            }
+            None => false,
+        };
+        crate::native_swipe::set_pointer_ok(ok);
+    }
+}
+
+/// Finds whether a point (in window coordinates) lies over a scrollable
+/// whose content is wider than it, such as a wide table, so a two-finger
+/// swipe there scrolls the table instead of going Back.
+///
+/// A scrollable reports its bounds in its parent's content coordinates and
+/// then lays out its children shifted by its scroll offset (`translation`).
+/// The probe keeps the sum of the offsets above the widget it visits, so
+/// a table inside the scrolled reader is found where it is on screen.
+pub(in crate::app) struct HScrollProbe {
+    at: Point,
+    found: bool,
+    /// The scroll offset of every `traverse` level now open.
+    offsets: Vec<Vector>,
+    /// The offset the next `traverse` adds: a scrollable's translation, set
+    /// right before it traverses its content; zero for any other widget.
+    next: Vector,
+}
+
+impl HScrollProbe {
+    pub(in crate::app) fn new(at: Point) -> Self {
+        Self {
+            at,
+            found: false,
+            offsets: Vec::new(),
+            next: Vector::ZERO,
+        }
+    }
+
+    pub(in crate::app) fn found(&self) -> bool {
+        self.found
+    }
+
+    fn offset(&self) -> Vector {
+        self.offsets.last().copied().unwrap_or(Vector::ZERO)
+    }
+}
+
+impl Operation for HScrollProbe {
+    fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+        if self.found {
+            return;
+        }
+        let level = self.offset() + std::mem::replace(&mut self.next, Vector::ZERO);
+        self.offsets.push(level);
+        operate(self);
+        self.offsets.pop();
+    }
+
+    fn container(&mut self, _id: Option<&iced::advanced::widget::Id>, _bounds: Rectangle) {
+        self.next = Vector::ZERO;
+    }
+
+    fn scrollable(
+        &mut self,
+        _id: Option<&iced::advanced::widget::Id>,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+        translation: Vector,
+        _state: &mut dyn iced::advanced::widget::operation::Scrollable,
+    ) {
+        let at = self.at + self.offset();
+        if content_bounds.width > bounds.width + 0.5 && bounds.contains(at) {
+            self.found = true;
+        }
+        self.next = translation;
+    }
+
+    fn focusable(
+        &mut self,
+        _id: Option<&iced::advanced::widget::Id>,
+        _bounds: Rectangle,
+        _state: &mut dyn iced::advanced::widget::operation::Focusable,
+    ) {
+        self.next = Vector::ZERO;
+    }
+
+    fn text(&mut self, _id: Option<&iced::advanced::widget::Id>, _bounds: Rectangle, _text: &str) {
+        self.next = Vector::ZERO;
     }
 }
 
@@ -147,6 +271,9 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
+        if self.gate == Gate::Reader {
+            self.sync_swipe_pointer(tree, event, layout, cursor, renderer);
+        }
         let state = tree.state.downcast_mut::<State>();
         match event {
             Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {

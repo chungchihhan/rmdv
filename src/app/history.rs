@@ -126,6 +126,36 @@ impl App {
             || self.quick_slot_replace.is_some()
     }
 
+    /// The ways a two-finger swipe may go now, as
+    /// `crate::native_swipe::{BACK, FORWARD}` bits: only on the reader, with
+    /// no modal over it, toward a stop history has.
+    pub(super) fn swipe_directions(&self) -> u8 {
+        if self.history_blocked() || !self.reader_shows_document() {
+            return 0;
+        }
+        let mut directions = 0;
+        if self.can_go(HistoryDir::Back) {
+            directions |= crate::native_swipe::BACK;
+        }
+        if self.can_go(HistoryDir::Forward) {
+            directions |= crate::native_swipe::FORWARD;
+        }
+        directions
+    }
+
+    /// A completed swipe from the macOS bridge goes Back or Forward, as the
+    /// mouse side buttons do, while the reader still allows it.
+    pub(super) fn native_swipe(&mut self, dir: HistoryDir) -> Task<Message> {
+        let bit = match dir {
+            HistoryDir::Back => crate::native_swipe::BACK,
+            HistoryDir::Forward => crate::native_swipe::FORWARD,
+        };
+        if self.swipe_directions() & bit == 0 {
+            return Task::none();
+        }
+        self.history_go(dir)
+    }
+
     pub(super) fn can_go(&self, dir: HistoryDir) -> bool {
         !self.history.stack(dir).is_empty()
     }

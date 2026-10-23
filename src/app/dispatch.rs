@@ -16,6 +16,8 @@ impl App {
         }
         // ⌘Q reads this from AppKit, outside the update loop.
         crate::macos_quit::set_unsaved(self.dirty);
+        // So does the two-finger swipe bridge.
+        crate::native_swipe::set_armed(self.swipe_directions());
         self.sync_toolbar_band();
         self.sync_sidebar_peek();
         // A folder click's double-click ends with the picker (Esc, an open,
@@ -471,6 +473,7 @@ impl App {
             }
             Message::QuickSlotRestorePending => self.apply_pending_quick_slot_restore(),
             Message::HistoryGo(dir) => self.history_go(dir),
+            Message::NativeSwipe(dir) => self.native_swipe(dir),
             Message::QuickSlotFileLoaded {
                 index,
                 slot,
@@ -2214,6 +2217,7 @@ impl App {
                 // leaves the macOS event loop alive without ever creating a
                 // visible window on current macOS releases.
                 crate::native_pinch::install();
+                crate::native_swipe::install();
                 if self.glass_capable && self.glass_window.is_none() {
                     // `update` pushes the glass state to this window next.
                     self.glass_window = Some(id);
