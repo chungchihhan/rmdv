@@ -415,11 +415,13 @@ fn a_full_mindmap_preview_link_resolves_from_the_previewed_file() {
         Some(dir.join("sub").join("gamma.md")),
         "the link opens relative to the previewed file"
     );
+    // The heading waits for that open to be accepted.
     assert_eq!(
-        app.pending_nav
+        app.full_mindmap
             .as_ref()
-            .and_then(|nav| nav.fragment.clone()),
-        Some("gamma".into())
+            .and_then(|full| full.link_nav.as_ref())
+            .map(|(path, nav)| (path.clone(), nav.fragment.clone())),
+        Some((dir.join("sub").join("gamma.md"), Some("gamma".into())))
     );
 
     let (mut app, dir2) = full_mindmap_app("p4-preview-link-missing");
@@ -642,5 +644,90 @@ fn a_divider_double_click_reset_survives_pointer_jitter() {
         app.full_mindmap.as_ref().unwrap().panel_width,
         MIND_PANEL_DEFAULT
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Opens `name` from Full Mindmap as Enter does and completes its read.
+/// Returns what the accepted load asks for at once.
+fn activate_and_load(app: &mut App, path: &Path, source: &str) -> Vec<Message> {
+    let _ = app.update(Message::FullMindmapActivateNode(WorkspaceNodeId::File(
+        path.to_path_buf(),
+    )));
+    let request = app
+        .full_mindmap
+        .as_ref()
+        .and_then(|full| full.pending_open.clone())
+        .expect("an open request");
+    ready_outputs(app.update(Message::FullMindmapFileLoaded {
+        request,
+        result: Ok((path.to_path_buf(), source.to_string())),
+    }))
+}
+
+fn has_goto(messages: &[Message]) -> bool {
+    has(
+        messages,
+        |m| matches!(m, Message::Ipc(request, _) if matches!(request.cmd, crate::ipc::Cmd::Goto { .. })),
+    )
+}
+
+#[test]
+fn a_preview_link_fragment_applies_only_to_its_own_accepted_open() {
+    let link = |app: &mut App, dir: &Path| {
+        let _ = app.update(Message::FullMindmapPreviewLink {
+            base: dir.join("alpha.md"),
+            url: "sub/gamma.md#part".into(),
+        });
+    };
+    let beta = "# Beta\n\ntext\n\n## Part\n\nmore\n";
+
+    // Accepted: the fragment scrolls the file the link opened.
+    let (mut app, dir) = full_mindmap_app("p4-link-nav-accepted");
+    let gamma = dir.join("sub").join("gamma.md");
+    link(&mut app, &dir);
+    let request = app
+        .full_mindmap
+        .as_ref()
+        .and_then(|full| full.pending_open.clone())
+        .expect("the link opens gamma");
+    let outputs = ready_outputs(app.update(Message::FullMindmapFileLoaded {
+        request,
+        result: Ok((gamma, "# Gamma\n\n## Part\n".into())),
+    }));
+    assert!(has_goto(&outputs), "{outputs:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Blocked by unsaved edits: a later open of another file does not
+    // jump to the link's heading.
+    let (mut app, dir) = full_mindmap_app("p4-link-nav-dirty");
+    app.dirty = true;
+    link(&mut app, &dir);
+    assert!(app.full_mindmap.as_ref().unwrap().pending_open.is_none());
+    app.dirty = false;
+    let outputs = activate_and_load(&mut app, &dir.join("beta.md"), beta);
+    assert!(!has_goto(&outputs), "blocked: {outputs:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // A failed read leaves nothing either.
+    let (mut app, dir) = full_mindmap_app("p4-link-nav-error");
+    link(&mut app, &dir);
+    let request = app
+        .full_mindmap
+        .as_ref()
+        .and_then(|full| full.pending_open.clone())
+        .expect("the link opens gamma");
+    let _ = app.update(Message::FullMindmapFileLoaded {
+        request,
+        result: Err("unreadable".into()),
+    });
+    let outputs = activate_and_load(&mut app, &dir.join("beta.md"), beta);
+    assert!(!has_goto(&outputs), "failed: {outputs:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // Superseded by Enter on another file before the read returns.
+    let (mut app, dir) = full_mindmap_app("p4-link-nav-superseded");
+    link(&mut app, &dir);
+    let outputs = activate_and_load(&mut app, &dir.join("beta.md"), beta);
+    assert!(!has_goto(&outputs), "superseded: {outputs:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }

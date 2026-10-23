@@ -1120,11 +1120,20 @@ impl App {
                     return self.show_toast(format!("File not found: {name}"));
                 }
                 if link_opens_in_app(&path) && path.is_file() {
-                    self.pending_nav = fragment.map(|f| PendingNav {
-                        fragment: Some(f.to_string()),
-                        ..Default::default()
-                    });
-                    return self.update(Message::OpenFileFinderPath(path));
+                    let open = self.update(Message::OpenFileFinderPath(path.clone()));
+                    // The heading waits on the navigator until this open is
+                    // accepted, so a blocked, failed, or superseded open
+                    // cannot move a later document.
+                    if let (Some(fragment), Some(full)) = (fragment, self.full_mindmap.as_mut()) {
+                        full.link_nav = Some((
+                            canonicalize_existing_path(path),
+                            PendingNav {
+                                fragment: Some(fragment.to_string()),
+                                ..Default::default()
+                            },
+                        ));
+                    }
+                    return open;
                 }
                 self.open_externally(path.to_string_lossy().into_owned(), false);
                 Task::none()
@@ -1442,6 +1451,14 @@ impl App {
                         // request was accepted preserves its dirty safety.
                         self.cancel_full_mindmap_verification();
                         self.pending_ipc_file_open = None;
+                        if let Some((_, nav)) = self
+                            .full_mindmap
+                            .as_mut()
+                            .and_then(|full| full.link_nav.take())
+                            .filter(|(target, _)| *target == request.path)
+                        {
+                            self.pending_nav = Some(nav);
+                        }
                         self.full_mindmap = None;
                         // Full Mindmap file activation always hands the file
                         // back to the document mindmap, whose normal load path
