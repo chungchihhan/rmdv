@@ -243,6 +243,12 @@ pub enum Message {
     TableScrolled,
     ScrollerTick,
     CopyCode(String),
+    /// A block's copy button: copy its source, then show a check on the
+    /// button for a moment instead of a toast.
+    CopyBlockSource(String),
+    /// The copy button's check timer, by copy number; a later copy keeps
+    /// its own check.
+    CopyFlashEnd(u64),
     SidebarDragStart,
     SidebarDragMove(f32),
     SidebarDragEnd,

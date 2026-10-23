@@ -3974,6 +3974,24 @@ impl App {
                 self.sidebar_drag = None;
                 Task::none()
             }
+            Message::CopyBlockSource(source) => {
+                self.copy_flash_seq = self.copy_flash_seq.wrapping_add(1);
+                let seq = self.copy_flash_seq;
+                self.copy_flash = Some((seq, source.clone()));
+                // One timer per copy; nothing ticks while the check shows.
+                Task::batch([
+                    iced::clipboard::write::<Message>(source),
+                    Task::perform(async { tokio::time::sleep(COPY_FLASH).await }, move |_| {
+                        Message::CopyFlashEnd(seq)
+                    }),
+                ])
+            }
+            Message::CopyFlashEnd(seq) => {
+                if self.copy_flash.as_ref().is_some_and(|(s, _)| *s == seq) {
+                    self.copy_flash = None;
+                }
+                Task::none()
+            }
             Message::ScrollerTick => {
                 if let Some(t) = self.last_scroll_at {
                     if t.elapsed() >= std::time::Duration::from_millis(SCROLLER_FADE_MS) {

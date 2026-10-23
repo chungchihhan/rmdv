@@ -1705,3 +1705,7 @@ mod slot_menu;
 // --- P7: reader selection with the pointer ------------------------------------
 
 mod reader_select;
+
+// --- P7: reader affordances (copy buttons, checkboxes, scrollbar, tables) ----
+
+mod reader_affordances;

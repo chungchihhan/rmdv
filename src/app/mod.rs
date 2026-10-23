@@ -51,6 +51,8 @@ const ZEN_EDITOR_OVERLAY_CLEARANCE: f32 = 2.0;
 const BODY_BOTTOM_PAD: f32 = 56.0;
 const TREE_INDENT: f32 = 14.0;
 const SCROLLER_FADE_MS: u64 = 1200;
+/// How long a block's copy button shows its check after a copy.
+const COPY_FLASH: std::time::Duration = std::time::Duration::from_millis(1500);
 const SIDEBAR_MIN: f32 = 160.0;
 const SIDEBAR_MAX: f32 = 600.0;
 const MIND_PANEL_DEFAULT: f32 = 380.0;
@@ -330,6 +332,10 @@ pub struct App {
     pub body_viewport: Option<iced::widget::scrollable::Viewport>,
     pub last_body_range: std::cell::Cell<(usize, usize)>,
     pub last_scroll_at: Option<std::time::Instant>,
+    /// The source a block copy button copied last, with its copy number,
+    /// while its button shows a check.
+    pub copy_flash: Option<(u64, String)>,
+    pub copy_flash_seq: u64,
     /// Pixels per tick while a reader selection drag is past the viewport
     /// edge; `None` stops the tick.
     pub reader_autoscroll: Option<f32>,
@@ -676,6 +682,8 @@ impl Default for App {
             body_viewport: None,
             last_body_range: std::cell::Cell::new((0, 0)),
             last_scroll_at: None,
+            copy_flash: None,
+            copy_flash_seq: 0,
             reader_autoscroll: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_drag: None,
@@ -2860,6 +2868,7 @@ impl App {
                         (0, 0),
                         recently_scrolled,
                         crate::render::ReadingWidth::Fill,
+                        self.copy_flash.as_ref().map(|(_, source)| source.as_str()),
                     ));
                     if truncated {
                         col = col.push(
@@ -3991,6 +4000,7 @@ impl App {
                         (0, 0),
                         recently_scrolled,
                         crate::render::ReadingWidth::Capped,
+                        self.copy_flash.as_ref().map(|(_, source)| source.as_str()),
                     )
                 }
             } else {
@@ -4010,6 +4020,7 @@ impl App {
                     (0, 0),
                     recently_scrolled,
                     crate::render::ReadingWidth::Capped,
+                    self.copy_flash.as_ref().map(|(_, source)| source.as_str()),
                 )
             };
             if self.view_mode == ViewMode::Raw || self.view_mode == ViewMode::Mindmap {
