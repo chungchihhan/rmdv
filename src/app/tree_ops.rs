@@ -1,6 +1,7 @@
 //! File operations from the file tree's context menu (MDV-048 P6): New
 //! File, New Folder, inline Rename, and Move to Trash. Every operation acts
-//! inside the workspace root only; every failure says why in a toast.
+//! inside the workspace root only, also when a symbolic link in the tree
+//! leads out of it; every failure says why in a toast.
 
 use super::*;
 use std::path::Component;
@@ -82,6 +83,22 @@ fn inside_workspace(root: &Path, path: &Path) -> bool {
         && !path
             .components()
             .any(|component| matches!(component, Component::ParentDir))
+}
+
+/// `dir` resolves, through any symbolic links, to the workspace root or a
+/// folder inside it. The tree follows a link to a folder, so a row can name
+/// a place outside the root under a path inside it.
+fn resolves_inside(root: &Path, dir: &Path) -> bool {
+    match (std::fs::canonicalize(root), std::fs::canonicalize(dir)) {
+        (Ok(root), Ok(dir)) => dir.starts_with(root),
+        _ => false,
+    }
+}
+
+/// The folder that holds `path` resolves inside the workspace root.
+fn parent_resolves_inside(root: &Path, path: &Path) -> bool {
+    path.parent()
+        .is_some_and(|parent| resolves_inside(root, parent))
 }
 
 /// The name a toast uses for `path`.
@@ -230,6 +247,12 @@ impl App {
                 folder.display()
             ));
         }
+        if !resolves_inside(&root, &folder) {
+            return self.show_error_toast(format!(
+                "Couldn't create a {kind}: {} is outside this workspace",
+                display_name(&folder)
+            ));
+        }
         let path = untitled_path(&folder, is_dir);
         let created = if is_dir {
             std::fs::create_dir(&path)
@@ -297,6 +320,12 @@ impl App {
                 path.display()
             ));
         };
+        if !parent_resolves_inside(&root, &path) {
+            return self.show_error_toast(format!(
+                "Couldn't rename {}: it is outside this workspace",
+                display_name(&path)
+            ));
+        }
         // The field lives in the item's row. Without a row there is nothing
         // to type into, and nothing would give the keys back.
         if !self.tree_rows().contains(&path) {
@@ -347,6 +376,13 @@ impl App {
             self.tree_rename = None;
             return Task::none();
         };
+        if !resolves_inside(&root, parent) {
+            self.tree_rename = None;
+            return self.show_error_toast(format!(
+                "Couldn't rename {}: it is outside this workspace",
+                display_name(&old)
+            ));
+        }
         let new = parent.join(name);
         if std::fs::symlink_metadata(&new).is_ok() && !same_entry(&old, &new) {
             return self.show_error_toast(format!("\u{201c}{name}\u{201d} already exists"));
@@ -459,6 +495,11 @@ impl App {
             return Task::none();
         }
         let name = display_name(&path);
+        if !parent_resolves_inside(&root, &path) {
+            return self.show_error_toast(format!(
+                "Couldn't move {name} to Trash: it is outside this workspace"
+            ));
+        }
         let holds_open = self
             .file
             .as_deref()

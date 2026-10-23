@@ -587,3 +587,51 @@ fn a_rename_needs_a_row_to_show_its_field() {
     assert_eq!(rename_value(&app), None);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[cfg(unix)]
+#[test]
+fn operations_refuse_paths_through_a_symlinked_folder() {
+    let (mut app, dir) = tree_fixture("ops-symlink");
+    let outside =
+        std::env::temp_dir().join(format!("rmdv-tree-link-target-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&outside);
+    std::fs::create_dir_all(&outside).unwrap();
+    std::fs::write(outside.join("x.md"), "# X\n").unwrap();
+    let link = dir.join("link");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    let x = link.join("x.md");
+
+    let _ = app.update(Message::TreeTrash(x.clone()));
+    let trashed = take_trashed_for_tests();
+    for item in &trashed {
+        let _ = std::fs::remove_file(item);
+    }
+    assert!(trashed.is_empty(), "nothing goes to the Trash: {trashed:?}");
+    assert!(
+        toast(&app)
+            .unwrap_or_default()
+            .contains("outside this workspace"),
+        "{:?}",
+        toast(&app)
+    );
+    let _ = app.update(Message::TreeNewFile(link.clone()));
+    let _ = app.update(Message::TreeNewFolder(link.clone()));
+    assert!(app.tree_rename.is_none());
+    // A rename field already open on such a path commits nothing either.
+    app.tree_rename = Some(TreeRename {
+        path: x.clone(),
+        value: "y.md".into(),
+    });
+    let _ = app.update(Message::TreeRenameCommit);
+    assert_eq!(names(&outside), ["x.md"], "nothing changes outside");
+
+    // The link itself is an entry in the workspace: it can be renamed.
+    let _ = app.update(Message::TreeRenameCancel);
+    let snapshot = tree::build_workspace(&dir, false).unwrap();
+    app.apply_refreshed_workspace_snapshot(dir.clone(), snapshot);
+    rename(&mut app, &link, "renamed-link");
+    assert!(dir.join("renamed-link").join("x.md").is_file());
+    assert_eq!(names(&outside), ["x.md"]);
+    let _ = std::fs::remove_dir_all(&outside);
+    let _ = std::fs::remove_dir_all(&dir);
+}
