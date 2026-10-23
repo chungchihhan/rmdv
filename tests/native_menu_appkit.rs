@@ -8,10 +8,11 @@ mod appkit {
     use objc2::runtime::AnyObject;
     use objc2::{msg_send, ClassType, MainThreadMarker};
     use objc2_app_kit::{
-        NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSMenu, NSMenuDelegate,
+        NSApplication, NSControlStateValueOff, NSControlStateValueOn, NSEvent,
+        NSEventModifierFlags, NSEventType, NSMenu, NSMenuDelegate,
     };
     use objc2_foundation::{NSPoint, NSString};
-    use rmdv::native_menu::{self, Action, Entry, Menu, Native, Role, Shortcut};
+    use rmdv::native_menu::{self, Action, Entry, Menu, Native, Role, Shortcut, State};
 
     const SIDEBAR: u32 = 5;
     const SLOT: u32 = 6;
@@ -160,16 +161,97 @@ mod appkit {
         assert_eq!(native_menu::drain_for_tests(), vec![SIDEBAR]);
     }
 
+    /// Items take their state and titles from what the app pushed when
+    /// AppKit validates them, as it does before it shows a menu.
+    fn items_show_the_pushed_state(mtm: MainThreadMarker) {
+        let main = native_menu::build(mtm, &spec());
+        let view = submenu(&main, 1);
+        let sidebar = view.itemAtIndex(0).expect("sidebar item");
+        let slots = view
+            .itemAtIndex(1)
+            .and_then(|i| i.submenu())
+            .expect("slots");
+        let slot = slots.itemAtIndex(0).expect("slot item");
+        native_menu::set_state(State {
+            enabled: State::bit(SIDEBAR),
+            checked: State::bit(SIDEBAR),
+        });
+        native_menu::set_titles(vec![(SLOT, "Slot 1: a.md".into())]);
+        view.update();
+        slots.update();
+        assert!(sidebar.isEnabled());
+        assert_eq!(sidebar.state(), NSControlStateValueOn);
+        assert!(!slot.isEnabled());
+        assert_eq!(slot.state(), NSControlStateValueOff);
+        assert_eq!(slot.title().to_string(), "Slot 1: a.md");
+
+        native_menu::set_state(State {
+            enabled: State::bit(SLOT),
+            checked: 0,
+        });
+        native_menu::set_titles(Vec::new());
+        view.update();
+        slots.update();
+        assert!(!sidebar.isEnabled());
+        assert_eq!(sidebar.state(), NSControlStateValueOff);
+        assert!(slot.isEnabled());
+        assert_eq!(slot.title().to_string(), "Slot 1: a.md", "a title stays");
+        // A native item validates through the responder chain, not here.
+        let full = view.itemAtIndex(2).expect("full screen item");
+        assert_eq!(full.title().to_string(), "Enter Full Screen");
+    }
+
+    /// Open Recent is rebuilt when the list changed, and only then.
+    fn open_recent_rebuilds_only_on_change(mtm: MainThreadMarker) {
+        let main = native_menu::build(mtm, &spec());
+        let recent = submenu(&submenu(&main, 2), 0);
+        native_menu::set_recent(vec!["a.md — ~".into(), "b.md — ~/x".into()]);
+        native_menu::update_recent_for_tests();
+        assert_eq!(recent.numberOfItems(), 2);
+        let first = recent.itemAtIndex(0).expect("first");
+        assert_eq!(first.title().to_string(), "a.md — ~");
+        assert_eq!(first.tag(), native_menu::RECENT_TAG as isize);
+        native_menu::update_recent_for_tests();
+        let again = recent.itemAtIndex(0).expect("first");
+        assert!(std::ptr::eq(&*first, &*again), "an unchanged list is kept");
+
+        native_menu::set_state(State {
+            enabled: State::bit(0),
+            checked: 0,
+        });
+        recent.update();
+        assert!(again.isEnabled(), "bit 0 enables the recent items");
+        let _ = native_menu::drain_for_tests();
+        recent.performActionForItemAtIndex(1);
+        assert_eq!(
+            native_menu::drain_for_tests(),
+            vec![native_menu::RECENT_TAG + 1]
+        );
+
+        native_menu::set_recent(Vec::new());
+        native_menu::update_recent_for_tests();
+        assert_eq!(recent.numberOfItems(), 1);
+        let empty = recent.itemAtIndex(0).expect("placeholder");
+        assert_eq!(empty.title().to_string(), "No Recent Items");
+        recent.update();
+        assert!(!empty.isEnabled());
+    }
+
     pub fn run() {
         let mtm = MainThreadMarker::new().expect("main thread");
         let _ = NSApplication::sharedApplication(mtm);
-        let checks: [(&str, fn(MainThreadMarker)); 3] = [
+        let checks: [(&str, fn(MainThreadMarker)); 5] = [
             (
                 "app_items_leave_their_keys_to_the_window",
                 app_items_leave_their_keys_to_the_window,
             ),
             ("native_items_keep_their_keys", native_items_keep_their_keys),
             ("a_click_sends_the_tag", a_click_sends_the_tag),
+            ("items_show_the_pushed_state", items_show_the_pushed_state),
+            (
+                "open_recent_rebuilds_only_on_change",
+                open_recent_rebuilds_only_on_change,
+            ),
         ];
         for (name, check) in checks {
             check(mtm);

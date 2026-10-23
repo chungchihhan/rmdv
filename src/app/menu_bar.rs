@@ -12,8 +12,36 @@
 use super::*;
 use crate::native_menu::{self, Action, Entry, Key, Menu, Mods, Native, Role, Shortcut};
 
+/// An Open Recent title: the name, then the folder it is in.
+pub(super) fn recent_title(path: &Path, home: Option<&Path>) -> String {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_else(|| path.display().to_string());
+    let Some(parent) = path.parent() else {
+        return name;
+    };
+    let folder = match home.and_then(|home| parent.strip_prefix(home).ok()) {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", rest.display()),
+        None => parent.display().to_string(),
+    };
+    format!("{name} — {folder}")
+}
+
 /// The rmdv website, for Help.
 pub(super) const WEBSITE: &str = "https://rmdv.mclee.dev/";
+
+/// What the app pushed to the menu bar last; each part is pushed again
+/// only when it changes.
+#[derive(Debug, Default)]
+pub(super) struct MenuPushed {
+    state: Option<native_menu::State>,
+    titles: Option<Vec<(u32, String)>>,
+    recent: Option<Vec<PathBuf>>,
+    /// Pushes of the state, the titles, and the recent list, for tests.
+    pub(super) pushes: [u32; 3],
+}
 
 /// A menu bar command; [`MenuCommand::tag`] is its item's tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -384,6 +412,14 @@ fn char_code(c: char) -> Option<iced::keyboard::key::Code> {
     })
 }
 
+/// Whether Open Recent may open a path now: where ⌘P could open a file.
+fn recent_allowed(context: KeyContext) -> bool {
+    matches!(
+        key_message(context, shortcut_event(Shortcut::cmd('p')), false),
+        Message::OpenFileFinder
+    )
+}
+
 fn native(title: &str, shortcut: Option<Shortcut>, action: Native) -> Entry {
     Entry::Item {
         title: title.to_string(),
@@ -550,8 +586,11 @@ impl App {
     /// has the keys now, so a click never reaches past a text field, the
     /// editor, a modal card, or an open menu.
     pub(super) fn menu_message(&self, command: MenuCommand) -> Option<Message> {
+        self.menu_message_in(self.key_context(), command)
+    }
+
+    fn menu_message_in(&self, context: KeyContext, command: MenuCommand) -> Option<Message> {
         use MenuCommand as C;
-        let context = self.key_context();
         let spec = command.spec();
         let key = |shortcut: Shortcut| key_message(context, shortcut_event(shortcut), false);
         if let (Some(accept), Some(shortcut)) = (spec.keyed, spec.shortcut) {
@@ -587,12 +626,13 @@ impl App {
             || matches!(key(Shortcut::cmd_shift('p')), Message::OpenCommandPalette);
         // The editor's text, unless a search field has the keys.
         let editor_keys = context.editing && !context.focused && !context.overlay_open;
+        // The cursor, not the selected text: a whole-file selection would
+        // be copied on every update.
         let editor_selected = editor_keys
-            && self
-                .editor
-                .as_ref()
-                .and_then(|editor| editor.selection())
-                .is_some_and(|text| !text.is_empty());
+            && self.editor.as_ref().is_some_and(|editor| {
+                let cursor = editor.cursor();
+                cursor.selection.is_some_and(|end| end != cursor.position)
+            });
         let has_file = self.file.is_some();
         let full_mindmap = self.full_mindmap.is_some();
         match command {
@@ -644,12 +684,7 @@ impl App {
     /// where ⌘P could open a file.
     fn recent_message(&self, index: usize) -> Option<Message> {
         let path = self.menu_recent().into_iter().nth(index)?;
-        let context = self.key_context();
-        matches!(
-            key_message(context, shortcut_event(Shortcut::cmd('p')), false),
-            Message::OpenFileFinder
-        )
-        .then_some(Message::OpenFileFinderPath(path))
+        recent_allowed(self.key_context()).then_some(Message::OpenFileFinderPath(path))
     }
 
     /// A click on a menu bar item: run what the item stands for now.
@@ -661,6 +696,102 @@ impl App {
         match message {
             Some(message) => self.update(message),
             None => Task::none(),
+        }
+    }
+
+    /// Which items are enabled and checked now.
+    pub(super) fn menu_state(&self) -> native_menu::State {
+        let context = self.key_context();
+        let mut state = native_menu::State::default();
+        for command in MenuCommand::ALL {
+            let bit = native_menu::State::bit(command.tag());
+            if self.menu_message_in(context, command).is_some() {
+                state.enabled |= bit;
+            }
+            if self.menu_checked(command) {
+                state.checked |= bit;
+            }
+        }
+        if recent_allowed(context) {
+            state.enabled |= native_menu::State::bit(0);
+        }
+        state
+    }
+
+    /// Whether `command`'s item shows a check: the view on screen and the
+    /// settings that are on.
+    fn menu_checked(&self, command: MenuCommand) -> bool {
+        use MenuCommand as C;
+        let full_mindmap = self.full_mindmap.is_some();
+        match command {
+            C::View(view) => {
+                let current = match self.view_mode {
+                    _ if full_mindmap => ToolbarView::FullMindmap,
+                    ViewMode::Rendered => ToolbarView::Read,
+                    ViewMode::Raw => ToolbarView::Edit,
+                    ViewMode::Mindmap => ToolbarView::Mindmap,
+                };
+                view == current
+            }
+            C::ToggleSidebar => self.sidebar_open && !full_mindmap,
+            C::AlwaysShowToolbar => self.prefs.toolbar == crate::prefs::ToolbarMode::Always,
+            C::ToggleFooter => self.show_footer,
+            C::ShowHidden => self.show_hidden,
+            C::QuickSlot(index) => self.quick_slots.active == Some(usize::from(index)),
+            _ => false,
+        }
+    }
+
+    /// The Quick Slot titles now, by tag: a slot names its file.
+    pub(super) fn menu_titles(&self) -> Vec<(u32, String)> {
+        (0..crate::quick_slots::SLOT_COUNT as u8)
+            .map(|index| {
+                let base = SLOT_TITLES[usize::from(index)];
+                let title = match self.quick_slots.occupied(usize::from(index)) {
+                    Some(slot) => {
+                        let name = Path::new(&slot.relative_path)
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| slot.relative_path.clone());
+                        format!("{base}: {name}")
+                    }
+                    None => base.to_string(),
+                };
+                (MenuCommand::QuickSlot(index).tag(), title)
+            })
+            .collect()
+    }
+
+    /// Push the item state, the slot titles, and the recent list to the
+    /// menu bar, each only when it changed. AppKit reads them when it
+    /// shows a menu; nothing is rebuilt here.
+    pub(super) fn sync_native_menu(&mut self) {
+        if !cfg!(test) && !native_menu::installed() {
+            return;
+        }
+        let state = self.menu_state();
+        if self.menu_pushed.state != Some(state) {
+            native_menu::set_state(state);
+            self.menu_pushed.state = Some(state);
+            self.menu_pushed.pushes[0] += 1;
+        }
+        let titles = self.menu_titles();
+        if self.menu_pushed.titles.as_ref() != Some(&titles) {
+            native_menu::set_titles(titles.clone());
+            self.menu_pushed.titles = Some(titles);
+            self.menu_pushed.pushes[1] += 1;
+        }
+        let recent = self.menu_recent();
+        if self.menu_pushed.recent.as_ref() != Some(&recent) {
+            let home = dirs::home_dir();
+            native_menu::set_recent(
+                recent
+                    .iter()
+                    .map(|path| recent_title(path, home.as_deref()))
+                    .collect(),
+            );
+            self.menu_pushed.recent = Some(recent);
+            self.menu_pushed.pushes[2] += 1;
         }
     }
 
@@ -1186,5 +1317,113 @@ mod tests {
             "an open menu has the keys"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_menu_state_marks_what_is_on_and_what_acts() {
+        use MenuCommand as C;
+        let app = reader_app();
+        let state = app.menu_state();
+        for command in MenuCommand::ALL {
+            assert_eq!(
+                state.is_enabled(command.tag()),
+                app.menu_message(command).is_some(),
+                "{command:?} enabled"
+            );
+        }
+        let checked = |command: MenuCommand| state.is_checked(command.tag());
+        assert!(checked(C::View(ToolbarView::Read)));
+        assert!(!checked(C::View(ToolbarView::Edit)));
+        assert_eq!(checked(C::ToggleSidebar), app.sidebar_open);
+        assert_eq!(checked(C::ShowHidden), app.show_hidden);
+        assert_eq!(checked(C::ToggleFooter), app.show_footer);
+        assert_eq!(
+            checked(C::AlwaysShowToolbar),
+            app.prefs.toolbar == crate::prefs::ToolbarMode::Always
+        );
+        assert!(state.is_enabled(0), "Open Recent acts in the reader");
+
+        let editing = editing_app().menu_state();
+        assert!(editing.is_checked(C::View(ToolbarView::Edit).tag()));
+        assert!(!editing.is_checked(C::View(ToolbarView::Read).tag()));
+        let mut full = reader_app();
+        let _ = full.update(Message::ToggleFullMindmap);
+        let full = full.menu_state();
+        assert!(full.is_checked(C::View(ToolbarView::FullMindmap).tag()));
+        assert!(!full.is_checked(C::ToggleSidebar.tag()), "no sidebar shows");
+
+        let mut confirm = editing_app();
+        confirm.dirty = true;
+        confirm.close_confirm = Some(CloseConfirm { window: None });
+        let confirm = confirm.menu_state();
+        assert_eq!(confirm.enabled, 0, "a modal card disables every item");
+    }
+
+    #[test]
+    fn slot_titles_name_their_files() {
+        let mut app = reader_app();
+        app.quick_slots.slots[1] = Some(crate::quick_slots::QuickSlot {
+            relative_path: "notes/b.md".into(),
+            context: Default::default(),
+        });
+        app.quick_slots.active = Some(1);
+        let titles = app.menu_titles();
+        let title = |index: u8| {
+            titles
+                .iter()
+                .find(|(tag, _)| *tag == MenuCommand::QuickSlot(index).tag())
+                .map(|(_, title)| title.as_str())
+        };
+        assert_eq!(title(0), Some("Slot 1"));
+        assert_eq!(title(1), Some("Slot 2: b.md"));
+        assert_eq!(titles.len(), crate::quick_slots::SLOT_COUNT);
+        let state = app.menu_state();
+        assert!(state.is_checked(MenuCommand::QuickSlot(1).tag()));
+        assert!(state.is_enabled(MenuCommand::QuickSlot(1).tag()));
+        assert!(!state.is_enabled(MenuCommand::QuickSlot(0).tag()));
+    }
+
+    #[test]
+    fn the_menu_is_pushed_only_when_it_changes() {
+        let mut app = reader_app();
+        app.sync_native_menu();
+        assert_eq!(
+            app.menu_pushed.pushes,
+            [1, 1, 1],
+            "the first sync pushes all"
+        );
+        for _ in 0..5 {
+            let _ = app.update(Message::Noop);
+        }
+        assert_eq!(app.menu_pushed.pushes, [1, 1, 1], "nothing changed");
+        let _ = app.update(Message::ToggleSidebar);
+        assert_eq!(app.menu_pushed.pushes, [2, 1, 1], "only the state changed");
+        app.quick_slots.slots[0] = Some(crate::quick_slots::QuickSlot {
+            relative_path: "a.md".into(),
+            context: Default::default(),
+        });
+        let _ = app.update(Message::Noop);
+        assert_eq!(app.menu_pushed.pushes[1], 2, "a slot title changed");
+        app.recent
+            .paths
+            .insert(0, PathBuf::from("/tmp/menu-bar-ws/z.md"));
+        let _ = app.update(Message::Noop);
+        assert_eq!(app.menu_pushed.pushes[2], 2, "the recent list changed");
+        let _ = app.update(Message::Noop);
+        assert_eq!(app.menu_pushed.pushes[2], 2);
+    }
+
+    #[test]
+    fn recent_titles_show_the_name_and_the_folder() {
+        let home = dirs::home_dir().expect("home");
+        assert_eq!(
+            recent_title(&home.join("notes/a.md"), Some(&home)),
+            "a.md — ~/notes"
+        );
+        assert_eq!(recent_title(&home.join("a.md"), Some(&home)), "a.md — ~");
+        assert_eq!(
+            recent_title(Path::new("/srv/x/b.md"), Some(&home)),
+            "b.md — /srv/x"
+        );
     }
 }

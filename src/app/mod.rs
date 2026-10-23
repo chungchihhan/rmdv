@@ -554,6 +554,8 @@ pub struct App {
     /// The currently selected workspace bank. It is normalized to nine slots
     /// at every workspace boundary and persisted back into `prefs.json`.
     pub quick_slots: crate::quick_slots::WorkspaceSlots,
+    /// What the app pushed to the native menu bar last (MDV-048 P8).
+    menu_pushed: menu_bar::MenuPushed,
     quick_slots_root: Option<PathBuf>,
     quick_slots_undo: Option<crate::quick_slots::ClearUndo>,
     /// Open "replace slot?" confirmation; it owns the keyboard while set.
@@ -791,6 +793,7 @@ impl Default for App {
             nav_anchor: None,
             prefs,
             quick_slots: crate::quick_slots::WorkspaceSlots::default(),
+            menu_pushed: menu_bar::MenuPushed::default(),
             quick_slots_root: None,
             quick_slots_undo: None,
             quick_slot_replace: None,

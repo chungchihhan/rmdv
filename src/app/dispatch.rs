@@ -41,6 +41,9 @@ impl App {
         }
         // ⌘Q reads this from AppKit, outside the update loop.
         crate::macos_quit::set_unsaved(self.dirty);
+        // The menu bar reads its item state from AppKit too; it is pushed
+        // only when it changed.
+        self.sync_native_menu();
         // So does the two-finger swipe bridge.
         crate::native_swipe::set_armed(self.swipe_directions());
         self.sync_toolbar_band();
