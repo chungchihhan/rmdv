@@ -107,6 +107,22 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   only.
 - P7: the reader scrollbar fades only in the reader; the sidebar, panel,
   and table scrollbars keep the instant show and hide.
+- P8: menu bar app items show their shortcuts only while their menu is
+  open (`menuWillOpen:` sets the key equivalent, `menuDidClose:` clears
+  it), so every key still reaches the window and keeps its per-focus
+  behavior. An `NSMenuDelegate` that answers
+  `menuHasKeyEquivalent:forEvent:target:action:` with NO did not stop
+  AppKit: it still found the item and took the key, even for a disabled
+  item (AppKit test, 2026-10-24). Only Hide ⌘H, Hide Others ⌥⌘H, Quit ⌘Q
+  and Enter Full Screen ⌃⌘F take their keys from the menu.
+- P8: ⌃⌘F now enters full screen (the macOS standard); before, the
+  Ctrl-as-Command alias made it Find in Document. ⌘M stays Mind Map (no
+  Minimize key) and ⌘W stays Close Slot.
+- P8: a menu click runs what the item's shortcut runs on the surface that
+  has the keys now, and the item is disabled where the key does
+  something else. Edit > Copy copies the editor's selection or a
+  whole-document reader selection; a partial reader selection still
+  copies with ⌘C only.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -153,6 +169,7 @@ Per phase:
 - 2026-10-24: P7 sidebar and chrome on `feat/pointer-p7`: the outline marks the section at the reader's top line (recomputed only when the top block changes) and follows it while the pointer is off the outline; sidebar divider hover line, width saved in prefs (lenient), drag below the minimum collapses and a re-open restores the width, a lost release ends the drag; a toolbar Quick Slots button pins the rail as a popover (outside press, Esc, or a choice closes it; unassignable empty slots look disabled); ghost buttons, sidebar tabs, and slot chips 28 px with pressed states, toast buttons answer hover and press, whole-row Settings switches; the footer pill cycles its statistic (saved), the shortcut sheet has an X, clickable rows, and the missing ⌘, ⌘⇧M ⌘Z j/k Space ←→ rows (checked against the palette), palette shortcuts are right-aligned key caps that typing does not match, and the palette, finder, and vault fields have clear buttons. lib 939 passed, integration all passed.
 - 2026-10-24: P7 review on `feat/pointer-p7`: 13 findings (9 distinct after duplicates), all fixed red-first: losing window focus stops the drag auto-scroll and drops the held press; a Shift press beside the text lets a copy button, image, or chevron take it first (a Shift press on text, links included, still extends); the outline scrolls to its mark when shown again and an outline or scrollbar strip removed under the pointer drops its hover (one check after every update); the pinned Quick Slots popover unpins whenever the rail may not show, and its padding takes presses (`opaque`); the wide-table shade draws in its own layer above the table (pixel test); the copy check is keyed by block, not by text; word drags keep the last four lines' segments and one `CFStringTokenizer` per thread (200 moves over a 1000-character Chinese line: 11.7 s before, under 0.1 s after). lib 949 passed, integration all passed.
 - 2026-10-24: P6 trial build: Release dry run 39991024040, notarized (PR #76). P7 verified by the orchestrator: lib 949 passed, integration all passed, release build, Linux title bar simulation 338 passed with the 1 expected macOS-only failure.
+- 2026-10-24: P8 done on `feat/pointer-p8` (stacked on P7): native macOS menu bar (rmdv, File with Open Recent, Edit, View, Go with Quick Slots, Window, Help) built once with `objc2-app-kit` beside `native_pinch::install`; one target sends item tags through a subscription (`Message::NativeMenu`); a click runs the shortcut's `key_message` on the current surface; item state, slot titles and the recent list are pushed only on change and applied in `validateMenuItem:` / `menuNeedsUpdate:`. AppKit test target `native_menu_appkit` (no window). lib 966 passed, integration all passed.
 
 ## Decision log
 
