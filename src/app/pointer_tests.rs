@@ -1689,3 +1689,7 @@ mod reader_menu;
 // --- P6: the Zen editor's context menu -----------------------------------------
 
 mod editor_menu;
+
+// --- P6: mind map context menus ---------------------------------------------
+
+mod mindmap_menu;

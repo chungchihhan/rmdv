@@ -172,15 +172,26 @@ impl App {
         .collect()
     }
 
+    /// The text of heading `id`.
+    pub(super) fn heading_text(&self, id: crate::ast::BlockId) -> Option<String> {
+        self.ast.iter().find_map(|(block_id, block)| match block {
+            Block::Heading { inlines, .. } if *block_id == id => {
+                Some(crate::ipc::sections::inline_text(inlines))
+            }
+            _ => None,
+        })
+    }
+
     /// `<path>#<slug>` for heading `id`: the path from the workspace root
     /// (or the file name outside a workspace), and the slug the link
     /// resolver matches.
-    fn heading_link(&self, id: crate::ast::BlockId) -> Option<String> {
-        let inlines = self.ast.iter().find_map(|(block_id, block)| match block {
-            Block::Heading { inlines, .. } if *block_id == id => Some(inlines),
-            _ => None,
-        })?;
-        let slug = slugify(&crate::ipc::sections::inline_text(inlines));
+    pub(super) fn heading_link(&self, id: crate::ast::BlockId) -> Option<String> {
+        self.heading_link_for(&self.heading_text(id)?)
+    }
+
+    /// `<path>#<slug>` for a heading of the open document titled `title`.
+    pub(super) fn heading_link_for(&self, title: &str) -> Option<String> {
+        let slug = slugify(title);
         let file = self.file.as_deref()?;
         let relative = self
             .workspace

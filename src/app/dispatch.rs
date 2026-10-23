@@ -2452,6 +2452,14 @@ impl App {
             }
             Message::FocusEditor => iced::widget::operation::focus(Self::editor_id()),
             Message::EditorContextMenu => self.open_editor_context_menu(),
+            Message::MindmapContextMenu(target) => self.open_mindmap_context_menu(target),
+            Message::MindmapCollapseBelow(id) => self.mindmap_collapse_below(id),
+            Message::MindmapExpandBelow(id) => self.mindmap_expand_below(id),
+            Message::MindmapCopyDataValue(id) => match self.mindmap_data_value(id) {
+                Some(value) => self.update(Message::CopyCode(value)),
+                None => self.show_toast("No value to copy".into()),
+            },
+            Message::FullMindmapContextMenu(target) => self.open_full_mindmap_context_menu(target),
             Message::EditorMenuCut => self.editor_menu_cut(),
             Message::EditorMenuCopy => self.editor_menu_copy(),
             Message::EditorMenuPaste => iced::clipboard::read().map(Message::EditorPasted),

@@ -134,6 +134,7 @@ pub use lifecycle::window_settings;
 pub(crate) mod keys;
 mod loading;
 mod message;
+mod mindmap_menu;
 mod paths;
 mod preview_worker;
 mod reader_menu;
@@ -3815,7 +3816,8 @@ impl App {
                     layout_generation: Some(self.mindmap_layout_generation.get()),
                     keyboard_zoom_enabled: self.overlay == Overlay::None
                         && !self.search_open
-                        && !self.fold_chord_pending,
+                        && !self.fold_chord_pending
+                        && self.context_menu.is_none(),
                     native_pinch_log: self.mindmap_native_pinch_log,
                     scroll_pans: self.prefs.mindmap_scroll_pans,
                     zoom_request: self.mindmap_zoom_request,
@@ -3829,6 +3831,7 @@ impl App {
                         Some(Box::new(Message::MindmapActivateNode))
                     },
                     hover_text: None,
+                    on_context: Some(Box::new(Message::MindmapContextMenu)),
                     on_deselect: Message::MindmapDeselect,
                 };
                 let canvas_el: Element<'_, Message> = iced::widget::canvas(program)

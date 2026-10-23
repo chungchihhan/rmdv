@@ -130,6 +130,26 @@ impl ContextMenu {
     }
 }
 
+/// `sections` joined by separators; empty sections are left out.
+pub(super) fn menu_sections(sections: Vec<Vec<MenuEntry>>) -> Vec<MenuEntry> {
+    let mut entries = Vec::new();
+    for section in sections.into_iter().filter(|s| !s.is_empty()) {
+        if !entries.is_empty() {
+            entries.push(MenuEntry::Separator);
+        }
+        entries.extend(section);
+    }
+    entries
+}
+
+/// `Some(message)` as an item, `None` as the same item greyed out.
+pub(super) fn menu_item(label: &str, message: Option<Message>) -> MenuEntry {
+    match message {
+        Some(message) => MenuEntry::item(label, message),
+        None => MenuEntry::disabled(label),
+    }
+}
+
 /// Where a menu of `menu` size opened by a press at `at` goes in a window
 /// of `window` size: below and right of the press, flipped to the other
 /// side of the press when it would cross the window's right or bottom

@@ -508,6 +508,18 @@ pub enum Message {
     EditorMenuPaste,
     /// The clipboard text for the editor menu's Paste.
     EditorPasted(Option<String>),
+    /// A right press on the document or data mind map: on a node (`Some`)
+    /// or on empty canvas (`None`). Opens its context menu.
+    MindmapContextMenu(Option<crate::ast::BlockId>),
+    /// Show the node's children, each branch below it folded.
+    MindmapCollapseBelow(crate::ast::BlockId),
+    /// Unfold the node and every branch below it.
+    MindmapExpandBelow(crate::ast::BlockId),
+    /// Copy a data map node's value as JSON, YAML, or TOML text.
+    MindmapCopyDataValue(crate::ast::BlockId),
+    /// A right press on Full Mindmap: on a node (`Some`) or on empty canvas
+    /// (`None`). Opens its context menu.
+    FullMindmapContextMenu(Option<WorkspaceNodeId>),
     SaveFile,
     FileSaved {
         result: Result<(), String>,
