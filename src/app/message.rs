@@ -40,6 +40,12 @@ pub enum Message {
     ListPointerMoved(iced::Point),
     VaultOpenSelected,
     VaultOpenHit(usize),
+    /// Open a vault hit by its file and line: a context menu's Open, which
+    /// must not follow a result list that a newer search replaced.
+    VaultOpenHitAt {
+        path: PathBuf,
+        line: u32,
+    },
     VaultToggleFile(PathBuf),
     VaultClose,
     /// Apply a measured absolute scroll offset to the vault results page.

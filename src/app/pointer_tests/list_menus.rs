@@ -181,8 +181,11 @@ fn a_vault_hit_offers_open_reveal_and_copy_path() {
     assert_eq!(labels(&app), ["Open", "Reveal in Finder", "Copy Path"]);
     assert_eq!(
         menu_line(&app, "Open").2,
-        runs(Message::VaultOpenHit(1)),
-        "the same as a click"
+        runs(Message::VaultOpenHitAt {
+            path: beta.clone(),
+            line: 9
+        }),
+        "the same as a click on it"
     );
     assert_eq!(
         menu_line(&app, "Reveal in Finder").2,
@@ -208,4 +211,40 @@ fn a_command_palette_row_has_no_menu() {
     let _ = right_press(&mut app, &mut ui, center(row));
     assert!(app.context_menu.is_none());
     assert_eq!(app.overlay, Overlay::Command, "the palette stays open");
+}
+
+#[test]
+fn a_vault_hit_menu_opens_the_hit_it_was_opened_on() {
+    let (mut app, dir) = tree_fixture("vault-menu-stale");
+    let (alpha, beta) = (dir.join("alpha.md"), dir.join("beta.md"));
+    let _ = app.update(Message::OpenVaultSearch);
+    let hit = |path: &Path, line: u32| crate::vault_search::VaultHit {
+        path: path.to_path_buf(),
+        line,
+        col_start: 0,
+        col_end: 6,
+        context: Vec::new(),
+    };
+    app.vault_results = vec![hit(&alpha, 2), hit(&beta, 9)];
+    let _ = app.update(Message::PointerRightPress(Point::new(400.0, 300.0)));
+    let _ = app.update(Message::VaultHitContextMenu(1));
+    assert!(app.context_menu.is_some());
+
+    // A new search lands while the menu is open.
+    app.vault_results = vec![hit(&alpha, 2)];
+    let follow_ups = ready_outputs(app.update(Message::ContextMenuChoose(0)));
+    let mut opened = Vec::new();
+    for message in follow_ups {
+        opened.extend(ready_outputs(app.update(message)));
+    }
+
+    assert!(
+        has(
+            &opened,
+            |m| matches!(m, Message::Open(path) if *path == beta)
+        ),
+        "Open opens the clicked hit: {opened:?}"
+    );
+    assert_eq!(app.pending_nav.as_ref().and_then(|nav| nav.line), Some(9));
+    let _ = std::fs::remove_dir_all(&dir);
 }

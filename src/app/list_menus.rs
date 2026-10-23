@@ -39,7 +39,13 @@ impl App {
         let Some(hit) = self.vault_results.get(index) else {
             return Task::none();
         };
-        let entries = file_row_entries(Message::VaultOpenHit(index), &hit.path);
+        // Open names the hit itself: a newer search can replace the results
+        // while the menu is open, and an index would then name another hit.
+        let open = Message::VaultOpenHitAt {
+            path: hit.path.clone(),
+            line: hit.line,
+        };
+        let entries = file_row_entries(open, &hit.path);
         self.open_context_menu(entries, None);
         Task::none()
     }

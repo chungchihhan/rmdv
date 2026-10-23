@@ -60,6 +60,19 @@ impl App {
         Task::batch([task, self.load_incomplete_expanded_folders()])
     }
 
+    /// Open a vault hit's file at its line and leave the vault page.
+    fn open_vault_hit(&mut self, path: PathBuf, line: u32) -> Task<Message> {
+        if let Some(blocked) = self.block_file_open_if_dirty(&path) {
+            return blocked;
+        }
+        self.vault_open = false;
+        self.pending_nav = Some(PendingNav {
+            line: Some(line),
+            ..Default::default()
+        });
+        Task::done(Message::Open(path))
+    }
+
     /// Forget the viewer's image and rasters.
     fn drop_image_zoom(&mut self) {
         self.zoom_url = None;
@@ -356,19 +369,18 @@ impl App {
                     None => Task::none(),
                 }
             }
-            Message::VaultOpenHit(idx) => {
-                if let Some(hit) = self.vault_results.get(idx).cloned() {
-                    if let Some(blocked) = self.block_file_open_if_dirty(&hit.path) {
-                        return blocked;
-                    }
-                    self.vault_open = false;
-                    self.pending_nav = Some(PendingNav {
-                        line: Some(hit.line),
-                        ..Default::default()
-                    });
-                    return Task::done(Message::Open(hit.path));
+            Message::VaultOpenHit(idx) => match self.vault_results.get(idx) {
+                Some(hit) => {
+                    let (path, line) = (hit.path.clone(), hit.line);
+                    self.open_vault_hit(path, line)
                 }
-                Task::none()
+                None => Task::none(),
+            },
+            Message::VaultOpenHitAt { path, line } => {
+                if !self.vault_open {
+                    return Task::none();
+                }
+                self.open_vault_hit(path, line)
             }
             Message::OpenSettings => self.open_settings(),
             Message::CloseSettings => {
