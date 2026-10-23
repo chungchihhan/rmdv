@@ -1741,35 +1741,44 @@ where
             a: 0.0,
             ..self.shade
         };
+        // A nested layer does not inherit its parent's clip: clip to what
+        // the reader shows.
+        let Some(clip) = bounds.intersection(viewport).filter(|_| left || right) else {
+            return;
+        };
         let width = TABLE_EDGE_SHADE.min(bounds.width / 2.0);
-        // Each shade runs from the edge (dark) inward (clear).
-        for (shown, x, angle) in [
-            (left, bounds.x, std::f32::consts::FRAC_PI_2),
-            (
-                right,
-                bounds.x + bounds.width - width,
-                3.0 * std::f32::consts::FRAC_PI_2,
-            ),
-        ] {
-            if !shown {
-                continue;
-            }
-            let gradient = iced::gradient::Linear::new(iced::Radians(angle))
-                .add_stop(0.0, self.shade)
-                .add_stop(1.0, clear);
-            renderer.fill_quad(
-                renderer::Quad {
-                    bounds: Rectangle {
-                        x,
-                        y: bounds.y,
-                        width,
-                        height: bounds.height,
+        // An overflowing table draws in the scrollable's own layer, which
+        // composites after this one; the shade needs a layer above it.
+        renderer.with_layer(clip, |renderer| {
+            // Each shade runs from the edge (dark) inward (clear).
+            for (shown, x, angle) in [
+                (left, bounds.x, std::f32::consts::FRAC_PI_2),
+                (
+                    right,
+                    bounds.x + bounds.width - width,
+                    3.0 * std::f32::consts::FRAC_PI_2,
+                ),
+            ] {
+                if !shown {
+                    continue;
+                }
+                let gradient = iced::gradient::Linear::new(iced::Radians(angle))
+                    .add_stop(0.0, self.shade)
+                    .add_stop(1.0, clear);
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x,
+                            y: bounds.y,
+                            width,
+                            height: bounds.height,
+                        },
+                        ..renderer::Quad::default()
                     },
-                    ..renderer::Quad::default()
-                },
-                Background::Gradient(gradient.into()),
-            );
-        }
+                    Background::Gradient(gradient.into()),
+                );
+            }
+        });
     }
 
     fn update(

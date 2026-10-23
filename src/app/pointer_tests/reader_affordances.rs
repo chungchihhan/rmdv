@@ -410,3 +410,40 @@ fn a_wide_table_shades_the_side_that_overflows() {
     draw_at(&mut ui, &app, over);
     assert_eq!(draw_log::take_edges(), vec![(true, false)], "at the end");
 }
+
+#[test]
+fn the_overflow_shade_shows_over_the_table() {
+    // The shade was drawn under the scrolled table's own layer, so its
+    // opaque fill hid it. Read the pixels: beside the right edge each one
+    // is darker than the same row's unshaded left edge.
+    use iced::advanced::renderer::Headless;
+    let app = wide_table_app();
+    let mut ui = PointerUi::new();
+    let mut probe = HScrollProbe::new();
+    ui.operate(&app, &mut probe);
+    let table = *probe.rects().first().expect("the wide table");
+    let _ = draw_log::take_edges();
+    draw_at(&mut ui, &app, Point::new(table.center_x(), table.y - 30.0));
+    assert_eq!(draw_log::take_edges(), vec![(false, true)]);
+    let (w, h) = (ui.size.width as u32, ui.size.height as u32);
+    let pixels = ui
+        .renderer
+        .screenshot(Size::new(w, h), 1.0, iced::Color::WHITE);
+    let at = |x: f32, y: f32| {
+        let i = ((y as u32 * w + x as u32) * 4) as usize;
+        [pixels[i], pixels[i + 1], pixels[i + 2]]
+    };
+    let (left, right) = (table.x + 3.0, table.x + table.width - 3.0);
+    let rows: Vec<f32> = (0..table.height as usize)
+        .map(|dy| table.y + dy as f32 + 0.5)
+        .filter(|y| *y < h as f32)
+        .collect();
+    assert!(rows.len() > 40, "{table:?}");
+    let same = rows.iter().filter(|y| at(left, **y) == at(right, **y)).count();
+    assert!(
+        same * 5 < rows.len(),
+        "{same} of {} rows look the same at both edges: no shade shows",
+        rows.len()
+    );
+}
+
