@@ -3249,6 +3249,75 @@ mod tests {
     }
 
     #[test]
+    fn a_double_click_activates_a_document_heading_and_the_root() {
+        #[derive(Debug, Clone, PartialEq)]
+        enum DocEv {
+            Toggle(BlockId),
+            Select(BlockId),
+            Activate(BlockId),
+            Deselect,
+        }
+        let ast = vec![heading(1, 1, "Top"), heading(2, 2, "Child")];
+        let (nodes, content_size) = build_layout(&ast, None, &HashSet::new());
+        let program = MindmapProgram {
+            nodes: std::sync::Arc::new(nodes),
+            content_size,
+            palette: Palette::ONE_DARK,
+            background: Palette::ONE_DARK.bg,
+            selected: None,
+            focus: None,
+            panel_open: false,
+            panel_width: 360.0,
+            autocenter: false,
+            layout_generation: Some(1),
+            keyboard_zoom_enabled: false,
+            native_pinch_log: 0.0,
+            zoom_request: ZoomRequest::default(),
+            on_toggle: Box::new(DocEv::Toggle),
+            on_select: Box::new(DocEv::Select),
+            on_activate: Some(Box::new(DocEv::Activate)),
+            hover_text: None,
+            on_deselect: DocEv::Deselect,
+        };
+        let mut state = MindmapState {
+            zoom: 1.0,
+            initialized: true,
+            ..MindmapState::default()
+        };
+        let mut click = |id: BlockId, now: Instant| {
+            let node = program
+                .nodes
+                .iter()
+                .find(|node| node.id == Some(id))
+                .expect("node");
+            // The label, clear of a branch's chevron.
+            let at = Point::new(node.x + 40.0, node.y + NODE_H / 2.0);
+            let pressed = canvas::Program::update(
+                &program,
+                &mut state,
+                &iced::Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)),
+                POINTER_BOUNDS,
+                mouse::Cursor::Available(at),
+            );
+            assert!(pressed.is_some_and(|action| action.into_inner().0.is_none()));
+            program
+                .release(&mut state, now, Some(at))
+                .and_then(|action| action.into_inner().0)
+        };
+        let t0 = Instant::now();
+        let quick = t0 + Duration::from_millis(150);
+        let child = BlockId(2);
+        assert_eq!(click(child, t0), Some(DocEv::Select(child)));
+        assert_eq!(click(child, quick), Some(DocEv::Activate(child)));
+        let later = t0 + Duration::from_secs(5);
+        assert_eq!(click(DOC_ROOT, later), Some(DocEv::Select(DOC_ROOT)));
+        assert_eq!(
+            click(DOC_ROOT, later + Duration::from_millis(150)),
+            Some(DocEv::Activate(DOC_ROOT))
+        );
+    }
+
+    #[test]
     fn hover_fills_a_clickable_node_and_a_still_pointer_redraws_nothing() {
         let program = pointer_program(notes_graph(), None);
         let mut state = live_state();

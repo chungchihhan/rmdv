@@ -94,6 +94,16 @@ Per phase:
   each finding verified before it is fixed.
 - Owner trial build for pointer feel before merge.
 
+## Owner trial feedback
+
+- 2026-10-23 (P4 decisions):
+  - The Full Mindmap node tooltip keeps the full path.
+  - A click on the document root shows the document from the top in the
+    panel, and its chevron folds every heading. Keep both.
+  - A double click on a document mind map heading node opens the Reader at
+    that heading (the root: the Reader from the top). The JSON/YAML data map
+    and Full Mindmap keep their own double-click behavior.
+
 ## Progress
 
 - 2026-10-22: audit done; owner decisions recorded; P1 started.

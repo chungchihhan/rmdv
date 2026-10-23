@@ -3679,8 +3679,13 @@ impl App {
                     zoom_request: self.mindmap_zoom_request,
                     on_toggle: Box::new(Message::MindmapToggleNode),
                     on_select: Box::new(Message::MindmapSelectLeaf),
-                    // The document mind map has no Enter action to repeat.
-                    on_activate: None,
+                    // A double click reads a heading in the Reader. The
+                    // JSON/YAML map has no reader position to jump to.
+                    on_activate: if self.is_data_doc {
+                        None
+                    } else {
+                        Some(Box::new(Message::MindmapActivateNode))
+                    },
                     hover_text: None,
                     on_deselect: Message::MindmapDeselect,
                 };

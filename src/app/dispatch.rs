@@ -1966,6 +1966,41 @@ impl App {
                 self.mindmap_panel_open = true;
                 Task::none()
             }
+            Message::MindmapActivateNode(id) => {
+                // A double click on a heading reads it in the Reader, the
+                // way an outline row jumps to it; the root reads the
+                // document from its top.
+                if self.view_mode != ViewMode::Mindmap || self.is_data_doc {
+                    return Task::none();
+                }
+                let line = if id == crate::mindmap::DOC_ROOT {
+                    None
+                } else {
+                    let Some(line) = self
+                        .ast
+                        .iter()
+                        .position(|(block, _)| *block == id)
+                        .and_then(|idx| self.block_lines.get(idx).copied())
+                    else {
+                        return Task::none();
+                    };
+                    Some(line)
+                };
+                self.reader_select_all = false;
+                self.mindmap_panel_drag = None;
+                // Leaving the mind map is a stop: Back returns to it, as
+                // after a jump to a #fragment.
+                self.record_history();
+                let jump = match line {
+                    Some(line) => self.scroll_to_line_top(line),
+                    None => {
+                        self.view_mode = ViewMode::Rendered;
+                        Task::done(Message::ScrollToTop)
+                    }
+                };
+                let checkpoint = self.checkpoint_active_quick_slot();
+                Task::batch([checkpoint, jump])
+            }
             Message::MindmapZoom(command) => {
                 // The canvas applies the request on the redraw this
                 // message causes; see `crate::mindmap::ZoomRequest`.

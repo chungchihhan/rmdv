@@ -803,3 +803,100 @@ fn the_panel_close_button_does_not_cover_panel_text() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Where a document mind map node's label starts on screen, with the
+/// sidebar closed so the canvas starts at the window's left edge. Before any
+/// redraw the canvas has zoom 1 and no pan, so a node sits at the canvas
+/// corner plus its layout position; the canvas top is found by its grab
+/// cursor.
+fn document_node_point(ui: &mut PointerUi, app: &App, node: &crate::mindmap::MNode) -> Point {
+    let top = (0..200)
+        .map(|y| y as f32)
+        .find(|&y| ui.move_to(app, Point::new(4.0, y)).1 == mouse::Interaction::Grab)
+        .expect("the canvas top");
+    let at = Point::new(node.x + 40.0, top + node.y + crate::mindmap::NODE_H / 2.0);
+    assert_eq!(
+        ui.move_to(app, at).1,
+        mouse::Interaction::Pointer,
+        "the pointer is on {:?}",
+        node.label
+    );
+    at
+}
+
+#[test]
+fn a_document_mindmap_double_click_reads_the_heading() {
+    let (mut app, dir) = document_mindmap_app("p4-doc-activate");
+    app.sidebar_open = false;
+    let (nodes, _, _) = app.mindmap_layout();
+    let child = nodes
+        .iter()
+        .find(|node| node.label == "Child")
+        .expect("the Child heading");
+    let child_id = child.id.expect("a heading id");
+    let mut ui = PointerUi::new();
+    let at = document_node_point(&mut ui, &app, child);
+    let messages = ui.double_click(&app, at);
+    assert!(
+        has(&messages, |m| matches!(
+            m,
+            Message::MindmapActivateNode(id) if *id == child_id
+        )),
+        "a double click activates the heading: {messages:?}"
+    );
+    apply(&mut app, messages);
+    assert_eq!(app.view_mode, ViewMode::Rendered, "the Reader shows");
+    let block = app
+        .ast
+        .iter()
+        .position(|(id, _)| *id == child_id)
+        .expect("the heading block");
+    assert_eq!(
+        app.nav_anchor,
+        Some(block),
+        "the reader scrolls to the heading"
+    );
+    // Back returns to the mind map, as after a jump to a #fragment.
+    let _ = app.update(Message::HistoryGo(HistoryDir::Back));
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // The root: the Reader from the top of the document.
+    let (mut app, dir) = document_mindmap_app("p4-doc-activate-root");
+    app.sidebar_open = false;
+    let (nodes, _, _) = app.mindmap_layout();
+    let mut ui = PointerUi::new();
+    let at = document_node_point(&mut ui, &app, &nodes[0]);
+    let messages = ui.double_click(&app, at);
+    assert!(
+        has(&messages, |m| matches!(
+            m,
+            Message::MindmapActivateNode(DOC_ROOT)
+        )),
+        "{messages:?}"
+    );
+    let follow_ups = ready_outputs(app.update(Message::MindmapActivateNode(DOC_ROOT)));
+    assert_eq!(app.view_mode, ViewMode::Rendered);
+    assert!(
+        has(&follow_ups, |m| matches!(m, Message::ScrollToTop)),
+        "the Reader starts at the top: {follow_ups:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_data_mindmap_double_click_stays_in_the_mind_map() {
+    let (mut app, dir) = tree_fixture("p4-data-activate");
+    let _ = app.update(Message::FileLoaded(Ok((
+        dir.join("data.json"),
+        "{\"a\": {\"b\": 1}}".into(),
+    ))));
+    let _ = app.update(Message::ToggleMindmap);
+    assert!(app.is_data_doc);
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    let (nodes, _, _) = app.mindmap_layout();
+    let id = nodes.iter().find_map(|node| node.id).expect("a data node");
+    let _ = app.update(Message::MindmapActivateNode(id));
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    let _ = std::fs::remove_dir_all(&dir);
+}

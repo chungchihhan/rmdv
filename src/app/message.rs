@@ -263,6 +263,9 @@ pub enum Message {
     MindmapZoom(crate::mindmap::ZoomCommand),
     MindmapToggleNode(crate::ast::BlockId),
     MindmapSelectLeaf(crate::ast::BlockId),
+    /// A double click on a document mind map node: read that heading in
+    /// the Reader, or the document from its top for the root.
+    MindmapActivateNode(crate::ast::BlockId),
     MindmapDeselect,
     MindmapNavigate(MindmapDir),
     MindmapPanelSettle(u64),
