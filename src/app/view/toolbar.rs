@@ -261,7 +261,8 @@ pub(in crate::app) fn toolbar<'a>(
             // The pointer entry to the Quick Slots rail that ⌘ shows.
             container(tool_button(
                 ic::LIST_ORDERED,
-                (app.quick_slots_pinned || app.quick_slots_rail_allowed())
+                // Pinned only while allowed (`App::update` unpins it).
+                app.quick_slots_rail_allowed()
                     .then_some(Message::QuickSlotsPopover(!app.quick_slots_pinned)),
                 app.quick_slots_pinned,
                 pal,

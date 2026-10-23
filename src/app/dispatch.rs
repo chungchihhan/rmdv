@@ -45,6 +45,12 @@ impl App {
         crate::native_swipe::set_armed(self.swipe_directions());
         self.sync_toolbar_band();
         self.sync_sidebar_peek();
+        // The pinned Quick Slots popover closes for good wherever the rail
+        // may not show (the find bar, the vault page, an unsaved Zen edit),
+        // so it does not pop back later.
+        if self.quick_slots_pinned && !self.quick_slots_rail_allowed() {
+            self.quick_slots_pinned = false;
+        }
         if let Some(scroll) = self.sync_outline_shown(outline_was_shown) {
             task = Task::batch([task, scroll]);
         }

@@ -147,3 +147,28 @@ fn empty_slots_that_cannot_be_assigned_look_disabled() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_popover_closes_for_good_when_the_find_bar_takes_the_keys() {
+    let (mut app, dir) = unrevealed("slot-popover-find");
+    let mut ui = PointerUi::new();
+    click_button(&mut app, &mut ui);
+    assert!(app.quick_slots_pinned);
+    let _ = app.update(Message::ToggleSearch);
+    assert!(app.search_open);
+    assert!(!app.quick_slots_pinned, "the find bar closes the popover");
+    // Closing the find bar does not bring it back, and one click on the
+    // toolbar button opens it again.
+    let _ = app.update(Message::ToggleSearch);
+    assert!(!app.search_open);
+    assert!(ui.id_bounds(&app, POPOVER).is_none(), "it stays closed");
+    click_button(&mut app, &mut ui);
+    assert!(app.quick_slots_pinned, "one click opens it");
+
+    // The vault page does the same.
+    let _ = app.update(Message::OpenVaultSearch);
+    assert!(app.vault_open);
+    assert!(!app.quick_slots_pinned, "the vault page closes the popover");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
