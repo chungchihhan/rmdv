@@ -1907,6 +1907,16 @@ impl App {
                 self.mindmap_panel_open = true;
                 Task::none()
             }
+            Message::MindmapZoom(command) => {
+                // The canvas applies the request on the redraw this
+                // message causes; see `crate::mindmap::ZoomRequest`.
+                if self.full_mindmap.is_some() {
+                    self.full_mindmap_zoom_request = self.full_mindmap_zoom_request.next(command);
+                } else {
+                    self.mindmap_zoom_request = self.mindmap_zoom_request.next(command);
+                }
+                Task::none()
+            }
             Message::MindmapDeselect => {
                 self.mindmap_selected = None;
                 self.mindmap_panel_shown = None;

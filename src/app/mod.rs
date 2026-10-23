@@ -368,6 +368,11 @@ pub struct App {
     /// stream. Keeping them separate prevents a mode switch from replaying a
     /// gesture into the other graph.
     pub full_mindmap_native_pinch_log: f64,
+    /// The latest zoom button press for the document mind map and for Full
+    /// Mindmap. Each canvas keeps its own zoom; see
+    /// [`crate::mindmap::ZoomRequest`].
+    pub mindmap_zoom_request: crate::mindmap::ZoomRequest,
+    pub full_mindmap_zoom_request: crate::mindmap::ZoomRequest,
     /// Cached mindmap layout, lazily rebuilt from (ast, file, mindmap_collapsed).
     /// Every mutation of those inputs must invalidate it or atomically replace
     /// it with a layout built from the new state.
@@ -652,6 +657,8 @@ impl Default for App {
             mindmap_autocenter,
             mindmap_native_pinch_log: 0.0,
             full_mindmap_native_pinch_log: 0.0,
+            mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
+            full_mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
             mindmap_layout: std::cell::RefCell::new(None),
             mindmap_layout_generation: std::cell::Cell::new(0),
             mindmap_data_panel: std::cell::RefCell::new(None),
@@ -3633,6 +3640,7 @@ impl App {
                         && !self.search_open
                         && !self.fold_chord_pending,
                     native_pinch_log: self.mindmap_native_pinch_log,
+                    zoom_request: self.mindmap_zoom_request,
                     on_toggle: Box::new(Message::MindmapToggleNode),
                     on_select: Box::new(Message::MindmapSelectLeaf),
                     // The document mind map has no Enter action to repeat.
@@ -3646,10 +3654,7 @@ impl App {
                     .into();
                 let canvas_with_hint: Element<'_, Message> = stack![
                     canvas_el,
-                    floating_mindmap_hint(
-                        &[("←↑→↓", "move"), ("Space", "fold"), ("= / −", "zoom"),],
-                        pal,
-                    ),
+                    floating_mindmap_controls(&[("←↑→↓", "move"), ("Space", "fold")], pal),
                 ]
                 .width(Length::Fill)
                 .height(Length::Fill)

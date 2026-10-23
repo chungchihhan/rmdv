@@ -3,8 +3,10 @@
 //! gesture itself is tested in `crate::mindmap`; these tests cover what the
 //! app does with the messages the canvas publishes.
 
-use super::group3::{full_mindmap_app, tree_fixture};
+use super::group3::{assert_tips, full_mindmap_app, tips, tree_fixture};
 use super::*;
+use crate::icon::ic;
+use crate::mindmap::ZoomCommand;
 
 #[test]
 fn a_full_mindmap_click_selects_and_opens_the_panel() {
@@ -129,5 +131,94 @@ fn one_click_on_more_shows_the_next_page() {
     assert!(graph
         .node(&WorkspaceNodeId::Folder(dir.join("b")))
         .is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The tree fixture with a two-heading document open in the mind map.
+fn document_mindmap_app(tag: &str) -> (App, PathBuf) {
+    let (mut app, dir) = tree_fixture(tag);
+    let _ = app.update(Message::FileLoaded(Ok((
+        dir.join("alpha.md"),
+        "# Top\n\n## Child\n\ntext\n".into(),
+    ))));
+    let _ = app.update(Message::ToggleMindmap);
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    (app, dir)
+}
+
+#[test]
+fn zoom_buttons_send_their_command_and_leave_the_canvas_its_events() {
+    let (mut app, dir) = document_mindmap_app("p4-zoom-buttons");
+    assert!(
+        app.mindmap_selected.is_some(),
+        "the first heading is selected"
+    );
+    let mut ui = PointerUi::new();
+    assert_tips(
+        &tips(&mut ui, &app),
+        &["Zoom to Fit", "Zoom Out  −", "Actual Size  0", "Zoom In  ="],
+    );
+
+    let plus = ui
+        .text_bounds(&app, &ic::PLUS.to_string())
+        .expect("zoom in button");
+    let messages = ui.click(&app, center(plus));
+    assert!(
+        has(&messages, |m| matches!(
+            m,
+            Message::MindmapZoom(ZoomCommand::In)
+        )),
+        "{messages:?}"
+    );
+    assert!(
+        !has(&messages, |m| matches!(m, Message::MindmapDeselect)),
+        "the canvas under the button sees no click"
+    );
+    apply(&mut app, messages);
+    assert_eq!(app.mindmap_zoom_request.generation, 1);
+    assert_eq!(app.mindmap_zoom_request.command, Some(ZoomCommand::In));
+    let fit = ui
+        .text_bounds(&app, &ic::SCAN.to_string())
+        .expect("zoom to fit button");
+    let messages = ui.click(&app, center(fit));
+    apply(&mut app, messages);
+    assert_eq!(app.mindmap_zoom_request.command, Some(ZoomCommand::Fit));
+    assert_eq!(app.mindmap_zoom_request.generation, 2);
+    let reset = ui.text_bounds(&app, "100%").expect("100% button");
+    let messages = ui.click(&app, center(reset));
+    apply(&mut app, messages);
+    assert_eq!(app.mindmap_zoom_request.command, Some(ZoomCommand::Reset));
+
+    // Just above the buttons the canvas still owns the pointer: it shows
+    // its grab cursor and an empty-canvas click clears the selection.
+    let probe = Point::new(plus.center_x(), plus.y - 40.0);
+    let (_, cursor) = ui.move_to(&app, probe);
+    assert_eq!(cursor, mouse::Interaction::Grab);
+    let messages = ui.click(&app, probe);
+    assert!(
+        has(&messages, |m| matches!(m, Message::MindmapDeselect)),
+        "{messages:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn full_mindmap_zoom_buttons_drive_their_own_canvas() {
+    let (mut app, dir) = full_mindmap_app("p4-fmm-zoom");
+    let mut ui = PointerUi::new();
+    let minus = ui
+        .text_bounds(&app, &ic::MINUS.to_string())
+        .expect("zoom out button");
+    let messages = ui.click(&app, center(minus));
+    apply(&mut app, messages);
+    assert_eq!(
+        app.full_mindmap_zoom_request.command,
+        Some(ZoomCommand::Out)
+    );
+    assert_eq!(
+        app.mindmap_zoom_request,
+        crate::mindmap::ZoomRequest::default(),
+        "the document map's zoom is left alone"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

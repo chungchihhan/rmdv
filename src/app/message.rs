@@ -258,6 +258,9 @@ pub enum Message {
     /// A macOS magnification delta from the native event bridge. The shared
     /// canvas consumes the cumulative stream on its next redraw.
     MindmapNativePinch(f32),
+    /// A mind map zoom button: Fit, −, 100%, or +. It drives the canvas on
+    /// screen (the document mind map or Full Mindmap).
+    MindmapZoom(crate::mindmap::ZoomCommand),
     MindmapToggleNode(crate::ast::BlockId),
     MindmapSelectLeaf(crate::ast::BlockId),
     MindmapDeselect,

@@ -90,6 +90,7 @@ impl App {
             layout_generation: Some(full.layout_generation),
             keyboard_zoom_enabled: self.overlay == Overlay::None,
             native_pinch_log: self.full_mindmap_native_pinch_log,
+            zoom_request: self.full_mindmap_zoom_request,
             on_toggle: Box::new(Message::FullMindmapToggleNode),
             on_select: Box::new(Message::FullMindmapPointerSelect),
             on_activate: Some(Box::new(Message::FullMindmapActivateNode)),
@@ -118,18 +119,14 @@ impl App {
                     .as_ref()
                     .is_some_and(|request| request.preserve_navigation));
         let hint_items: &[(&str, &str)] = match selected_is_file {
-            true => &[("←↑→↓", "move"), ("= / −", "zoom"), ("Enter", "open")],
-            false => &[
-                ("←↑→↓", "move"),
-                ("Space", "fold"),
-                ("= / −", "zoom"),
-                ("Enter", "root"),
-            ],
+            true => &[("←↑→↓", "move"), ("Enter", "open")],
+            false => &[("←↑→↓", "move"), ("Space", "fold"), ("Enter", "root")],
         };
-        let canvas: Element<'_, Message> = stack![canvas, floating_mindmap_hint(hint_items, pal)]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
+        let canvas: Element<'_, Message> =
+            stack![canvas, floating_mindmap_controls(hint_items, pal)]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
         let body: Element<'_, Message> = if full.panel_open {
             irow![
                 canvas,

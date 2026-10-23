@@ -38,6 +38,42 @@ const CHEVRON_HALF: f32 = 4.0;
 /// than `CHEVRON_HIT_MIN` screen px, so it stays clickable zoomed out.
 const CHEVRON_HIT: f32 = 24.0;
 const CHEVRON_HIT_MIN: f32 = 16.0;
+/// Screen px of the map that a drag always leaves inside the canvas, so the
+/// content cannot be thrown fully off-screen.
+const PAN_KEEP_VISIBLE: f32 = 48.0;
+/// Screen px at the bottom of the canvas that Zoom to Fit leaves free for
+/// the floating hint and zoom buttons.
+const FIT_BOTTOM_INSET: f32 = 56.0;
+
+/// What a mind map zoom button asks the canvas to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ZoomCommand {
+    /// Show the whole map (never above 100%).
+    Fit,
+    In,
+    Out,
+    /// Back to 100%.
+    Reset,
+}
+
+/// The latest zoom button press. The canvas keeps its own zoom, so the app
+/// bumps `generation` on each press and the canvas applies a request once,
+/// on the next redraw. A canvas that first sees a request takes it as
+/// already applied, so a newly shown map replays nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ZoomRequest {
+    pub generation: u64,
+    pub command: Option<ZoomCommand>,
+}
+
+impl ZoomRequest {
+    pub fn next(self, command: ZoomCommand) -> Self {
+        Self {
+            generation: self.generation.wrapping_add(1),
+            command: Some(command),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 struct Anim {
@@ -392,6 +428,8 @@ pub struct MindmapState<Id = BlockId> {
     touch_points: Vec<(touch::Finger, Point)>,
     touch_span: Option<f32>,
     native_pinch_log: Option<f64>,
+    /// The zoom request generation this canvas last applied.
+    zoom_request_seen: Option<u64>,
 }
 
 impl<Id> Default for MindmapState<Id> {
@@ -420,6 +458,7 @@ impl<Id> Default for MindmapState<Id> {
             touch_points: Vec::new(),
             touch_span: None,
             native_pinch_log: None,
+            zoom_request_seen: None,
         }
     }
 }
@@ -467,6 +506,8 @@ pub struct MindmapProgram<'a, Id, Message> {
     /// A cumulative log lets the canvas apply every queued pinch delta even
     /// when multiple native events arrive before the next redraw.
     pub native_pinch_log: f64,
+    /// The latest zoom button press; see [`ZoomRequest`].
+    pub zoom_request: ZoomRequest,
     pub on_toggle: Box<dyn Fn(Id) -> Message + 'a>,
     pub on_select: Box<dyn Fn(Id) -> Message + 'a>,
     /// A double click on a node: what Enter does there. `None` makes a
@@ -633,6 +674,45 @@ fn animate_zoom_by<Id>(state: &mut MindmapState<Id>, anchor: Point, factor: f32)
         .map(|animation| animation.target_zoom)
         .unwrap_or(state.zoom);
     animate_zoom_to(state, anchor, base_zoom * factor)
+}
+
+/// Animate to an absolute zoom and pan, for a target that is not anchored
+/// at one point (Zoom to Fit).
+fn animate_view_to<Id>(state: &mut MindmapState<Id>, target_zoom: f32, target_pan: Vector) -> bool {
+    if !target_zoom.is_finite() || !target_pan.x.is_finite() || !target_pan.y.is_finite() {
+        return false;
+    }
+    let target_zoom = target_zoom.clamp(ZOOM_MIN, ZOOM_MAX);
+    let _ = step_zoom_animation(state);
+    if (target_zoom - state.zoom).abs() < f32::EPSILON
+        && (target_pan.x - state.pan.x).abs() < 0.5
+        && (target_pan.y - state.pan.y).abs() < 0.5
+    {
+        state.zoom_anim = None;
+        return false;
+    }
+    state.pan_anim = None;
+    state.zoom_anim = Some(ZoomAnim {
+        start_zoom: state.zoom,
+        target_zoom,
+        start_pan: state.pan,
+        target_pan,
+        start_at: Instant::now(),
+    });
+    true
+}
+
+/// Clamp one pan axis so at least [`PAN_KEEP_VISIBLE`] px (or all of a
+/// smaller map) stays inside a `view`-long canvas. A pan that is already
+/// outside the range (after a zoom) only may move back toward it.
+fn clamp_pan_axis(pan: f32, origin: f32, content: f32, view: f32) -> f32 {
+    let keep = PAN_KEEP_VISIBLE.min(content).min(view);
+    let mut lo = keep - content;
+    let mut hi = view - keep;
+    if lo > hi {
+        std::mem::swap(&mut lo, &mut hi);
+    }
+    pan.clamp(lo.min(origin), hi.max(origin))
 }
 
 fn touch_point_in_canvas(bounds: Rectangle, position: Point) -> Option<Point> {
@@ -1069,6 +1149,45 @@ where
         }
     }
 
+    /// Apply a zoom button press the canvas has not seen yet. Returns
+    /// whether an animation started.
+    fn sync_zoom_request(&self, state: &mut MindmapState<Id>, bounds: Rectangle) -> bool {
+        let request = self.zoom_request;
+        let Some(seen) = state.zoom_request_seen.replace(request.generation) else {
+            // A newly shown canvas takes the current request as applied.
+            return false;
+        };
+        if seen == request.generation {
+            return false;
+        }
+        let anchor = canvas_center(bounds);
+        match request.command {
+            Some(ZoomCommand::In) => animate_zoom_by(state, anchor, KEYBOARD_ZOOM_FACTOR),
+            Some(ZoomCommand::Out) => animate_zoom_by(state, anchor, 1.0 / KEYBOARD_ZOOM_FACTOR),
+            Some(ZoomCommand::Reset) => animate_zoom_to(state, anchor, 1.0),
+            Some(ZoomCommand::Fit) => {
+                let (zoom, pan) = self.fit_view(bounds);
+                animate_view_to(state, zoom, pan)
+            }
+            None => false,
+        }
+    }
+
+    /// The zoom and pan that show the whole map, centered, never above 100%.
+    fn fit_view(&self, bounds: Rectangle) -> (f32, Vector) {
+        let content_w = self.content_size.width.max(1.0);
+        let content_h = self.content_size.height.max(1.0);
+        let usable_h = (bounds.height - FIT_BOTTOM_INSET).max(bounds.height * 0.5);
+        let zoom = (bounds.width / content_w)
+            .min(usable_h / content_h)
+            .clamp(ZOOM_MIN, 1.0);
+        let pan = Vector::new(
+            (bounds.width - content_w * zoom) / 2.0,
+            (usable_h - content_h * zoom) / 2.0,
+        );
+        (zoom, pan)
+    }
+
     /// Apply a macOS trackpad pinch that arrived through the native bridge.
     /// We only zoom when the current pointer is over this canvas, so a pinch
     /// over an adjacent panel never changes the graph behind it.
@@ -1303,8 +1422,20 @@ where
                         return Some(canvas::Action::capture());
                     }
                     state.drag_moved = true;
-                    state.pan.x = state.drag_pan_origin.x + dx;
-                    state.pan.y = state.drag_pan_origin.y + dy;
+                    let z = zoom_of(state);
+                    let origin = state.drag_pan_origin;
+                    state.pan.x = clamp_pan_axis(
+                        origin.x + dx,
+                        origin.x,
+                        self.content_size.width * z,
+                        bounds.width,
+                    );
+                    state.pan.y = clamp_pan_axis(
+                        origin.y + dy,
+                        origin.y,
+                        self.content_size.height * z,
+                        bounds.height,
+                    );
                     return Some(canvas::Action::request_redraw().and_capture());
                 }
                 // Hover tracking: highlight the node under the cursor so we
@@ -1331,6 +1462,7 @@ where
             iced::Event::Window(window::Event::RedrawRequested(_)) => {
                 self.sync_anim(state);
                 let pinch_zoomed = self.sync_native_pinch(state, bounds, cursor);
+                let _ = self.sync_zoom_request(state, bounds);
                 let zoom_running = step_zoom_animation(state);
                 if !zoom_running {
                     self.sync_focus_pan(state, bounds);
@@ -1617,7 +1749,6 @@ where
             });
         }
 
-        let _ = self.content_size;
         vec![frame.into_geometry()]
     }
 
@@ -1780,6 +1911,7 @@ mod tests {
             layout_generation: Some(generation),
             keyboard_zoom_enabled: false,
             native_pinch_log: 0.0,
+            zoom_request: ZoomRequest::default(),
             on_toggle: Box::new(|_| ()),
             on_select: Box::new(|_| ()),
             on_activate: None,
@@ -2161,6 +2293,7 @@ mod tests {
                 layout_generation: Some(1),
                 keyboard_zoom_enabled: false,
                 native_pinch_log: 0.0,
+                zoom_request: ZoomRequest::default(),
                 on_toggle: Box::new(|_| ()),
                 on_select: Box::new(|_| ()),
                 on_activate: None,
@@ -2553,6 +2686,7 @@ mod tests {
             layout_generation: Some(1),
             keyboard_zoom_enabled: false,
             native_pinch_log: 0.0,
+            zoom_request: ZoomRequest::default(),
             on_toggle: Box::new(Ev::Toggle),
             on_select: Box::new(Ev::Select),
             on_activate: Some(Box::new(Ev::Activate)),
@@ -3052,5 +3186,116 @@ mod tests {
 
         assert_eq!(span, 5.0);
         assert_eq!(center, Point::new(11.5, 22.0));
+    }
+
+    /// One redraw of the canvas, the event that applies a zoom request.
+    fn redraw(program: &MindmapProgram<'static, PathId, Ev>, state: &mut MindmapState<PathId>) {
+        let _ = canvas::Program::update(
+            program,
+            state,
+            &iced::Event::Window(window::Event::RedrawRequested(Instant::now())),
+            POINTER_BOUNDS,
+            mouse::Cursor::Unavailable,
+        );
+    }
+
+    /// Ends any zoom animation at its target.
+    fn finish_zoom(state: &mut MindmapState<PathId>) {
+        if let Some(animation) = state.zoom_anim.as_mut() {
+            animation.start_at = Instant::now() - Duration::from_secs(1);
+        }
+        step_zoom_animation(state);
+    }
+
+    fn press_zoom(
+        program: &mut MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        command: ZoomCommand,
+    ) {
+        program.zoom_request = program.zoom_request.next(command);
+        redraw(program, state);
+        finish_zoom(state);
+    }
+
+    #[test]
+    fn zoom_buttons_fit_step_and_reset_the_canvas() {
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        program.content_size = Size::new(2000.0, 400.0);
+        let mut state = live_state();
+
+        // A canvas that first sees a request replays nothing.
+        program.zoom_request = ZoomRequest::default().next(ZoomCommand::In);
+        redraw(&program, &mut state);
+        finish_zoom(&mut state);
+        assert_eq!(state.zoom, 1.0, "no replay on a new canvas");
+
+        press_zoom(&mut program, &mut state, ZoomCommand::Fit);
+        let fit = (1000.0f32 / 2000.0).min((800.0 - FIT_BOTTOM_INSET) / 400.0);
+        assert!((state.zoom - fit).abs() < 1e-4, "fit zoom {}", state.zoom);
+        let usable_h = 800.0 - FIT_BOTTOM_INSET;
+        assert!((state.pan.x - (1000.0 - 2000.0 * fit) / 2.0).abs() < 0.5);
+        assert!((state.pan.y - (usable_h - 400.0 * fit) / 2.0).abs() < 0.5);
+
+        // Without a new press a redraw leaves the view alone.
+        let before = (state.zoom, state.pan);
+        redraw(&program, &mut state);
+        finish_zoom(&mut state);
+        assert_eq!((state.zoom, state.pan), before);
+
+        press_zoom(&mut program, &mut state, ZoomCommand::In);
+        assert!((state.zoom - fit * KEYBOARD_ZOOM_FACTOR).abs() < 1e-4);
+        press_zoom(&mut program, &mut state, ZoomCommand::Out);
+        assert!((state.zoom - fit).abs() < 1e-4);
+        press_zoom(&mut program, &mut state, ZoomCommand::Reset);
+        assert!((state.zoom - 1.0).abs() < 1e-4);
+
+        // A small map fits at 100%, not blown up.
+        program.content_size = Size::new(300.0, 200.0);
+        press_zoom(&mut program, &mut state, ZoomCommand::Out);
+        press_zoom(&mut program, &mut state, ZoomCommand::Fit);
+        assert!((state.zoom - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_drag_keeps_part_of_the_map_on_screen() {
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        program.content_size = Size::new(600.0, 300.0);
+        let mut state = live_state();
+
+        // Up and left as far as the canvas allows.
+        let low = Point::new(990.0, 790.0);
+        let high = Point::new(10.0, 10.0);
+        assert_eq!(press_at(&program, &mut state, low), None);
+        let _ = move_at(&program, &mut state, high);
+        let _ = release_at(&program, &mut state, high);
+        assert!(
+            state.pan.x + 600.0 >= PAN_KEEP_VISIBLE - 0.01
+                && state.pan.y + 300.0 >= PAN_KEEP_VISIBLE - 0.01,
+            "the map's far corner stays on screen: {:?}",
+            state.pan
+        );
+
+        // Then down and right, twice.
+        for _ in 0..2 {
+            assert_eq!(press_at(&program, &mut state, high), None);
+            let _ = move_at(&program, &mut state, low);
+            let _ = release_at(&program, &mut state, low);
+        }
+        assert!(
+            state.pan.x <= 1000.0 - PAN_KEEP_VISIBLE + 0.01
+                && state.pan.y <= 800.0 - PAN_KEEP_VISIBLE + 0.01,
+            "the map's near corner stays on screen: {:?}",
+            state.pan
+        );
+
+        // A drag that starts out of range (after a zoom) never jumps.
+        state.pan = Vector::new(-2000.0, 0.0);
+        let from = Point::new(500.0, 400.0);
+        assert_eq!(press_at(&program, &mut state, from), None);
+        let _ = move_at(&program, &mut state, Point::new(510.0, 400.0));
+        assert_eq!(state.pan, Vector::new(-1990.0, 0.0));
+        let _ = release_at(&program, &mut state, Point::new(510.0, 400.0));
     }
 }
