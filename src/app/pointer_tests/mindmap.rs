@@ -353,7 +353,7 @@ fn a_full_mindmap_preview_copy_button_copies() {
     assert!(
         has(
             &messages,
-            |m| matches!(m, Message::CopyBlockSource(code) if code.contains("let x = 1;"))
+            |m| matches!(m, Message::CopyBlockSource(code, _) if code.contains("let x = 1;"))
         ),
         "{messages:?}"
     );
@@ -379,8 +379,8 @@ fn full_mindmap_preview_messages_keep_their_action() {
     ));
     assert!(matches!(map(Message::CopyCode("x".into())), Message::CopyCode(s) if s == "x"));
     assert!(matches!(
-        map(Message::CopyBlockSource("x".into())),
-        Message::CopyBlockSource(s) if s == "x"
+        map(Message::CopyBlockSource("x".into(), 7)),
+        Message::CopyBlockSource(s, 7) if s == "x"
     ));
     // The preview's own diagram source, not the open document's.
     assert!(matches!(

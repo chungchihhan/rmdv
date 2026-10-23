@@ -352,9 +352,9 @@ pub struct App {
     pub last_scroll_at: Option<std::time::Instant>,
     /// The reader scrollbar's fade in and out, and its hover.
     pub reader_scroller: ScrollerFade,
-    /// The source a block copy button copied last, with its copy number,
-    /// while its button shows a check.
-    pub copy_flash: Option<(u64, String)>,
+    /// The copy number and block key ([`crate::render::copy_key`]) of the
+    /// block copy button that copied last, while it shows a check.
+    pub copy_flash: Option<(u64, usize)>,
     pub copy_flash_seq: u64,
     /// Pixels per tick while a reader selection drag is past the viewport
     /// edge; `None` stops the tick.
@@ -3026,7 +3026,7 @@ impl App {
                         (0, 0),
                         recently_scrolled,
                         crate::render::ReadingWidth::Fill,
-                        self.copy_flash.as_ref().map(|(_, source)| source.as_str()),
+                        self.copy_flash.map(|(_, key)| key),
                     ));
                     if truncated {
                         col = col.push(
@@ -4158,7 +4158,7 @@ impl App {
                         (0, 0),
                         recently_scrolled,
                         crate::render::ReadingWidth::Capped,
-                        self.copy_flash.as_ref().map(|(_, source)| source.as_str()),
+                        self.copy_flash.map(|(_, key)| key),
                     )
                 }
             } else {
@@ -4178,7 +4178,7 @@ impl App {
                     (0, 0),
                     recently_scrolled,
                     crate::render::ReadingWidth::Capped,
-                    self.copy_flash.as_ref().map(|(_, source)| source.as_str()),
+                    self.copy_flash.map(|(_, key)| key),
                 )
             };
             if self.view_mode == ViewMode::Raw || self.view_mode == ViewMode::Mindmap {

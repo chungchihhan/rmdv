@@ -4059,10 +4059,10 @@ impl App {
                     .set_hovered(hovered, std::time::Instant::now());
                 Task::none()
             }
-            Message::CopyBlockSource(source) => {
+            Message::CopyBlockSource(source, key) => {
                 self.copy_flash_seq = self.copy_flash_seq.wrapping_add(1);
                 let seq = self.copy_flash_seq;
-                self.copy_flash = Some((seq, source.clone()));
+                self.copy_flash = Some((seq, key));
                 // One timer per copy; nothing ticks while the check shows.
                 Task::batch([
                     iced::clipboard::write::<Message>(source),

@@ -260,8 +260,10 @@ pub enum Message {
     ReaderScrollbarHover(bool),
     CopyCode(String),
     /// A block's copy button: copy its source, then show a check on the
-    /// button for a moment instead of a toast.
-    CopyBlockSource(String),
+    /// button for a moment instead of a toast. The key
+    /// ([`crate::render::copy_key`]) tells the check which block it is on,
+    /// so blocks with the same source do not all show it.
+    CopyBlockSource(String, usize),
     /// The copy button's check timer, by copy number; a later copy keeps
     /// its own check.
     CopyFlashEnd(u64),

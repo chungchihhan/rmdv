@@ -60,7 +60,7 @@ pub fn render<'a>(
     keyed_widget_generation: (u64, u64),
     recently_scrolled: bool,
     reading_width: ReadingWidth,
-    copied: Option<&'a str>,
+    copied: Option<usize>,
 ) -> Element<'a, Message> {
     let img_ctx = ImgCtx {
         cache: image_cache,
@@ -596,8 +596,9 @@ struct ImgCtx<'a> {
     diagram_cache: &'a DiagramCache,
     diagram_theme_id: u32,
     recently_scrolled: bool,
-    /// The source a copy button copied last, while its check shows.
-    copied: Option<&'a str>,
+    /// The key ([`copy_key`]) of the block whose copy button copied last,
+    /// while its check shows.
+    copied: Option<usize>,
 }
 
 fn render_block<'a>(
@@ -674,8 +675,8 @@ fn render_block<'a>(
                     ..Default::default()
                 })
                 .width(Length::Fill);
-            let copied = img.copied == Some(code.as_str());
-            let copy_btn = copy_button(code.to_string(), "Copy Code", copied, &pal_c);
+            let copied = img.copied == Some(copy_key(code));
+            let copy_btn = copy_button(code, "Copy Code", copied, &pal_c);
             TargetMark::new(
                 move || ReaderTarget::Code(code.clone()),
                 HoverReveal::new(body, copy_btn).pinned(copied),
@@ -1252,10 +1253,10 @@ fn render_math_block<'a>(
             let formula = container(el)
                 .center_x(Length::Fill)
                 .padding(Padding::from([8.0, COPY_BUTTON_CLEARANCE]));
-            let copied = img.copied == Some(source);
+            let copied = img.copied == Some(copy_key(source));
             HoverReveal::new(
                 formula,
-                copy_button(source.to_string(), "Copy Math", copied, pal),
+                copy_button(source, "Copy Math", copied, pal),
             )
             .pinned(copied)
             .into()
@@ -1359,10 +1360,10 @@ fn render_diagram<'a>(
                 tooltip::Position::FollowCursor,
                 pal_c,
             );
-            let copied = img.copied == Some(source);
+            let copied = img.copied == Some(copy_key(source));
             HoverReveal::new(
                 clickable,
-                copy_button(source.to_string(), "Copy Source", copied, &pal_c),
+                copy_button(source, "Copy Source", copied, &pal_c),
             )
             .pinned(copied)
             .into()
@@ -2101,10 +2102,17 @@ impl<'a> From<HoverReveal<'a>> for Element<'a, Message> {
 /// a gap.
 const COPY_BUTTON_CLEARANCE: f32 = 40.0;
 
+/// Which block a copy button belongs to: the address of its source text
+/// in the document. Blocks with the same text stay apart; a reparse moves
+/// the text, which only ends a check early.
+pub(crate) fn copy_key(source: &str) -> usize {
+    source.as_ptr() as usize
+}
+
 /// The hover-revealed copy button at a block's top-right corner. It copies
 /// `source` and, while `copied`, shows a check instead of the copy icon.
 fn copy_button<'a>(
-    source: String,
+    source: &str,
     action: &'a str,
     copied: bool,
     pal: &Palette,
@@ -2129,7 +2137,7 @@ fn copy_button<'a>(
     container(crate::app::reader_tip(
         mouse_area(face)
             .interaction(iced::mouse::Interaction::Pointer)
-            .on_press(Message::CopyBlockSource(source)),
+            .on_press(Message::CopyBlockSource(source.to_string(), copy_key(source))),
         action,
         tooltip::Position::Left,
         pal_c,

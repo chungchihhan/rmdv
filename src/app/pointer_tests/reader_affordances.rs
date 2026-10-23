@@ -110,7 +110,7 @@ fn inner_widgets(ui: &mut PointerUi, app: &App) -> Vec<Rectangle> {
 
 fn copied(messages: &[Message]) -> Option<String> {
     messages.iter().find_map(|m| match m {
-        Message::CopyBlockSource(text) => Some(text.clone()),
+        Message::CopyBlockSource(text, _) => Some(text.clone()),
         _ => None,
     })
 }
@@ -160,7 +160,7 @@ fn a_copy_turns_the_icon_into_a_check_until_its_timer_ends() {
     let text = copied(&messages).expect("the button copies the block's source");
     assert!(text.contains("fn main() {}"), "{text:?}");
 
-    let _ = app.update(Message::CopyBlockSource(text));
+    apply(&mut app, messages);
     assert!(
         ui.text_bounds(&app, &glyph(crate::icon::ic::CHECK))
             .is_some(),
@@ -219,7 +219,7 @@ fn math_copies_only_from_its_button() {
     assert!(
         !has(&messages, |m| matches!(
             m,
-            Message::CopyCode(_) | Message::CopyBlockSource(_)
+            Message::CopyCode(_) | Message::CopyBlockSource(..)
         )),
         "a click on the formula copies nothing: {messages:?}"
     );
@@ -447,3 +447,43 @@ fn the_overflow_shade_shows_over_the_table() {
     );
 }
 
+/// How many widgets show exactly `text`.
+fn count_text(ui: &mut PointerUi, app: &App, text: &str) -> usize {
+    struct Count<'a>(&'a str, usize);
+    impl Operation for Count<'_> {
+        fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
+            operate(self);
+        }
+        fn text(&mut self, _id: Option<&Id>, _bounds: Rectangle, text: &str) {
+            if text == self.0 {
+                self.1 += 1;
+            }
+        }
+    }
+    let mut count = Count(text, 0);
+    ui.operate(app, &mut count);
+    count.1
+}
+
+#[test]
+fn a_copy_checks_only_the_block_it_came_from() {
+    let mut app = doc_app(
+        "code-twins",
+        "```sh\nnpm install\n```\n\nBetween the two.\n\n```sh\nnpm install\n```\n",
+    );
+    let mut ui = PointerUi::new();
+    let (copy, check) = (
+        glyph(crate::icon::ic::COPY),
+        glyph(crate::icon::ic::CHECK),
+    );
+    assert_eq!(count_text(&mut ui, &app, &copy), 2);
+    let button = ui.text_bounds(&app, &copy).expect("copy icon");
+    let messages = ui.click(&app, center(button));
+    assert!(copied(&messages).is_some(), "{messages:?}");
+    apply(&mut app, messages);
+    assert_eq!(
+        (count_text(&mut ui, &app, &check), count_text(&mut ui, &app, &copy)),
+        (1, 1),
+        "only the copied block shows the check"
+    );
+}
