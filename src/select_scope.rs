@@ -451,15 +451,22 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         let event_seen = latin.as_ref().unwrap_or(event);
         let mut forward = true;
         let mut right_press = None;
+        let mut beside_text = None;
 
         match event_seen {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
                 state.range = None;
                 state.crossing = false;
-                state.press = cursor
-                    .position_over(layout.bounds())
-                    .and_then(|p| locate(&mut self.content, child_tree, child, renderer, p))
-                    .and_then(|(pos, inside)| inside.then_some(pos));
+                // Anywhere in the reader's viewport: on text, the text
+                // widget selects; beside it (a margin, a gap between
+                // blocks, below the end), the scope does, unless the
+                // content takes the press.
+                let located = cursor
+                    .position()
+                    .filter(|p| viewport.contains(*p))
+                    .and_then(|p| locate(&mut self.content, child_tree, child, renderer, p));
+                state.press = located.and_then(|(pos, inside)| inside.then_some(pos));
+                beside_text = located.and_then(|(pos, inside)| (!inside).then_some(pos));
             }
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let (Some(anchor), Some(p)) = (state.press, cursor.land().position()) {
@@ -537,6 +544,17 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
             );
         }
 
+        // A press beside the text that no element took (a link, an image,
+        // a button, a chevron, a diagram) starts the scope's own selection
+        // at the nearest text position.
+        if let Some(pos) = beside_text {
+            if !shell.is_event_captured() {
+                state.press = Some(pos);
+                state.crossing = true;
+                state.range = Some((pos, pos));
+            }
+        }
+
         if let Some(p) = right_press {
             let hit = right_press_hit(
                 &mut self.content,
@@ -569,13 +587,24 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         viewport: &Rectangle,
         renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
+        let inner = self.content.as_widget().mouse_interaction(
             &tree.children[0],
             child_layout(layout),
             cursor,
             viewport,
             renderer,
-        )
+        );
+        if inner != mouse::Interaction::None {
+            return inner;
+        }
+        // A press anywhere in the reader starts a selection, so the
+        // margins and the gaps between blocks show the text cursor too.
+        let dragging = tree.state.downcast_ref::<State>().press.is_some();
+        if dragging || cursor.position().is_some_and(|p| viewport.contains(p)) {
+            mouse::Interaction::Text
+        } else {
+            mouse::Interaction::None
+        }
     }
 
     fn draw(

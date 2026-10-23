@@ -1701,3 +1701,7 @@ mod list_menus;
 // --- P6: the Quick Slot context menu ----------------------------------------
 
 mod slot_menu;
+
+// --- P7: reader selection with the pointer ------------------------------------
+
+mod reader_select;
