@@ -468,7 +468,15 @@ impl App {
                 }
                 Task::none()
             }
-            Message::QuickSlotActivate(index) => self.begin_quick_slot_activation(index),
+            Message::QuickSlotsPopover(open) => {
+                self.quick_slots_pinned = open && self.quick_slots_rail_allowed();
+                Task::none()
+            }
+            Message::QuickSlotActivate(index) => {
+                // Choosing a slot is what the popover was opened for.
+                self.quick_slots_pinned = false;
+                self.begin_quick_slot_activation(index)
+            }
             Message::QuickSlotAssign(index) => self.assign_quick_slot(index),
             Message::QuickSlotClear(index) => self.clear_quick_slot(index),
             Message::QuickSlotClearAll => self.clear_all_quick_slots(),
@@ -2280,6 +2288,7 @@ impl App {
             }
             Message::WindowUnfocused(id) => {
                 self.context_menu = None;
+                self.quick_slots_pinned = false;
                 self.quick_slots_modifier_held = false;
                 self.quick_slots_rail_revealed = false;
                 self.quick_slots_modifier_generation =

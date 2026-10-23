@@ -1717,3 +1717,7 @@ mod outline_spy;
 // --- P7: the sidebar divider ------------------------------------------------
 
 mod sidebar_divider;
+
+// --- P7: the Quick Slots popover --------------------------------------------
+
+mod slot_popover;

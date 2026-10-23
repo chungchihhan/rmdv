@@ -52,6 +52,9 @@ pub enum Message {
     VaultScrollTo(f32),
     ToggleShortcuts,
     /// Activate the slot addressed by its zero-based rail index.
+    /// Pin (true) or close (false) the Quick Slots popover, the toolbar's
+    /// pointer entry to the rail.
+    QuickSlotsPopover(bool),
     QuickSlotActivate(usize),
     /// Assign the current reading context to the slot. A slot that holds a
     /// different file asks for confirmation first.

@@ -570,6 +570,8 @@ pub struct App {
     recent_store: Option<PathBuf>,
     pub quick_slots_modifier_held: bool,
     quick_slots_rail_revealed: bool,
+    /// The toolbar's Quick Slots button pinned the rail as a popover.
+    quick_slots_pinned: bool,
     quick_slots_modifier_generation: u64,
     quick_slots_persist_generation: u64,
     quick_slots_persist_pending: bool,
@@ -814,6 +816,7 @@ impl Default for App {
             },
             quick_slots_modifier_held: false,
             quick_slots_rail_revealed: false,
+            quick_slots_pinned: false,
             quick_slots_modifier_generation: 0,
             quick_slots_persist_generation: 0,
             quick_slots_persist_pending: false,
@@ -997,6 +1000,20 @@ impl App {
         } else {
             crate::prefs::save(&self.prefs);
         }
+    }
+
+    /// The Quick Slots rail may show: a workspace holds the slots, and no
+    /// overlay, vault page, find bar, or unsaved Zen edit takes the keys.
+    fn quick_slots_rail_allowed(&self) -> bool {
+        self.quick_slots_workspace_root().is_some()
+            && quick_slots_rail_visible(
+                true,
+                self.overlay != Overlay::None,
+                self.vault_open,
+                self.search_open,
+                self.view_mode == ViewMode::Raw && self.editor.is_some(),
+                self.dirty,
+            )
     }
 
     /// Remember the sidebar width for the next launch; one write per drag.
@@ -2812,6 +2829,7 @@ impl App {
 
     fn open_overlay(&mut self, kind: Overlay) {
         self.overlay = kind;
+        self.quick_slots_pinned = false;
         self.overlay_query.clear();
         self.overlay_selected = 0;
         self.overlay_viewport = None;
@@ -3268,6 +3286,7 @@ impl App {
         let close_confirm_open = self.close_confirm.is_some();
         let menu_open = self.context_menu.is_some();
         let renaming = self.tree_rename.is_some();
+        let slots_popover = self.quick_slots_pinned && self.quick_slots_rail_allowed();
         let keys = iced::event::listen_with(|ev, status, _id| {
             let is_keyboard = matches!(
                 &ev,
@@ -3313,6 +3332,7 @@ impl App {
                 image_zoom_open,
                 menu_open,
                 renaming,
+                slots_popover,
             ),
         ))
         .map(
@@ -3339,6 +3359,7 @@ impl App {
                         image_zoom_open,
                         menu_open,
                         renaming,
+                        slots_popover,
                     ),
                 ),
                 (ev, reader_copied),
@@ -3431,6 +3452,9 @@ impl App {
                 }
                 if released {
                     return Message::Noop;
+                }
+                if let Some(message) = quick_slots_popover_key_message(&key, slots_popover) {
+                    return message;
                 }
                 if is_settings_key(&key, mods) && !overlay_open {
                     return Message::ToggleSettings;
@@ -4438,7 +4462,7 @@ impl App {
             Space::new().into()
         };
         let quick_slots_layer: Element<'_, Message> = if quick_slots_rail_visible(
-            self.quick_slots_rail_revealed,
+            self.quick_slots_rail_revealed || self.quick_slots_pinned,
             self.overlay != Overlay::None,
             self.vault_open,
             self.search_open,

@@ -550,6 +550,62 @@ fn welcome_recent<'a>(
     Some(list.into())
 }
 
+/// Container id of the pinned Quick Slots popover.
+pub(in crate::app) const QUICK_SLOTS_POPOVER_ID: &str = "quick-slots-popover";
+
+/// What a Quick Slot chip shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(in crate::app) enum SlotChipLook {
+    /// The slot of the open file.
+    Active,
+    /// Holds a file.
+    Occupied,
+    /// Holds a file that no longer exists.
+    Missing,
+    /// Empty; a click assigns the open file.
+    Empty,
+    /// Empty, and there is no open file to assign.
+    Unassignable,
+}
+
+/// A Quick Slot chip's colors.
+pub(in crate::app) fn quick_slot_chip_style(
+    look: SlotChipLook,
+    status: button::Status,
+    pal: Palette,
+) -> button::Style {
+    let active = look == SlotChipLook::Active;
+    let background = if active {
+        Some(Background::Color(pal.accent))
+    } else if look == SlotChipLook::Unassignable {
+        // A slot that does nothing: an outline only, no fill or hover.
+        None
+    } else {
+        match status {
+            button::Status::Hovered => Some(Background::Color(pal.hover())),
+            button::Status::Pressed => Some(Background::Color(pal.active())),
+            _ => Some(Background::Color(pal.surface)),
+        }
+    };
+    button::Style {
+        background,
+        text_color: match look {
+            SlotChipLook::Active => pal.accent_fg,
+            SlotChipLook::Unassignable => pal.subtle,
+            _ => pal.fg,
+        },
+        border: Border {
+            color: match look {
+                SlotChipLook::Missing | SlotChipLook::Occupied => pal.accent,
+                _ => pal.border(),
+            },
+            width: 1.0,
+            radius: theme::radius::SM.into(),
+        },
+        ..Default::default()
+    }
+}
+
 /// Transient modifier-driven Quick Slot rail. It deliberately has no enclosing
 /// panel: the nine fixed controls float at the supplied left offset and inherit
 /// the current theme roles used by the rest of the application.
@@ -576,6 +632,8 @@ pub(in crate::app) fn quick_slots_rail<'a>(
                     pal.accent_fg
                 } else if missing {
                     pal.accent
+                } else if occupied.is_none() && !assignable {
+                    pal.subtle
                 } else {
                     pal.fg
                 }),
@@ -584,37 +642,23 @@ pub(in crate::app) fn quick_slots_rail<'a>(
         .height(Length::Fill)
         .align_x(iced::alignment::Horizontal::Center)
         .align_y(iced::alignment::Vertical::Center);
-        let mut slot_button = button(label)
+        let look = if active {
+            SlotChipLook::Active
+        } else if missing {
+            SlotChipLook::Missing
+        } else if occupied.is_some() {
+            SlotChipLook::Occupied
+        } else if assignable {
+            SlotChipLook::Empty
+        } else {
+            SlotChipLook::Unassignable
+        };
+        let slot_button = button(label)
             .width(Length::Fixed(24.0))
             .height(Length::Fixed(24.0))
             .padding(Padding::ZERO)
-            .style(move |_, status| {
-                let background = if active {
-                    Some(Background::Color(pal.accent))
-                } else {
-                    match status {
-                        button::Status::Hovered => Some(Background::Color(pal.hover())),
-                        button::Status::Pressed => Some(Background::Color(pal.active())),
-                        _ => Some(Background::Color(pal.surface)),
-                    }
-                };
-                button::Style {
-                    background,
-                    text_color: if active { pal.accent_fg } else { pal.fg },
-                    border: Border {
-                        color: if missing {
-                            pal.accent
-                        } else if occupied.is_some() {
-                            pal.accent
-                        } else {
-                            pal.border()
-                        },
-                        width: 1.0,
-                        radius: theme::radius::SM.into(),
-                    },
-                    ..Default::default()
-                }
-            });
+            .style(move |_, status| quick_slot_chip_style(look, status, pal));
+        let mut slot_button = slot_button;
         slot_button = if occupied.is_some() {
             slot_button.on_press(Message::QuickSlotActivate(index))
         } else if assignable {
@@ -662,7 +706,30 @@ pub(in crate::app) fn quick_slots_rail<'a>(
         let slot_view = mouse_area(slot_view).on_right_press(Message::QuickSlotContextMenu(index));
         controls = controls.push(slot_view);
     }
-    container(controls)
+    // Pinned from the toolbar, the rail is a popover: a panel that closes
+    // on a press outside it. The ⌘ hold keeps the bare rail.
+    let rail: Element<'a, Message> = if app.quick_slots_pinned {
+        PressOutside::new(
+            container(controls)
+                .id(iced::widget::Id::new(QUICK_SLOTS_POPOVER_ID))
+                .padding(6)
+                .style(move |_| container::Style {
+                    background: Some(pal.surface.into()),
+                    border: Border {
+                        color: pal.border(),
+                        width: 1.0,
+                        radius: theme::radius::MD.into(),
+                    },
+                    shadow: theme::shadow::MENU,
+                    ..Default::default()
+                }),
+            Message::QuickSlotsPopover(false),
+        )
+        .into()
+    } else {
+        controls.into()
+    };
+    container(rail)
         .width(Length::Fill)
         .height(Length::Fill)
         .padding(Padding {

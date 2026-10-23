@@ -177,6 +177,15 @@ pub(super) fn quick_slot_replace_key_message(key: &iced::keyboard::Key) -> Messa
     }
 }
 
+/// Esc closes the Quick Slots popover while it shows.
+pub(super) fn quick_slots_popover_key_message(
+    key: &iced::keyboard::Key,
+    shown: bool,
+) -> Option<Message> {
+    use iced::keyboard::{key::Named, Key};
+    (shown && matches!(key, Key::Named(Named::Escape))).then_some(Message::QuickSlotsPopover(false))
+}
+
 /// Keys while a context menu is open: Up and Down move the highlight,
 /// Enter chooses, Esc closes, and every other key is swallowed, as while a
 /// native menu tracks.
