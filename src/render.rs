@@ -1620,15 +1620,67 @@ fn render_table<'a>(
     TableViewport {
         content: scroller.into(),
         viewport,
+        edges: (false, false),
+        shade: crate::theme::shadow::OVERFLOW_EDGE,
     }
     .into()
 }
 
 /// Wraps the table's horizontal scrollable and publishes the width it is
-/// offered, because `scrollable` hides that width from its child.
+/// offered, because `scrollable` hides that width from its child. It also
+/// shades each side the table overflows on, read from the scrollable's
+/// offset after every layout and event.
 struct TableViewport<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
     viewport: Rc<Cell<f32>>,
+    /// Whether more of the table lies past the left and right edges.
+    edges: (bool, bool),
+    shade: iced::Color,
+}
+
+/// Width of the shade at an edge a wide table overflows.
+const TABLE_EDGE_SHADE: f32 = 16.0;
+
+/// Whether a table scrolled `offset` px into `content` px, shown in
+/// `viewport` px, has more to see on the left and on the right.
+fn table_overflow(offset: f32, viewport: f32, content: f32) -> (bool, bool) {
+    // Half a pixel of slack: layout rounding never shows a shade.
+    (offset > 0.5, offset + viewport < content - 0.5)
+}
+
+/// Reads a scrollable's offset without visiting its content.
+struct OverflowProbe(Option<(bool, bool)>);
+
+impl Operation for OverflowProbe {
+    fn traverse(&mut self, _operate: &mut dyn FnMut(&mut dyn Operation)) {}
+
+    fn scrollable(
+        &mut self,
+        _id: Option<&iced::widget::Id>,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+        translation: Vector,
+        _state: &mut dyn iced::advanced::widget::operation::Scrollable,
+    ) {
+        self.0 = Some(table_overflow(
+            translation.x,
+            bounds.width,
+            content_bounds.width,
+        ));
+    }
+}
+
+impl<Message, Theme, Renderer> TableViewport<'_, Message, Theme, Renderer>
+where
+    Renderer: renderer::Renderer,
+{
+    fn probe_edges(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &Renderer) {
+        let mut probe = OverflowProbe(None);
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, &mut probe);
+        self.edges = probe.0.unwrap_or((false, false));
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -1663,7 +1715,9 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         self.viewport.set(limits.max().width);
-        self.content.as_widget_mut().layout(tree, renderer, limits)
+        let node = self.content.as_widget_mut().layout(tree, renderer, limits);
+        self.probe_edges(tree, Layout::new(&node), renderer);
+        node
     }
 
     fn draw(
@@ -1679,6 +1733,43 @@ where
         self.content
             .as_widget()
             .draw(tree, renderer, theme, style, layout, cursor, viewport);
+        let (left, right) = self.edges;
+        #[cfg(test)]
+        draw_log::edges(left, right);
+        let bounds = layout.bounds();
+        let clear = iced::Color {
+            a: 0.0,
+            ..self.shade
+        };
+        let width = TABLE_EDGE_SHADE.min(bounds.width / 2.0);
+        // Each shade runs from the edge (dark) inward (clear).
+        for (shown, x, angle) in [
+            (left, bounds.x, std::f32::consts::FRAC_PI_2),
+            (
+                right,
+                bounds.x + bounds.width - width,
+                3.0 * std::f32::consts::FRAC_PI_2,
+            ),
+        ] {
+            if !shown {
+                continue;
+            }
+            let gradient = iced::gradient::Linear::new(iced::Radians(angle))
+                .add_stop(0.0, self.shade)
+                .add_stop(1.0, clear);
+            renderer.fill_quad(
+                renderer::Quad {
+                    bounds: Rectangle {
+                        x,
+                        y: bounds.y,
+                        width,
+                        height: bounds.height,
+                    },
+                    ..renderer::Quad::default()
+                },
+                Background::Gradient(gradient.into()),
+            );
+        }
     }
 
     fn update(
@@ -1695,6 +1786,10 @@ where
         self.content.as_widget_mut().update(
             tree, event, layout, cursor, renderer, clipboard, shell, viewport,
         );
+        // A scroll moves the offset without a new layout.
+        if let Event::Mouse(_) | Event::Touch(_) = event {
+            self.probe_edges(tree, layout, renderer);
+        }
     }
 
     fn mouse_interaction(
@@ -2703,14 +2798,15 @@ pub fn style_color(s: crate::ast::HlStyle, pal: &Palette) -> iced::Color {
 }
 
 /// Test-only record of what the reader drew: whether each hover-revealed
-/// control (copy buttons) was drawn. Drawing leaves no other trace a
-/// headless test can read.
+/// control (copy buttons) was drawn, and which overflow edges each wide
+/// table shaded. Drawing leaves no other trace a headless test can read.
 #[cfg(test)]
 pub(crate) mod draw_log {
     use std::cell::RefCell;
 
     thread_local! {
         static REVEALS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
+        static EDGES: RefCell<Vec<(bool, bool)>> = const { RefCell::new(Vec::new()) };
     }
 
     pub(crate) fn reveal(drawn: bool) {
@@ -2721,6 +2817,16 @@ pub(crate) mod draw_log {
     /// whether its control was drawn.
     pub(crate) fn take_reveals() -> Vec<bool> {
         REVEALS.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    }
+
+    pub(crate) fn edges(left: bool, right: bool) {
+        EDGES.with(|log| log.borrow_mut().push((left, right)));
+    }
+
+    /// One entry per table drawn since the last call: whether its left and
+    /// right edges were shaded.
+    pub(crate) fn take_edges() -> Vec<(bool, bool)> {
+        EDGES.with(|log| std::mem::take(&mut *log.borrow_mut()))
     }
 }
 

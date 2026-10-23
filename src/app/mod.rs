@@ -176,8 +176,8 @@ use tree_ops::take_trashed_for_tests;
 use types::*;
 pub use types::{
     HistoryDir, MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
-    PendingWatcherReload, ReaderHit, ReaderTarget, SidebarTab, ThemeEntry, Toast, ToastAction,
-    ToolbarView, ViewMode, ZenRestoreState,
+    PendingWatcherReload, ReaderHit, ReaderTarget, ScrollerFade, SidebarTab, ThemeEntry, Toast,
+    ToastAction, ToolbarView, ViewMode, ZenRestoreState,
 };
 use view::*;
 pub(crate) use view::{reader_tip, sleek_scrollable_style};
@@ -332,6 +332,8 @@ pub struct App {
     pub body_viewport: Option<iced::widget::scrollable::Viewport>,
     pub last_body_range: std::cell::Cell<(usize, usize)>,
     pub last_scroll_at: Option<std::time::Instant>,
+    /// The reader scrollbar's fade in and out, and its hover.
+    pub reader_scroller: ScrollerFade,
     /// The source a block copy button copied last, with its copy number,
     /// while its button shows a check.
     pub copy_flash: Option<(u64, String)>,
@@ -682,6 +684,7 @@ impl Default for App {
             body_viewport: None,
             last_body_range: std::cell::Cell::new((0, 0)),
             last_scroll_at: None,
+            reader_scroller: ScrollerFade::default(),
             copy_flash: None,
             copy_flash_seq: 0,
             reader_autoscroll: None,
@@ -1846,6 +1849,19 @@ impl App {
             async move { tokio::time::sleep(duration).await },
             move |_| Message::ToastExpire(id),
         )
+    }
+
+    /// How often `ScrollerTick` runs at `now`, or `None` while nothing
+    /// fades.
+    pub(crate) fn scroller_tick_interval(
+        &self,
+        now: std::time::Instant,
+    ) -> Option<std::time::Duration> {
+        let others = self.last_scroll_at.map(|_| SCROLLER_HOLD_TICK);
+        match (self.reader_scroller.next_tick(now), others) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     fn scroll_id() -> iced::widget::Id {
@@ -3615,10 +3631,9 @@ impl App {
                 m.unwrap_or(Message::Noop)
             },
         );
-        let scroller = if self.last_scroll_at.is_some() {
-            iced::time::every(std::time::Duration::from_millis(150)).map(|_| Message::ScrollerTick)
-        } else {
-            iced::Subscription::none()
+        let scroller = match self.scroller_tick_interval(std::time::Instant::now()) {
+            Some(every) => iced::time::every(every).map(|_| Message::ScrollerTick),
+            None => iced::Subscription::none(),
         };
         // While a reader selection drag is past the viewport edge: a tick
         // that scrolls, and a release anywhere that stops it. Nothing runs
@@ -3769,6 +3784,7 @@ impl App {
         let recently_scrolled = self
             .last_scroll_at
             .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(SCROLLER_FADE_MS));
+        let scroller_alpha = self.reader_scroller.alpha(std::time::Instant::now());
         let full_mindmap = self.full_mindmap.is_some();
         let footer_visible = !full_mindmap
             && !self.settings_open
@@ -4059,8 +4075,8 @@ impl App {
                 .id(Self::scroll_id())
                 .height(Length::Fill)
                 .on_scroll(Message::BodyScrolled)
-                .direction(slim_scroll_direction())
-                .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
+                .direction(reader_scroll_direction(self.reader_scroller.hovered))
+                .style(move |_, status| reader_scrollable_style(status, pal, scroller_alpha));
                 // ⌘+wheel changes the font size; the gate keeps it from
                 // also scrolling the reader. It also arms a swipe (macOS).
                 let gate = Gate::Reader {
@@ -4072,6 +4088,12 @@ impl App {
                 // own presses first.
                 let scroll: Element<'_, Message> = iced::widget::mouse_area(scroll)
                     .on_right_press(Message::ReaderContextMenu(ReaderHit::default()))
+                    .into();
+                // The scrollbar's strip reports hover so the bar widens; it
+                // takes no presses, so the scrollbar under it gets them.
+                let scroll: Element<'_, Message> = stack![scroll, reader_scrollbar_strip()]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
                     .into();
                 if select_all {
                     stack![

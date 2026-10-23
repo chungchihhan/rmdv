@@ -242,6 +242,9 @@ pub enum Message {
     BodyScrolled(iced::widget::scrollable::Viewport),
     TableScrolled,
     ScrollerTick,
+    /// The pointer entered (`true`) or left the reader scrollbar's strip
+    /// at the right edge; the scrollbar widens while it is there.
+    ReaderScrollbarHover(bool),
     CopyCode(String),
     /// A block's copy button: copy its source, then show a check on the
     /// button for a moment instead of a toast.

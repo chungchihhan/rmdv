@@ -1,14 +1,18 @@
 //! Reader affordances (MDV-048 P7): copy buttons on code, math, and
 //! diagram blocks show on hover and turn into a check after a copy; math
 //! copies only from its button; diagrams say a click enlarges them; task
-//! items draw read-only checkboxes.
+//! items draw read-only checkboxes; the reader scrollbar fades, widens on
+//! hover, and has a 12 px hit area; wide tables shade the side that
+//! overflows.
 
+use super::gestures::{hscroll_rows, wide_table_app};
 use super::group3::{assert_tips, tips};
 use super::reader_menu::block_bounds;
 use super::*;
 use crate::ast::{Block, DiagramKind};
 use crate::render::draw_log;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 fn doc_app(tag: &str, source: &str) -> App {
     let mut app = App::default();
@@ -275,4 +279,134 @@ fn task_items_draw_read_only_checkboxes() {
         !has(&messages, |m| matches!(m, Message::SaveFile)),
         "{messages:?}"
     );
+}
+
+// --- The reader scrollbar -------------------------------------------------------
+
+#[test]
+fn the_scrollbar_fades_in_holds_and_fades_out_then_stops_ticking() {
+    let t0 = Instant::now();
+    let ms = Duration::from_millis;
+    let hold = ms(SCROLLER_FADE_MS);
+    let mut fade = ScrollerFade::default();
+    assert_eq!(fade.alpha(t0), 0.0);
+    assert_eq!(fade.next_tick(t0), None, "a hidden bar needs no tick");
+
+    fade.poke(t0);
+    assert!(fade.alpha(t0) < 0.05);
+    assert!((fade.alpha(t0 + ms(75)) - 0.5).abs() < 0.05);
+    assert_eq!(fade.alpha(t0 + SCROLLER_FADE), 1.0);
+    assert_eq!(fade.next_tick(t0 + ms(10)), Some(SCROLLER_FRAME));
+
+    // Scrolling on keeps it shown; then it waits, then fades out.
+    let last = t0 + ms(500);
+    fade.poke(last);
+    assert_eq!(fade.alpha(last), 1.0);
+    assert_eq!(fade.next_tick(last + ms(200)), Some(SCROLLER_HOLD_TICK));
+    assert_eq!(fade.alpha(last + hold), 1.0);
+    assert!((fade.alpha(last + hold + ms(75)) - 0.5).abs() < 0.05);
+    assert_eq!(fade.next_tick(last + hold + ms(75)), Some(SCROLLER_FRAME));
+    let gone = last + hold + SCROLLER_FADE;
+    assert_eq!(fade.alpha(gone), 0.0);
+    fade.tick(gone);
+    assert_eq!(fade.next_tick(gone), None, "done: no more ticks");
+
+    // A scroll during the fade-out continues from the alpha it had.
+    let mut fade = ScrollerFade::default();
+    fade.poke(t0);
+    let mid = t0 + hold + ms(75);
+    let before = fade.alpha(mid);
+    fade.poke(mid);
+    assert!((fade.alpha(mid) - before).abs() < 0.05, "no jump");
+
+    // While the pointer rests on the strip the bar stays without ticks.
+    let mut fade = ScrollerFade::default();
+    fade.set_hovered(true, t0);
+    let later = t0 + ms(5000);
+    assert_eq!(fade.alpha(later), 1.0);
+    assert_eq!(fade.next_tick(later), None);
+    fade.set_hovered(false, later);
+    assert_eq!(fade.alpha(later + hold), 1.0);
+    assert_eq!(fade.alpha(later + hold + SCROLLER_FADE), 0.0);
+}
+
+#[test]
+fn an_idle_reader_runs_no_scroller_tick() {
+    let mut app = long_doc_app();
+    app.last_scroll_at = None;
+    assert_eq!(app.scroller_tick_interval(Instant::now()), None);
+    let now = Instant::now();
+    app.reader_scroller.poke(now);
+    assert_eq!(app.scroller_tick_interval(now), Some(SCROLLER_FRAME));
+}
+
+#[test]
+fn the_reader_scrollbar_takes_presses_12px_from_the_edge() {
+    let app = long_doc_app();
+    let mut ui = PointerUi::new();
+    let track = Point::new(WINDOW.width - 11.5, WINDOW.height - 120.0);
+    let messages = ui.click(&app, track);
+    assert!(
+        has(&messages, |m| matches!(m, Message::BodyScrolled(_))),
+        "a track press 11 px from the edge scrolls: {messages:?}"
+    );
+}
+
+#[test]
+fn the_reader_scrollbar_strip_reports_hover() {
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, Point::new(640.0, 400.0));
+    let messages = ui.move_to(&app, Point::new(WINDOW.width - 4.0, 400.0)).0;
+    assert!(
+        has(&messages, |m| matches!(
+            m,
+            Message::ReaderScrollbarHover(true)
+        )),
+        "{messages:?}"
+    );
+    apply(&mut app, messages);
+    assert!(app.reader_scroller.hovered);
+    let messages = ui.move_to(&app, Point::new(640.0, 400.0)).0;
+    assert!(
+        has(&messages, |m| matches!(
+            m,
+            Message::ReaderScrollbarHover(false)
+        )),
+        "{messages:?}"
+    );
+    apply(&mut app, messages);
+    assert!(!app.reader_scroller.hovered);
+}
+
+// --- Wide tables ------------------------------------------------------------------
+
+#[test]
+fn a_wide_table_shades_the_side_that_overflows() {
+    let app = wide_table_app();
+    let mut ui = PointerUi::new();
+    let column = ui.id_bounds(&app, "reader-column").expect("reader column");
+    let rows = hscroll_rows(&mut ui, &app, column.center_x());
+    let over = Point::new(column.center_x(), rows[rows.len() / 2]);
+
+    let _ = draw_log::take_edges();
+    draw_at(&mut ui, &app, over);
+    assert_eq!(
+        draw_log::take_edges(),
+        vec![(false, true)],
+        "more on the right"
+    );
+
+    let sideways = |x: f32| {
+        vec![Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x, y: 0.0 },
+        })]
+    };
+    let _ = ui.send(&app, over, sideways(-200.0));
+    draw_at(&mut ui, &app, over);
+    assert_eq!(draw_log::take_edges(), vec![(true, true)], "both sides");
+
+    let _ = ui.send(&app, over, sideways(-20_000.0));
+    draw_at(&mut ui, &app, over);
+    assert_eq!(draw_log::take_edges(), vec![(true, false)], "at the end");
 }

@@ -224,6 +224,68 @@ pub(in crate::app) fn slim_scroll_direction_horizontal() -> scrollable::Directio
     )
 }
 
+/// Width of the reader scrollbar's hit area at the window's right edge:
+/// presses, drags, and track clicks land anywhere in it.
+pub(in crate::app) const READER_SCROLLBAR_HIT: f32 = 12.0;
+
+/// The reader's vertical scrollbar: a 6 px thumb that widens to 10 px
+/// while the pointer is on its strip, in a hit area of
+/// [`READER_SCROLLBAR_HIT`] either way.
+pub(in crate::app) fn reader_scroll_direction(hovered: bool) -> scrollable::Direction {
+    let (thumb, margin) = if hovered { (10.0, 1.0) } else { (6.0, 2.0) };
+    // Hit width = max(rail, thumb) + 2 × margin.
+    let rail = READER_SCROLLBAR_HIT - 2.0 * margin;
+    scrollable::Direction::Vertical(
+        scrollable::Scrollbar::new()
+            .width(rail)
+            .scroller_width(thumb)
+            .margin(margin),
+    )
+}
+
+/// A layer over the reader that reports when the pointer enters or leaves
+/// the scrollbar's strip. It shows no cursor and takes no presses or
+/// wheel, so the scrollbar and the text below keep their events.
+pub(in crate::app) fn reader_scrollbar_strip<'a>() -> Element<'a, Message> {
+    container(
+        mouse_area(
+            Space::new()
+                .width(Length::Fixed(READER_SCROLLBAR_HIT))
+                .height(Length::Fill),
+        )
+        .on_enter(Message::ReaderScrollbarHover(true))
+        .on_exit(Message::ReaderScrollbarHover(false)),
+    )
+    .align_x(iced::alignment::Horizontal::Right)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
+}
+
+/// [`sleek_scrollable_style`] for the reader: the thumb fades with
+/// `alpha` (see `ScrollerFade`) and shows in full while hovered or dragged.
+pub(in crate::app) fn reader_scrollable_style(
+    status: scrollable::Status,
+    pal: Palette,
+    alpha: f32,
+) -> scrollable::Style {
+    let mut style = sleek_scrollable_style(status, pal, true);
+    let engaged = matches!(
+        status,
+        scrollable::Status::Dragged { .. }
+            | scrollable::Status::Hovered {
+                is_vertical_scrollbar_hovered: true,
+                ..
+            }
+    );
+    if !engaged {
+        let mut color = pal.scroller_hover;
+        color.a *= alpha;
+        style.vertical_rail.scroller.background = Background::Color(color);
+    }
+    style
+}
+
 pub(crate) fn sleek_scrollable_style(
     status: scrollable::Status,
     pal: Palette,

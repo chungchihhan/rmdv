@@ -3741,7 +3741,9 @@ impl App {
                     self.height_cache.clear();
                 }
                 self.body_viewport = Some(v);
-                self.last_scroll_at = Some(std::time::Instant::now());
+                let now = std::time::Instant::now();
+                self.last_scroll_at = Some(now);
+                self.reader_scroller.poke(now);
                 if self.quick_slot_body_restore.is_none() {
                     // No restore waits on this report: the viewport is
                     // where the reader is.
@@ -3974,6 +3976,11 @@ impl App {
                 self.sidebar_drag = None;
                 Task::none()
             }
+            Message::ReaderScrollbarHover(hovered) => {
+                self.reader_scroller
+                    .set_hovered(hovered, std::time::Instant::now());
+                Task::none()
+            }
             Message::CopyBlockSource(source) => {
                 self.copy_flash_seq = self.copy_flash_seq.wrapping_add(1);
                 let seq = self.copy_flash_seq;
@@ -3993,6 +4000,7 @@ impl App {
                 Task::none()
             }
             Message::ScrollerTick => {
+                self.reader_scroller.tick(std::time::Instant::now());
                 if let Some(t) = self.last_scroll_at {
                     if t.elapsed() >= std::time::Duration::from_millis(SCROLLER_FADE_MS) {
                         self.last_scroll_at = None;
