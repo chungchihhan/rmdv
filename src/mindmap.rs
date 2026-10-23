@@ -1329,16 +1329,20 @@ impl<'a, Id, Message: Clone> MindmapProgram<'a, Id, Message>
 where
     Id: Clone + Eq + std::hash::Hash,
 {
-    /// The left button came up at `now`. A still release on a node is its
-    /// click; `now` is a parameter so tests can time double clicks on a
-    /// test clock.
+    /// The left button came up at `now`, at `at` inside the canvas (`None`
+    /// when it came up outside). A still release on a node is its click;
+    /// `now` is a parameter so tests can time double clicks on a test clock.
     fn release(
         &self,
         state: &mut MindmapState<Id>,
         now: Instant,
+        at: Option<Point>,
     ) -> Option<canvas::Action<Message>> {
-        state.drag_origin.take()?;
-        let moved = std::mem::take(&mut state.drag_moved);
+        let origin = state.drag_origin.take()?;
+        // A release outside the canvas, or far from the press, is not a
+        // click even when no move event came in between.
+        let moved = std::mem::take(&mut state.drag_moved)
+            || !at.is_some_and(|at| (at.x - origin.x).hypot(at.y - origin.y) <= CLICK_SLOP);
         let pressed = state.pressed.take();
         // Only a quick second click on the same node's body is a double
         // click; a drag, a chevron, or empty canvas in between starts over.
@@ -1461,6 +1465,9 @@ where
             iced::Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 if let Some(origin) = state.drag_origin {
                     let Some(pos) = cursor.position_in(bounds) else {
+                        // The press left the canvas, so it is no longer a
+                        // click. Outside the canvas nothing pans.
+                        state.drag_moved = true;
                         return None;
                     };
                     let dx = pos.x - origin.x;
@@ -1505,7 +1512,7 @@ where
                 None
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                self.release(state, Instant::now())
+                self.release(state, Instant::now(), cursor.position_in(bounds))
             }
             iced::Event::Window(window::Event::RedrawRequested(_)) => {
                 self.sync_anim(state);
@@ -2907,6 +2914,54 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_press_that_leaves_the_canvas_or_ends_far_away_is_not_a_click() {
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        let mut state = live_state();
+        let leaf = node_center(&program, DOWNLOADS);
+        // Past the right edge, for example over the panel.
+        let outside = Point::new(POINTER_BOUNDS.width + 40.0, leaf.y);
+
+        // A fast move leaves the canvas before it passes the slop inside.
+        assert_eq!(press_at(&program, &mut state, leaf), None);
+        assert_eq!(move_at(&program, &mut state, outside), None);
+        assert_eq!(
+            release_at(&program, &mut state, outside),
+            None,
+            "a release outside the canvas clicks nothing"
+        );
+        assert_eq!(state.pan, Vector::ZERO, "outside the canvas nothing pans");
+
+        // Out and back to the press point: the press already left.
+        assert_eq!(press_at(&program, &mut state, leaf), None);
+        assert_eq!(move_at(&program, &mut state, outside), None);
+        let _ = move_at(&program, &mut state, leaf);
+        assert_eq!(release_at(&program, &mut state, leaf), None);
+
+        // A release far from the press with no move event in between.
+        assert_eq!(press_at(&program, &mut state, leaf), None);
+        assert_eq!(
+            release_at(&program, &mut state, Point::new(leaf.x + 40.0, leaf.y)),
+            None,
+            "a far release inside the canvas is not a click"
+        );
+        assert_eq!(press_at(&program, &mut state, leaf), None);
+        assert_eq!(release_at(&program, &mut state, outside), None);
+
+        // Empty canvas: a release outside does not deselect.
+        let selected = pointer_program(notes_graph(), Some(PathId(DOWNLOADS.into())));
+        let empty = Point::new(5.0, 5.0);
+        assert_eq!(press_at(&selected, &mut state, empty), None);
+        assert_eq!(release_at(&selected, &mut state, outside), None);
+
+        // A still click still selects.
+        assert_eq!(
+            click_at(&program, &mut state, leaf),
+            Some(Ev::Select(PathId(DOWNLOADS.into())))
+        );
+    }
+
     /// Screen center of a branch node's chevron at zoom 1 and no pan.
     fn chevron_point(program: &MindmapProgram<'static, PathId, Ev>, path: &str) -> Point {
         let node = &program.nodes[node_idx(program, path)];
@@ -3119,7 +3174,7 @@ mod tests {
     ) -> Option<Ev> {
         assert_eq!(press_at(program, state, at), None);
         program
-            .release(state, now)
+            .release(state, now, Some(at))
             .and_then(|action| action.into_inner().0)
     }
 
