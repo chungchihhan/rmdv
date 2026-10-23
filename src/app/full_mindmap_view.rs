@@ -127,20 +127,18 @@ impl App {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
-        let body: Element<'_, Message> = if full.panel_open {
-            irow![
-                canvas,
-                full_mindmap_panel_resize_handle(self.reader_fill(), pal),
-                with_panel_close(
+        // The canvas keeps its tree position whether or not the panel is
+        // shown, so a panel toggle keeps its zoom, pan, and pointer focus.
+        let mut body = irow![canvas];
+        if full.panel_open {
+            body = body
+                .push(full_mindmap_panel_resize_handle(self.reader_fill(), pal))
+                .push(with_panel_close(
                     self.full_mindmap_panel_view(&graph, pal, full.panel_width, recently_scrolled),
                     Message::FullMindmapTogglePanel,
                     pal,
-                ),
-            ]
-            .into()
-        } else {
-            canvas
-        };
+                ));
+        }
         let fill = self.reader_fill();
         container(body)
             .width(Length::Fill)

@@ -3680,6 +3680,10 @@ impl App {
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
+                // The canvas keeps its tree position whether or not the
+                // panel is shown, so a panel toggle keeps its zoom, pan, and
+                // pointer focus.
+                let mut body = irow![canvas_with_hint];
                 if self.mindmap_panel_open {
                     let panel = self.mindmap_panel_view(
                         &pal,
@@ -3689,10 +3693,9 @@ impl App {
                     );
                     let panel = with_panel_close(panel, Message::ToggleMindmapPanel, pal);
                     let handle = mindmap_panel_resize_handle(reader_fill, pal);
-                    irow![canvas_with_hint, handle, panel].into()
-                } else {
-                    canvas_with_hint
+                    body = body.push(handle).push(panel);
                 }
+                body.into()
             } else if self.view_mode == ViewMode::Raw {
                 if let Some(ed) = self.editor.as_ref() {
                     let editor = iced::widget::text_editor(ed)

@@ -567,3 +567,48 @@ fn left_from_a_top_heading_still_enters_full_mindmap() {
     assert_ne!(app.mindmap_selected, Some(DOC_ROOT));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The zoom of the first mind map canvas state in `tree`, if any.
+fn canvas_zoom<Id: 'static>(tree: &mut iced::advanced::widget::Tree) -> Option<&mut f32> {
+    use iced::advanced::widget::tree::State;
+    if let State::Some(state) = &mut tree.state {
+        if let Some(state) = state.downcast_mut::<crate::mindmap::MindmapState<Id>>() {
+            return Some(&mut state.zoom);
+        }
+    }
+    tree.children.iter_mut().find_map(canvas_zoom::<Id>)
+}
+
+/// Showing or hiding the panel keeps the canvas widget at the same tree
+/// position, so its zoom, pan and pointer focus survive the change.
+fn check_canvas_survives<Id: 'static>(app: &mut App, toggle: impl Fn() -> Message) {
+    use iced::advanced::widget::Tree;
+    let view = app.view();
+    let mut tree = Tree::new(view.as_widget());
+    drop(view);
+    *canvas_zoom::<Id>(&mut tree).expect("a mind map canvas") = 2.5;
+    for _ in 0..2 {
+        let _ = app.update(toggle());
+        let view = app.view();
+        tree.diff(view.as_widget());
+        drop(view);
+        assert_eq!(
+            canvas_zoom::<Id>(&mut tree).copied(),
+            Some(2.5),
+            "the panel toggle keeps the canvas state"
+        );
+    }
+}
+
+#[test]
+fn showing_or_hiding_a_mind_map_panel_keeps_the_canvas_state() {
+    let (mut app, dir) = document_mindmap_app("p4-panel-keeps-canvas");
+    assert!(app.mindmap_panel_open);
+    check_canvas_survives::<crate::ast::BlockId>(&mut app, || Message::ToggleMindmapPanel);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut app, dir) = full_mindmap_app("p4-fmm-panel-keeps-canvas");
+    assert!(!app.full_mindmap.as_ref().unwrap().panel_open);
+    check_canvas_survives::<WorkspaceNodeId>(&mut app, || Message::FullMindmapTogglePanel);
+    let _ = std::fs::remove_dir_all(&dir);
+}
