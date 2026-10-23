@@ -752,6 +752,11 @@ impl App {
                 self.reader_select_all = false;
                 Task::none()
             }
+            Message::ReaderTarget(target) => {
+                self.note_reader_target(target);
+                Task::none()
+            }
+            Message::ReaderContextMenu(hit) => self.open_reader_context_menu(hit),
             Message::WelcomeNeedsFile => self.show_toast("Open a file first".into()),
             Message::FoldChordStart => {
                 self.fold_chord_pending = true;

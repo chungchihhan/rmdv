@@ -135,6 +135,7 @@ mod loading;
 mod message;
 mod paths;
 mod preview_worker;
+mod reader_menu;
 mod scroll_tasks;
 mod settings;
 mod sidebar_peek;
@@ -170,8 +171,8 @@ use tree_ops::take_trashed_for_tests;
 use types::*;
 pub use types::{
     HistoryDir, MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
-    PendingWatcherReload, SidebarTab, ThemeEntry, Toast, ToastAction, ToolbarView, ViewMode,
-    ZenRestoreState,
+    PendingWatcherReload, ReaderHit, ReaderTarget, SidebarTab, ThemeEntry, Toast, ToastAction,
+    ToolbarView, ViewMode, ZenRestoreState,
 };
 use view::*;
 pub(crate) use view::{reader_tip, sleek_scrollable_style};
@@ -269,6 +270,9 @@ pub struct App {
     reader_keys: bool,
     /// Where the latest right press was, in window coordinates.
     right_press_at: Option<iced::Point>,
+    /// The reader element under the latest right press, for the reader's
+    /// context menu of the same press.
+    reader_menu_target: Option<ReaderTarget>,
     /// Vault search results page (Zed-style) — full reader-area, not an overlay.
     /// Shown when `vault_open`; workspace-level, so it renders even with no file.
     pub vault_open: bool,
@@ -639,6 +643,7 @@ impl Default for App {
             tree_last_click: None,
             reader_keys: false,
             right_press_at: None,
+            reader_menu_target: None,
             vault_open: false,
             vault_query: String::new(),
             vault_searched_query: None,
@@ -2452,6 +2457,13 @@ impl App {
         }
     }
 
+    /// Whether a press ends the whole-document selection now.
+    /// Not while a context menu is open: the press that closes the menu,
+    /// or chooses Copy in it, goes no further.
+    pub(super) fn select_all_clear_listens(&self) -> bool {
+        self.reader_select_all && self.context_menu.is_none()
+    }
+
     /// Plain text to copy while the whole document is selected.
     pub(crate) fn select_all_text(&self) -> Option<String> {
         (self.reader_select_all && self.reader_shows_document())
@@ -3654,13 +3666,8 @@ impl App {
         });
         // A click anywhere, including the start of a new drag, ends a
         // whole-document selection.
-        let select_all_clear = if self.reader_select_all {
-            iced::event::listen_with(|ev, _status, _id| match ev {
-                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)) => {
-                    Some(Message::ClearSelectAll)
-                }
-                _ => None,
-            })
+        let select_all_clear = if self.select_all_clear_listens() {
+            iced::event::listen_with(|ev, _status, _id| select_all_ends_on(&ev))
         } else {
             iced::Subscription::none()
         };
@@ -4009,7 +4016,13 @@ impl App {
                 let gate = Gate::Reader {
                     swipe: self.reader_swipe_probe(),
                 };
-                let scroll: Element<'_, Message> = WheelGate::new(scroll, gate).into();
+                let scroll = WheelGate::new(scroll, gate);
+                // A right press beside the text (the margins, below the
+                // end) opens the reader's menu too; the text reports its
+                // own presses first.
+                let scroll: Element<'_, Message> = iced::widget::mouse_area(scroll)
+                    .on_right_press(Message::ReaderContextMenu(ReaderHit::default()))
+                    .into();
                 if select_all {
                     stack![
                         scroll,
@@ -4373,6 +4386,19 @@ impl App {
             .on_right_press(Message::PointerRightPress)
             .swallow_double(self.picker_click != PickerClick::Idle)
             .into()
+    }
+}
+
+/// A press ends the whole-document selection; a right press keeps it, for
+/// the reader's context menu to copy.
+fn select_all_ends_on(event: &iced::Event) -> Option<Message> {
+    match event {
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(button))
+            if *button != iced::mouse::Button::Right =>
+        {
+            Some(Message::ClearSelectAll)
+        }
+        _ => None,
     }
 }
 

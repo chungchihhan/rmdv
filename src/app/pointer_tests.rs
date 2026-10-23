@@ -1681,3 +1681,7 @@ mod tree_ops;
 // --- P6: double clicks in the sidebar -----------------------------------------
 
 mod tree_double_click;
+
+// --- P6: the reader's context menu -------------------------------------------
+
+mod reader_menu;

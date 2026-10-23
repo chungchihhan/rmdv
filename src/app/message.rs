@@ -483,6 +483,12 @@ pub enum Message {
     CopyDocument,
     /// Esc, a click, or a new drag ends the whole-document selection.
     ClearSelectAll,
+    /// A reader element under a right press (a heading, a code block, an
+    /// image, a diagram); the [`Message::ReaderContextMenu`] of the same
+    /// press uses it.
+    ReaderTarget(ReaderTarget),
+    /// A right press in the reader: open the reader's context menu.
+    ReaderContextMenu(ReaderHit),
     FoldChordStart,
     FoldChordCancel,
     FoldToLevel(u8),

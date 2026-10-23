@@ -211,6 +211,8 @@ impl App {
         let task = match msg {
             Message::PointerRightPress(at) => {
                 self.right_press_at = Some(*at);
+                // A new press: the elements of the last one are stale.
+                self.reader_menu_target = None;
                 Task::none()
             }
             Message::ContextMenuPointer(at) => {

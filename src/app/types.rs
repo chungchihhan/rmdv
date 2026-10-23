@@ -132,6 +132,35 @@ pub(super) struct TreeRename {
     pub(super) value: String,
 }
 
+/// What a right press in the reader found in the reader's text (MDV-048
+/// P6): the link under the pointer and the selected text.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReaderHit {
+    /// The link under the pointer, as written in the document.
+    pub link: Option<String>,
+    /// The text the reader has selected, wherever the selection is.
+    pub selection: Option<String>,
+    /// The pointer is inside that selection.
+    pub in_selection: bool,
+}
+
+/// A reader element with its own context menu items. The element reports
+/// itself on a right press, before the reader reports its [`ReaderHit`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReaderTarget {
+    /// A document heading: Copy Link to Heading.
+    Heading(crate::ast::BlockId),
+    /// A code block: Copy Code.
+    Code(String),
+    /// An image: `key` is what the viewer opens (the resolved path or the
+    /// URL); `link` is the link the image is wrapped in.
+    Image { key: String, link: Option<String> },
+    /// A Mermaid or DOT diagram, by its source hash: Copy Source.
+    Diagram(u64),
+    /// A display math block: Copy Source.
+    Math(String),
+}
+
 /// An assignment that waits for the user to confirm replacing an occupied slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct QuickSlotReplace {
