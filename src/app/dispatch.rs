@@ -2326,7 +2326,22 @@ impl App {
                 Task::batch([
                     self.refresh_window_mode_after_native_transition(id),
                     preview_geometry,
+                    self.note_window_frame_change(id),
                 ])
+            }
+            Message::WindowMoved(id, position) => {
+                self.window_position = Some(position);
+                // A move can precede a full screen transition, as before.
+                let mode = self.update(Message::RefreshWindowMode(id));
+                Task::batch([mode, self.note_window_frame_change(id)])
+            }
+            Message::WindowFrameSettled(id) => self.window_frame_settle_fired(id),
+            Message::WindowFrameSampled {
+                fullscreen,
+                maximized,
+            } => {
+                self.save_window_frame(fullscreen, maximized);
+                Task::none()
             }
             Message::WindowUnfocused(id) => {
                 self.context_menu = None;
@@ -2356,9 +2371,13 @@ impl App {
                 }
                 self.refresh_window_mode_after_native_transition(id)
             }
-            Message::WindowOpened(id, size) => {
-                // A resize may already have reported a newer size.
+            Message::WindowOpened(id, size, position) => {
+                // A resize or move may already have reported a newer frame.
+                // Opening is not a change: nothing is saved.
                 self.window_size.get_or_insert(size);
+                if let Some(position) = position {
+                    self.window_position.get_or_insert(position);
+                }
                 self.update(Message::RefreshWindowMode(id))
             }
             Message::RefreshWindowModeSettled(id) => self.window_mode_settle_fired(id),

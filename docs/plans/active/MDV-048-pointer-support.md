@@ -123,6 +123,16 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   something else. Edit > Copy copies the editor's selection or a
   whole-document reader selection; a partial reader selection still
   copies with ⌘C only.
+- P8: the main window's frame (size, position, zoomed) is saved in prefs
+  once it has been still for 500 ms after a move or resize, and on close;
+  full screen is never saved or restored (a zoomed window keeps its normal
+  frame under the zoom). On launch, macOS reads the screens' visible areas
+  from AppKit before the window opens (it answers before `NSApplication`
+  exists) and puts the window fully on the screen it overlaps most, or the
+  nearest one, at least 640×420. Other platforms have no screen list
+  before the window opens, so they restore the size and center the window.
+  A close cannot ask the window, so a zoom or unzoom in the last 500 ms
+  before a close is saved with the previous zoom state.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -170,6 +180,7 @@ Per phase:
 - 2026-10-24: P7 review on `feat/pointer-p7`: 13 findings (9 distinct after duplicates), all fixed red-first: losing window focus stops the drag auto-scroll and drops the held press; a Shift press beside the text lets a copy button, image, or chevron take it first (a Shift press on text, links included, still extends); the outline scrolls to its mark when shown again and an outline or scrollbar strip removed under the pointer drops its hover (one check after every update); the pinned Quick Slots popover unpins whenever the rail may not show, and its padding takes presses (`opaque`); the wide-table shade draws in its own layer above the table (pixel test); the copy check is keyed by block, not by text; word drags keep the last four lines' segments and one `CFStringTokenizer` per thread (200 moves over a 1000-character Chinese line: 11.7 s before, under 0.1 s after). lib 949 passed, integration all passed.
 - 2026-10-24: P6 trial build: Release dry run 39991024040, notarized (PR #76). P7 verified by the orchestrator: lib 949 passed, integration all passed, release build, Linux title bar simulation 338 passed with the 1 expected macOS-only failure.
 - 2026-10-24: P8 done on `feat/pointer-p8` (stacked on P7): native macOS menu bar (rmdv, File with Open Recent, Edit, View, Go with Quick Slots, Window, Help) built once with `objc2-app-kit` beside `native_pinch::install`; one target sends item tags through a subscription (`Message::NativeMenu`); a click runs the shortcut's `key_message` on the current surface; item state, slot titles and the recent list are pushed only on change and applied in `validateMenuItem:` / `menuNeedsUpdate:`. AppKit test target `native_menu_appkit` (no window). lib 966 passed, integration all passed.
+- 2026-10-24: P8 window frame persistence on `feat/pointer-p8`: size, position and zoom saved once per settled move or resize (500 ms) and on close, lenient load, restore clamped onto a visible screen (macOS) or centered (elsewhere); full screen not restored. AppKit test target `window_frame_appkit` (no window); a minimized (0×0) window keeps the saved frame. lib 986 passed, integration all passed.
 
 ## Decision log
 

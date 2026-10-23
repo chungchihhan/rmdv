@@ -137,7 +137,7 @@ mod gestures;
 mod history;
 mod ipc_handler;
 mod lifecycle;
-pub use lifecycle::window_settings;
+pub use lifecycle::{launch_window_settings, window_settings};
 pub(crate) mod keys;
 mod list_menus;
 mod loading;
@@ -347,6 +347,18 @@ pub struct App {
     /// Whether a settle timer is in flight. A burst of Moved/Resized events
     /// shares that one timer instead of starting its own.
     pub window_mode_settle_armed: bool,
+    /// The window frame's top-left corner, from `Opened` and `Moved`.
+    /// `None` where the platform reports no position (Wayland).
+    pub window_position: Option<iced::Point>,
+    /// Whether the window was maximized (zoomed) when its frame last
+    /// settled; a close uses it, since it cannot ask the window.
+    pub window_maximized: bool,
+    /// When the window last moved or resized. Its frame is saved once it
+    /// has been still for `WINDOW_FRAME_SETTLE`.
+    pub window_frame_changed_at: Option<std::time::Instant>,
+    /// Whether the frame's settle timer is in flight. A burst of moves and
+    /// resizes shares that one timer.
+    pub window_frame_settle_armed: bool,
     pub overlay_viewport: Option<iced::widget::scrollable::Viewport>,
     pub body_viewport: Option<iced::widget::scrollable::Viewport>,
     pub last_body_range: std::cell::Cell<(usize, usize)>,
@@ -707,6 +719,10 @@ impl Default for App {
             window_fullscreen: false,
             window_mode_last_trigger: None,
             window_mode_settle_armed: false,
+            window_position: None,
+            window_maximized: false,
+            window_frame_changed_at: None,
+            window_frame_settle_armed: false,
             overlay_viewport: None,
             body_viewport: None,
             last_body_range: std::cell::Cell::new((0, 0)),
@@ -3440,10 +3456,13 @@ impl App {
         let close_requests = iced::window::close_requests().map(Message::WindowCloseRequested);
         let window_events = iced::window::events().filter_map(|(id, event)| match event {
             iced::window::Event::Unfocused => Some(Message::WindowUnfocused(id)),
-            iced::window::Event::Opened { size, .. } => Some(Message::WindowOpened(id, size)),
-            iced::window::Event::Focused
-            | iced::window::Event::Moved(_)
-            | iced::window::Event::Rescaled(_) => Some(Message::RefreshWindowMode(id)),
+            iced::window::Event::Opened { size, position } => {
+                Some(Message::WindowOpened(id, size, position))
+            }
+            iced::window::Event::Moved(position) => Some(Message::WindowMoved(id, position)),
+            iced::window::Event::Focused | iced::window::Event::Rescaled(_) => {
+                Some(Message::RefreshWindowMode(id))
+            }
             iced::window::Event::Resized(size) => Some(Message::WindowResized(id, size)),
             _ => None,
         });
