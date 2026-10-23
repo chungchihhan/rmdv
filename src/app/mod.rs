@@ -36,6 +36,8 @@ const FILE_FINDER_RESULT_CAP: usize = 200;
 /// Rows the file finder renders; keyboard selection stays within them.
 const FILE_FINDER_ROW_CAP: usize = 80;
 const READING_MAX: f32 = theme::READING_MAX_PX;
+/// The Zen editor's line height, relative to its font size.
+const EDITOR_LINE_HEIGHT: f32 = 1.55;
 /// Radius of the reader panel's top-left corner next to the sidebar.
 const READER_CORNER_RADIUS: f32 = 24.0;
 /// Space above the first line of the reader.
@@ -3795,7 +3797,7 @@ impl App {
                         .key_binding(editor_key_binding)
                         .font(editor_font())
                         .size(self.typography.code_size)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.55))
+                        .line_height(iced::widget::text::LineHeight::Relative(EDITOR_LINE_HEIGHT))
                         .height(Length::Fill)
                         .padding(iced::Padding {
                             top: zen_editor_top_inset(self.prefs.toolbar),
@@ -3819,6 +3821,13 @@ impl App {
                             selection: pal.selection,
                         })
                         .height(Length::Fill);
+                    // A trackpad scrolls the editor by the finger distance.
+                    let editor = WheelGate::new(
+                        editor,
+                        Gate::EditorScroll {
+                            line_height: self.typography.code_size * EDITOR_LINE_HEIGHT,
+                        },
+                    );
                     // A click in the empty margin beside the editor column
                     // focuses the editor; clicks inside it are captured by the
                     // editor and never reach this area.

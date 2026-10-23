@@ -150,3 +150,89 @@ fn pinch_over_the_reader_collects_font_steps() {
     assert_eq!(app.reader_zoom.pending(), 0.0);
     assert!((app.mindmap_native_pinch_log - 0.25).abs() < 1e-6);
 }
+
+fn editor_app() -> App {
+    let mut app = long_doc_app();
+    let _ = app.update(Message::ToggleViewMode);
+    assert_eq!(app.view_mode, ViewMode::Raw);
+    assert!(app.editor.is_some());
+    app
+}
+
+fn scroll_lines(messages: &[Message]) -> Vec<i32> {
+    messages
+        .iter()
+        .filter_map(|m| match m {
+            Message::EditorAction(iced::widget::text_editor::Action::Scroll { lines }) => {
+                Some(*lines)
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn wheel_at(ui: &mut PointerUi, app: &App, at: Point, delta: mouse::ScrollDelta) -> Vec<Message> {
+    let mut out = ui.move_to(app, at).0;
+    out.extend(
+        ui.send(
+            app,
+            at,
+            vec![Event::Mouse(mouse::Event::WheelScrolled { delta })],
+        )
+        .0,
+    );
+    out
+}
+
+#[test]
+fn trackpad_scrolls_the_editor_by_the_finger_distance() {
+    let app = editor_app();
+    let line = app.typography.code_size * 1.55;
+    let at = Point::new(640.0, 400.0);
+    let mut ui = PointerUi::new();
+    let messages = wheel_at(
+        &mut ui,
+        &app,
+        at,
+        mouse::ScrollDelta::Pixels {
+            x: 0.0,
+            y: -3.0 * line,
+        },
+    );
+    assert_eq!(
+        scroll_lines(&messages),
+        vec![3],
+        "three lines of finger travel scroll three lines, not ~15: {messages:?}"
+    );
+
+    // Less than a line waits for more.
+    let messages = wheel_at(
+        &mut ui,
+        &app,
+        at,
+        mouse::ScrollDelta::Pixels {
+            x: 0.0,
+            y: -0.4 * line,
+        },
+    );
+    assert!(scroll_lines(&messages).is_empty(), "{messages:?}");
+    let messages = wheel_at(
+        &mut ui,
+        &app,
+        at,
+        mouse::ScrollDelta::Pixels {
+            x: 0.0,
+            y: -0.7 * line,
+        },
+    );
+    assert_eq!(scroll_lines(&messages), vec![1]);
+
+    // A mouse wheel notch keeps the editor's own speed (4 lines).
+    let messages = wheel_at(
+        &mut ui,
+        &app,
+        at,
+        mouse::ScrollDelta::Lines { x: 0.0, y: -1.0 },
+    );
+    assert_eq!(scroll_lines(&messages), vec![4], "{messages:?}");
+}

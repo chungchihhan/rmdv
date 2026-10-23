@@ -100,6 +100,25 @@ pub(crate) fn pinch_zoom_steps(magnification: f32) -> f32 {
     magnification / PINCH_PER_STEP
 }
 
+/// Editor lines for one trackpad scroll of `dy` logical pixels: the finger
+/// distance over the line height, so the text moves with the fingers.
+/// `partial` carries the fraction of a line to the next event and starts
+/// over when the direction changes. Positive lines scroll down, as in
+/// `text_editor::Action::Scroll`.
+pub(crate) fn editor_scroll_lines(partial: &mut f32, dy: f32, line_height: f32) -> i32 {
+    if !dy.is_finite() || !line_height.is_finite() || line_height <= 0.0 {
+        return 0;
+    }
+    let lines = -dy / line_height;
+    if *partial != 0.0 && partial.signum() != lines.signum() {
+        *partial = 0.0;
+    }
+    let total = *partial + lines;
+    let whole = total.trunc();
+    *partial = total - whole;
+    whole as i32
+}
+
 impl App {
     /// Pinch and ⌘+scroll change the font where they act on the reader: a
     /// document on screen and no overlay or dialog over it.
@@ -213,6 +232,29 @@ mod tests {
             (zoom.pending() + 0.3).abs() < 1e-4,
             "no-op deltas are ignored"
         );
+    }
+
+    #[test]
+    fn editor_trackpad_scroll_follows_the_finger() {
+        let line = 20.15;
+        let mut partial = 0.0;
+        // Fingers up (content up, scroll down): y is negative.
+        assert_eq!(editor_scroll_lines(&mut partial, -3.0 * line, line), 3);
+        assert!(partial.abs() < 1e-4);
+        // Small deltas add up to whole lines.
+        let lines: i32 = (0..10)
+            .map(|_| editor_scroll_lines(&mut partial, -line / 4.0, line))
+            .sum();
+        assert_eq!(lines, 2, "ten quarter lines are two lines and a half");
+        assert!((partial - 0.5).abs() < 1e-3, "{partial}");
+        // Turning back drops the half line the other way.
+        assert_eq!(editor_scroll_lines(&mut partial, line * 0.75, line), 0);
+        assert!((partial + 0.75).abs() < 1e-3, "{partial}");
+        assert_eq!(editor_scroll_lines(&mut partial, line * 0.5, line), -1);
+        // Iced's own speed would be 3 · 20.15 / 4 ≈ 15 lines for the first
+        // scroll; a bad line height scrolls nothing.
+        assert_eq!(editor_scroll_lines(&mut partial, -40.0, 0.0), 0);
+        assert_eq!(editor_scroll_lines(&mut partial, f32::NAN, line), 0);
     }
 
     #[test]

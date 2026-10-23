@@ -7,6 +7,10 @@
 //!
 //! - [`Gate::ReaderZoom`]: ⌘+wheel changes the reader font size and does not
 //!   also scroll the reader.
+//! - [`Gate::EditorScroll`]: a trackpad (pixel) scroll moves the editor by
+//!   the finger distance. Iced's `text_editor` turns `y` pixels into `y / 4`
+//!   lines, about five times the finger distance at a 20 px line. A mouse
+//!   wheel (lines) keeps the editor's own speed.
 
 use crate::app::Message;
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
@@ -19,6 +23,9 @@ use iced::{Element, Event, Length, Rectangle, Size, Vector};
 pub(in crate::app) enum Gate {
     /// ⌘+wheel publishes [`Message::ReaderZoomBy`].
     ReaderZoom,
+    /// Pixel scrolls publish the editor's scroll action; `line_height` is
+    /// the editor's line height in logical pixels.
+    EditorScroll { line_height: f32 },
 }
 
 pub(in crate::app) struct WheelGate<'a> {
@@ -36,17 +43,34 @@ impl<'a> WheelGate<'a> {
 }
 
 impl WheelGate<'_> {
-    /// The message for a wheel event this gate takes, or `None` to let the
-    /// content scroll.
-    fn take_wheel(&self, state: &mut State, delta: mouse::ScrollDelta) -> Option<Message> {
+    /// `None` lets the content scroll. `Some` takes the wheel event, with
+    /// the message to publish if there is one.
+    fn take_wheel(&self, state: &mut State, delta: mouse::ScrollDelta) -> Option<Option<Message>> {
         match self.gate {
             Gate::ReaderZoom => {
                 if !state.modifiers.command() {
                     return None;
                 }
                 let steps = crate::app::gestures::wheel_zoom_steps(delta);
-                (steps != 0.0).then_some(Message::ReaderZoomBy(steps))
+                (steps != 0.0).then_some(Some(Message::ReaderZoomBy(steps)))
             }
+            Gate::EditorScroll { line_height } => match delta {
+                // A mouse wheel keeps the editor's own speed.
+                mouse::ScrollDelta::Lines { .. } => None,
+                mouse::ScrollDelta::Pixels { y, .. } => {
+                    let lines = crate::app::gestures::editor_scroll_lines(
+                        &mut state.partial_lines,
+                        y,
+                        line_height,
+                    );
+                    // The gate takes every pixel scroll, also one that
+                    // adds up to less than a line, so the editor never
+                    // scrolls by its own pixel speed.
+                    Some((lines != 0).then_some(Message::EditorAction(
+                        iced::widget::text_editor::Action::Scroll { lines },
+                    )))
+                }
+            },
         }
     }
 }
@@ -55,6 +79,8 @@ impl WheelGate<'_> {
 struct State {
     /// The keyboard modifiers now; wheel events do not carry them.
     modifiers: keyboard::Modifiers,
+    /// The editor lines scrolled but not sent yet (less than one line).
+    partial_lines: f32,
 }
 
 impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
@@ -130,7 +156,9 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
                 if cursor.is_over(layout.bounds()) =>
             {
                 if let Some(message) = self.take_wheel(state, *delta) {
-                    shell.publish(message);
+                    if let Some(message) = message {
+                        shell.publish(message);
+                    }
                     shell.capture_event();
                     return;
                 }
