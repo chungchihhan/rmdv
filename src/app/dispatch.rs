@@ -2231,12 +2231,17 @@ impl App {
             Message::MindmapPanelResetWidth => {
                 self.mindmap_panel_width = MIND_PANEL_DEFAULT;
                 self.mindmap_panel_step = 0;
+                // The double click's own press started a drag; the button is
+                // still down, so end it before jitter drags the width back.
+                self.mindmap_panel_drag = None;
                 Task::none()
             }
             Message::FullMindmapPanelResetWidth => {
                 if let Some(full) = self.full_mindmap.as_mut() {
                     full.panel_width = MIND_PANEL_DEFAULT;
                     full.panel_step = 0;
+                    // As above: end the drag the same press started.
+                    full.panel_drag = None;
                 }
                 self.refresh_full_mindmap_preview_heights()
             }

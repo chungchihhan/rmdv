@@ -612,3 +612,35 @@ fn showing_or_hiding_a_mind_map_panel_keeps_the_canvas_state() {
     check_canvas_survives::<WorkspaceNodeId>(&mut app, || Message::FullMindmapTogglePanel);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// iced sends the second press of a double click as a press and then a
+/// double click, and the button is still down: the pointer jitter before
+/// the release must not drag the reset width back.
+#[test]
+fn a_divider_double_click_reset_survives_pointer_jitter() {
+    let (mut app, dir) = document_mindmap_app("p4-divider-reset-jitter");
+    app.window_size = Some(iced::Size::new(1280.0, 800.0));
+    app.mindmap_panel_width = 600.0;
+    let _ = app.update(Message::MindmapPanelDragStart(680.0));
+    let _ = app.update(Message::MindmapPanelResetWidth);
+    let _ = app.update(Message::MindmapPanelDragMove(681.0));
+    let _ = app.update(Message::MindmapPanelDragMove(682.0));
+    let _ = app.update(Message::MindmapPanelDragEnd);
+    assert_eq!(app.mindmap_panel_width, MIND_PANEL_DEFAULT);
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut app, dir) = full_mindmap_app("p4-fmm-divider-reset-jitter");
+    app.window_size = Some(iced::Size::new(1280.0, 800.0));
+    let _ = app.update(Message::FullMindmapTogglePanel);
+    app.full_mindmap.as_mut().unwrap().panel_width = 600.0;
+    let _ = app.update(Message::FullMindmapPanelDragStart(680.0));
+    let _ = app.update(Message::FullMindmapPanelResetWidth);
+    let _ = app.update(Message::FullMindmapPanelDragMove(681.0));
+    let _ = app.update(Message::FullMindmapPanelDragMove(682.0));
+    let _ = app.update(Message::FullMindmapPanelDragEnd);
+    assert_eq!(
+        app.full_mindmap.as_ref().unwrap().panel_width,
+        MIND_PANEL_DEFAULT
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
