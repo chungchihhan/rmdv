@@ -276,6 +276,8 @@ pub enum Message {
     /// A double click on the panel divider: back to the default width.
     MindmapPanelResetWidth,
     ToggleMindmapAutocenter,
+    /// Settings → Scroll pans the mind map: scroll pans instead of zooming.
+    ToggleMindmapScrollPans,
     ToggleMindmapPanel,
     MindmapCyclePanelWidth,
     ToggleFullMindmap,

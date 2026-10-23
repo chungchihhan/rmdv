@@ -2835,6 +2835,10 @@ impl App {
                 "Toggle Mindmap Auto-Center",
                 Message::ToggleMindmapAutocenter,
             ),
+            (
+                "Toggle Mindmap Scroll to Pan",
+                Message::ToggleMindmapScrollPans,
+            ),
             ("Cycle Theme  ⌘T", Message::ToggleTheme),
             ("Pick Theme…", Message::OpenThemePicker),
             ("Reload Custom Themes", Message::ReloadThemes),
@@ -3682,6 +3686,7 @@ impl App {
                         && !self.search_open
                         && !self.fold_chord_pending,
                     native_pinch_log: self.mindmap_native_pinch_log,
+                    scroll_pans: self.prefs.mindmap_scroll_pans,
                     zoom_request: self.mindmap_zoom_request,
                     on_toggle: Box::new(Message::MindmapToggleNode),
                     on_select: Box::new(Message::MindmapSelectLeaf),

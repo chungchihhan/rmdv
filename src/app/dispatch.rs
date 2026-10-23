@@ -2317,6 +2317,16 @@ impl App {
                 };
                 self.show_toast(label.into())
             }
+            Message::ToggleMindmapScrollPans => {
+                self.prefs.mindmap_scroll_pans = !self.prefs.mindmap_scroll_pans;
+                self.save_prefs();
+                let label = if self.prefs.mindmap_scroll_pans {
+                    "Mindmap scroll: pans (pinch or ⌘+scroll zooms)"
+                } else {
+                    "Mindmap scroll: zooms"
+                };
+                self.show_toast(label.into())
+            }
             Message::EditorAction(action) => {
                 let edits = action.is_edit();
                 if edits {
