@@ -182,7 +182,7 @@ impl App {
             && self.full_mindmap.is_none()
     }
 
-    fn tree_rows(&self) -> Vec<PathBuf> {
+    pub(super) fn tree_rows(&self) -> Vec<PathBuf> {
         self.workspace_tree
             .as_ref()
             .map(|root| {
@@ -261,12 +261,29 @@ impl App {
             }
             None => Task::none(),
         };
-        let rename = self.begin_tree_rename(path);
-        Task::batch([reindex, scroll, rename])
+        let rename = self.begin_tree_rename(path.clone());
+        if self
+            .tree_rename
+            .as_ref()
+            .is_some_and(|rename| rename.path == path)
+        {
+            return Task::batch([reindex, scroll, rename]);
+        }
+        // No row shows the new item (it is deeper than the tree goes, or past
+        // its scan budget), so it cannot be renamed in place; say where it is.
+        let place = folder
+            .strip_prefix(&root)
+            .ok()
+            .filter(|relative| !relative.as_os_str().is_empty())
+            .map(|relative| relative.display().to_string())
+            .unwrap_or_else(|| display_name(&root));
+        let toast = self.show_toast(format!("Created {} in {place}", display_name(&path)));
+        Task::batch([reindex, scroll, rename, toast])
     }
 
     /// Rename `path` in place: its row shows a field with the name, the
-    /// part before the extension selected.
+    /// part before the extension selected. Nothing happens when no row
+    /// shows `path`.
     pub(super) fn begin_tree_rename(&mut self, path: PathBuf) -> Task<Message> {
         let Some(root) = self.tree_ops_root() else {
             return Task::none();
@@ -280,14 +297,28 @@ impl App {
                 path.display()
             ));
         };
+        // The field lives in the item's row. Without a row there is nothing
+        // to type into, and nothing would give the keys back.
+        if !self.tree_rows().contains(&path) {
+            return Task::none();
+        }
+        // A peeking tree hides once the pointer leaves it, and the rename
+        // ends with the tree: pin the sidebar open, as Keep Sidebar Open does.
+        let pin = if self.sidebar_open {
+            Task::none()
+        } else {
+            self.sidebar_open = true;
+            self.restore_body_scroll()
+        };
         let (start, end) = rename_selection(name, path.is_dir());
         self.tree_rename = Some(TreeRename {
             value: name.to_owned(),
             path,
         });
         let id = iced::widget::Id::new(TREE_RENAME_ID);
-        iced::widget::operation::focus(id.clone())
-            .chain(iced::widget::operation::select_range(id, start, end))
+        let focus = iced::widget::operation::focus(id.clone())
+            .chain(iced::widget::operation::select_range(id, start, end));
+        Task::batch([pin, focus])
     }
 
     /// Enter in the rename field. A bad or taken name keeps the field open

@@ -482,3 +482,108 @@ fn move_to_trash_refuses_unsaved_edits_and_the_root() {
     assert!(take_trashed_for_tests().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// --- Review fixes ------------------------------------------------------------------
+
+/// Choose the open menu's item labelled `label`, as a click on it does.
+fn choose(app: &mut App, ui: &mut PointerUi, label: &str) {
+    let index = menu_lines(app)
+        .iter()
+        .position(|(line, ..)| line == label)
+        .unwrap_or_else(|| panic!("no {label:?} in {:?}", menu_lines(app)));
+    apply_ui(app, ui, vec![Message::ContextMenuChoose(index)]);
+    assert!(app.context_menu.is_none(), "choosing closes the menu");
+}
+
+/// Hide the sidebar and show its peek from the left window edge.
+fn peek(app: &mut App, ui: &mut PointerUi) {
+    if app.sidebar_open {
+        let _ = app.update(Message::ToggleSidebar);
+    }
+    // `right_press` sends no release; a held button keeps the peek away.
+    let _ = ui.send(
+        app,
+        Point::new(900.0, 400.0),
+        vec![Event::Mouse(mouse::Event::ButtonReleased(
+            mouse::Button::Right,
+        ))],
+    );
+    let _ = ui.move_to(app, Point::new(900.0, 400.0));
+    let messages = ui.move_to(app, Point::new(2.0, 400.0)).0;
+    apply(app, messages);
+    assert!(app.sidebar_peek && !app.sidebar_open, "the tree only peeks");
+}
+
+#[test]
+fn rename_and_new_file_from_the_peeking_tree_pin_the_sidebar_open() {
+    let (mut app, dir) = tree_fixture("ops-peek");
+    let beta = dir.join("beta.md");
+    let mut ui = PointerUi::new();
+
+    peek(&mut app, &mut ui);
+    let _ = right_press_row(&mut app, &mut ui, "beta.md");
+    choose(&mut app, &mut ui, "Rename");
+    assert_eq!(
+        rename_value(&app),
+        Some((beta.as_path(), "beta.md")),
+        "the rename survives the update that starts it"
+    );
+    assert!(app.sidebar_open, "pinned open, as Keep Sidebar Open does");
+    assert_eq!(ui.focused(&app, TREE_RENAME_ID), Some(true));
+    let _ = app.update(Message::TreeRenameCancel);
+
+    peek(&mut app, &mut ui);
+    let _ = right_press_row(&mut app, &mut ui, "alpha.md");
+    choose(&mut app, &mut ui, "New File");
+    let untitled = dir.join("Untitled.md");
+    assert!(untitled.is_file());
+    assert_eq!(
+        rename_value(&app),
+        Some((untitled.as_path(), "Untitled.md"))
+    );
+    assert!(app.sidebar_open);
+    assert_eq!(ui.focused(&app, TREE_RENAME_ID), Some(true));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_rename_needs_a_row_to_show_its_field() {
+    let (mut app, dir) = tree_fixture("ops-no-row");
+    let gamma = dir.join("sub").join("gamma.md");
+    assert!(!has_row(&app, &gamma), "sub is collapsed");
+    let _ = app.update(Message::TreeRenameStart(gamma.clone()));
+    assert_eq!(
+        rename_value(&app),
+        None,
+        "no field, so no rename holds the keys"
+    );
+
+    // A new file deeper than the tree shows is made; a toast says where.
+    let mut deep = dir.clone();
+    for level in 0..=tree::WORKSPACE_TREE_MAX_DEPTH {
+        deep.push(format!("d{level}"));
+    }
+    std::fs::create_dir_all(&deep).unwrap();
+    let _ = app.update(Message::TreeNewFile(deep.clone()));
+    let untitled = deep.join("Untitled.md");
+    assert!(untitled.is_file());
+    assert!(!has_row(&app, &untitled), "the tree does not show it");
+    assert_eq!(rename_value(&app), None);
+    assert!(
+        toast(&app)
+            .unwrap_or_default()
+            .contains("Created Untitled.md"),
+        "{:?}",
+        toast(&app)
+    );
+
+    // A rename whose row goes away in a rescan ends.
+    let beta = dir.join("beta.md");
+    let _ = app.update(Message::TreeRenameStart(beta.clone()));
+    assert!(rename_value(&app).is_some());
+    std::fs::remove_file(&beta).unwrap();
+    let snapshot = tree::build_workspace(&dir, false).unwrap();
+    app.apply_refreshed_workspace_snapshot(dir.clone(), snapshot);
+    assert_eq!(rename_value(&app), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

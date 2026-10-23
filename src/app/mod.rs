@@ -1504,6 +1504,15 @@ impl App {
         self.tree_cursor = self.tree_cursor.min(row_count.saturating_sub(1));
         self.reveal_current_file();
         self.error = None;
+        // A rename field lives in its row: a rescan that drops the row (the
+        // item was deleted or moved elsewhere) ends the rename.
+        if self
+            .tree_rename
+            .as_ref()
+            .is_some_and(|rename| !self.tree_rows().contains(&rename.path))
+        {
+            self.tree_rename = None;
+        }
     }
 
     fn begin_refresh_workspace_load(&mut self, path: PathBuf, id: u64) -> Task<Message> {
