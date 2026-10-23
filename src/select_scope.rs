@@ -20,7 +20,7 @@ use crate::app::{Message, ReaderHit, ReaderTarget};
 use crate::ast::{Block, BlockId};
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
 use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout, Shell};
-use iced::{keyboard, Element, Event, Length, Point, Rectangle, Size, Vector};
+use iced::{keyboard, window, Element, Event, Length, Point, Rectangle, Size, Vector};
 use iced_selection::selection::SelectionEnd;
 use iced_selection::text::RichState;
 use std::any::Any;
@@ -101,6 +101,9 @@ struct State {
     range: Option<(Pos, Pos)>,
     /// Text widgets may still show a range the scope painted.
     painted: bool,
+    /// The scroll speed last published while the drag is past the
+    /// viewport's top or bottom edge.
+    autoscroll: Option<f32>,
 }
 
 impl State {
@@ -361,6 +364,29 @@ fn right_press_hit(
     }
 }
 
+/// Pixels per tick for each pixel the drag is past the edge.
+const AUTOSCROLL_GAIN: f32 = 0.25;
+/// The slowest and the fastest auto-scroll, in pixels per tick.
+const AUTOSCROLL_MIN: f32 = 2.0;
+const AUTOSCROLL_MAX: f32 = 60.0;
+
+/// How fast a selection drag at height `y` scrolls the reader: negative
+/// above the viewport, positive below it, `None` inside. Proportional to
+/// the overshoot and rounded, so small moves publish nothing new.
+fn autoscroll_speed(y: f32, viewport: &Rectangle) -> Option<f32> {
+    let over = if y < viewport.y {
+        y - viewport.y
+    } else if y > viewport.y + viewport.height {
+        y - (viewport.y + viewport.height)
+    } else {
+        return None;
+    };
+    let speed = (over.abs() * AUTOSCROLL_GAIN)
+        .round()
+        .clamp(AUTOSCROLL_MIN, AUTOSCROLL_MAX);
+    Some(speed.copysign(over))
+}
+
 fn is_copy(event: &Event) -> bool {
     matches!(
         event,
@@ -440,6 +466,9 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
 
         let doc = (self.blocks.as_ptr() as usize, self.blocks.len());
         if state.doc != doc {
+            if state.autoscroll.is_some() {
+                shell.publish(Message::ReaderAutoScroll(None));
+            }
             *state = State {
                 doc,
                 painted: state.painted,
@@ -468,12 +497,29 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                 state.press = located.and_then(|(pos, inside)| inside.then_some(pos));
                 beside_text = located.and_then(|(pos, inside)| (!inside).then_some(pos));
             }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+            // While the drag is past the viewport edge, the reader scrolls
+            // under a still pointer: each frame moves the selection end too.
+            Event::Mouse(mouse::Event::CursorMoved { .. })
+            | Event::Window(window::Event::RedrawRequested(_))
+                if matches!(event_seen, Event::Mouse(_)) || state.autoscroll.is_some() =>
+            {
+                let moved = matches!(event_seen, Event::Mouse(_));
                 if let (Some(anchor), Some(p)) = (state.press, cursor.land().position()) {
+                    let speed = autoscroll_speed(p.y, viewport);
+                    if speed != state.autoscroll {
+                        state.autoscroll = speed;
+                        shell.publish(Message::ReaderAutoScroll(speed));
+                    }
+                    // Past the edge, the selection ends on the edge line.
+                    let bottom = (viewport.y + viewport.height - 1.0).max(viewport.y);
+                    let p = Point::new(p.x, p.y.clamp(viewport.y, bottom));
                     if let Some((focus, _)) =
                         locate(&mut self.content, child_tree, child, renderer, p)
                     {
-                        if !state.crossing && focus.widget() != anchor.widget() {
+                        // The scope also takes over a drag that scrolls:
+                        // its range survives the start widget unmounting.
+                        if !state.crossing && (focus.widget() != anchor.widget() || speed.is_some())
+                        {
                             state.crossing = true;
                             // The widget the drag started in drops its own
                             // selection and drag; the scope owns it now.
@@ -487,10 +533,12 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                                 },
                             );
                         }
-                        if state.crossing {
+                        if state.crossing && state.range != Some((anchor, focus)) {
                             state.range = Some((anchor, focus));
-                            forward = false;
                             shell.request_redraw();
+                        }
+                        if state.crossing && moved {
+                            forward = false;
                         }
                     }
                 }
@@ -498,6 +546,9 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 state.press = None;
                 state.crossing = false;
+                if state.autoscroll.take().is_some() {
+                    shell.publish(Message::ReaderAutoScroll(None));
+                }
             }
             // Reported after the content, so a `TargetMark` under the
             // pointer reports its element first.

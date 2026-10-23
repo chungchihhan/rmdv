@@ -3522,6 +3522,22 @@ impl App {
                 let toast = self.show_toast("Path copied".into());
                 Task::batch([iced::clipboard::write::<Message>(path), toast])
             }
+            // Only the reader's own column scrolls this way; a mind map
+            // panel or a Full Mindmap preview never moves the document.
+            Message::ReaderAutoScroll(speed) => {
+                self.reader_autoscroll = speed.filter(|_| self.reader_shows_document());
+                Task::none()
+            }
+            Message::ReaderAutoScrollTick => match self.reader_autoscroll {
+                Some(dy) if self.reader_shows_document() => iced::widget::operation::scroll_by(
+                    Self::scroll_id(),
+                    iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: dy },
+                ),
+                _ => {
+                    self.reader_autoscroll = None;
+                    Task::none()
+                }
+            },
             Message::ScrollBy(dy) => iced::widget::operation::scroll_by(
                 Self::scroll_id(),
                 iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: dy },

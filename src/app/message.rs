@@ -219,6 +219,11 @@ pub enum Message {
     /// Move this file or folder to the system Trash.
     TreeTrash(PathBuf),
     ScrollBy(f32),
+    /// A reader selection drag is past the top (negative) or bottom edge
+    /// of the viewport by this many pixels per tick, or back inside.
+    ReaderAutoScroll(Option<f32>),
+    /// One step of [`Message::ReaderAutoScroll`].
+    ReaderAutoScrollTick,
     ScrollToTop,
     ScrollToBottom,
     ToggleSearch,

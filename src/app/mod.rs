@@ -330,6 +330,9 @@ pub struct App {
     pub body_viewport: Option<iced::widget::scrollable::Viewport>,
     pub last_body_range: std::cell::Cell<(usize, usize)>,
     pub last_scroll_at: Option<std::time::Instant>,
+    /// Pixels per tick while a reader selection drag is past the viewport
+    /// edge; `None` stops the tick.
+    pub reader_autoscroll: Option<f32>,
     pub sidebar_width: f32,
     pub sidebar_drag: Option<f32>,
     pub(crate) hl_cache: crate::highlight::HlCache,
@@ -673,6 +676,7 @@ impl Default for App {
             body_viewport: None,
             last_body_range: std::cell::Cell::new((0, 0)),
             last_scroll_at: None,
+            reader_autoscroll: None,
             sidebar_width: SIDEBAR_WIDTH,
             sidebar_drag: None,
             hl_cache: crate::highlight::HlCache::default(),
@@ -3607,6 +3611,23 @@ impl App {
         } else {
             iced::Subscription::none()
         };
+        // While a reader selection drag is past the viewport edge: a tick
+        // that scrolls, and a release anywhere that stops it. Nothing runs
+        // otherwise, so an idle reader does not redraw.
+        let reader_autoscroll = if self.reader_autoscroll.is_some() {
+            iced::Subscription::batch([
+                iced::time::every(std::time::Duration::from_millis(16))
+                    .map(|_| Message::ReaderAutoScrollTick),
+                iced::event::listen_with(|ev, _status, _id| match ev {
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                        iced::mouse::Button::Left,
+                    )) => Some(Message::ReaderAutoScroll(None)),
+                    _ => None,
+                }),
+            ])
+        } else {
+            iced::Subscription::none()
+        };
         let drag = if self.sidebar_drag.is_some() && !full_mindmap {
             iced::event::listen_with(|ev, _status, _id| match ev {
                 iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
@@ -3691,6 +3712,7 @@ impl App {
             theme_watcher,
             keys,
             scroller,
+            reader_autoscroll,
             drag,
             mind_drag,
             full_mind_drag,
