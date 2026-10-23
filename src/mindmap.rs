@@ -433,8 +433,9 @@ pub struct MindmapState<Id = BlockId> {
     /// chevron. Its action runs on release, and only when the pointer did
     /// not move past [`CLICK_SLOP`].
     pressed: Option<(Id, bool)>,
-    /// When and where the last single click landed, for double clicks.
-    last_click: Option<(Instant, Id)>,
+    /// When, on which node, and where on screen the last single click
+    /// landed, for double clicks.
+    last_click: Option<(Instant, Id, Point)>,
     /// The node the pointer last clicked. When the app then focuses it, the
     /// canvas keeps it where it is on screen instead of centering it. A key
     /// press or a click on empty canvas hands focus back to centering.
@@ -1351,6 +1352,24 @@ where
             // One frame to bring back the hover fill the drag hid.
             return Some(canvas::Action::request_redraw().and_capture());
         }
+        // A quick second click where the first one landed is a double
+        // click even when the first click moved its node away: the panel it
+        // opened can bring the node into view, so the second press finds
+        // empty canvas or another node.
+        if let (Some(activate), Some((_, first, _))) = (
+            self.on_activate.as_ref(),
+            previous.as_ref().filter(|(at, _, point)| {
+                now.saturating_duration_since(*at) <= DOUBLE_CLICK
+                    && (origin.x - point.x).hypot(origin.y - point.y) <= CLICK_SLOP
+            }),
+        ) {
+            if pressed.as_ref().map(|(id, _)| id) != Some(first)
+                && self.nodes.iter().any(|n| n.id.as_ref() == Some(first))
+            {
+                state.pointer_focus = Some(first.clone());
+                return Some(canvas::Action::publish(activate(first.clone())).and_capture());
+            }
+        }
         let Some((id, chevron)) = pressed else {
             // A still click on empty canvas.
             state.pointer_focus = None;
@@ -1370,13 +1389,13 @@ where
         let msg = if chevron {
             (self.on_toggle)(id)
         } else if let Some(activate) = self.on_activate.as_ref().filter(|_| {
-            previous.as_ref().is_some_and(|(at, prev)| {
+            previous.as_ref().is_some_and(|(at, prev, _)| {
                 *prev == id && now.saturating_duration_since(*at) <= DOUBLE_CLICK
             })
         }) {
             activate(id)
         } else {
-            state.last_click = Some((now, id.clone()));
+            state.last_click = Some((now, id.clone(), origin));
             (self.on_select)(id)
         };
         Some(canvas::Action::publish(msg).and_capture())
@@ -3176,6 +3195,57 @@ mod tests {
         program
             .release(state, now, Some(at))
             .and_then(|action| action.into_inner().0)
+    }
+
+    #[test]
+    fn a_double_click_survives_the_opening_panel_moving_its_node() {
+        let before = pointer_program(notes_graph(), None);
+        let mut state = live_state();
+        settle(&before, &mut state, POINTER_BOUNDS);
+        // Downloads straddles the edge the panel opens to: its left half
+        // stays on the canvas, the right half goes under the panel.
+        let laid_out = &before.nodes[node_idx(&before, DOWNLOADS)];
+        state.pan = Vector::new(NARROWED.width - NODE_W / 2.0 - laid_out.x, 0.0);
+        let leaf = screen_of(&before, &state, DOWNLOADS);
+        let at = Point::new(leaf.x + 20.0, leaf.y + NODE_H / 2.0);
+        assert!(at.x < NARROWED.width, "the click stays on the canvas");
+        let downloads = PathId(DOWNLOADS.into());
+        let t0 = Instant::now();
+        assert_eq!(
+            click_at_time(&before, &mut state, at, t0),
+            Some(Ev::Select(downloads.clone()))
+        );
+        // The app selects it and opens the panel; the redraw brings the
+        // node into view, away from the pointer.
+        let after = after_click(notes_graph(), DOWNLOADS, 1);
+        settle(&after, &mut state, NARROWED);
+        assert_ne!(
+            after.node_at(&state, at),
+            Some(node_idx(&after, DOWNLOADS)),
+            "the fixture must move the node from under the pointer"
+        );
+        assert_eq!(
+            click_at_time(&after, &mut state, at, t0 + Duration::from_millis(150)),
+            Some(Ev::Activate(downloads.clone())),
+            "the second click where the first landed still activates"
+        );
+
+        // Too slow, it is a click on empty canvas again.
+        let t1 = t0 + Duration::from_secs(4);
+        let mut state = live_state();
+        settle(&before, &mut state, POINTER_BOUNDS);
+        state.pan = Vector::new(NARROWED.width - NODE_W / 2.0 - laid_out.x, 0.0);
+        let _ = click_at_time(&before, &mut state, at, t1);
+        settle(&after, &mut state, NARROWED);
+        assert_eq!(
+            click_at_time(
+                &after,
+                &mut state,
+                at,
+                t1 + DOUBLE_CLICK + Duration::from_millis(1)
+            ),
+            Some(Ev::Deselect)
+        );
     }
 
     #[test]
