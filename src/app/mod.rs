@@ -54,6 +54,9 @@ const SCROLLER_FADE_MS: u64 = 1200;
 /// How long a block's copy button shows its check after a copy.
 const COPY_FLASH: std::time::Duration = std::time::Duration::from_millis(1500);
 const SIDEBAR_MIN: f32 = 160.0;
+/// Scroll-spy: a heading this close below the reader's top line already
+/// counts as the current section (a jump lands it a few pixels low).
+const OUTLINE_SPY_SLACK: f32 = 4.0;
 const SIDEBAR_MAX: f32 = 600.0;
 const MIND_PANEL_DEFAULT: f32 = 380.0;
 /// Container id of the document mind map panel's text area.
@@ -255,6 +258,17 @@ pub struct App {
     /// changes. Cached so the Outline sidebar (rendered every frame) and arrow
     /// nav don't re-parse the whole source per event.
     pub outline_sections: Vec<crate::ipc::sections::Section>,
+    /// Scroll-spy: the reader block at the top line when the outline mark
+    /// was last computed. The mark is recomputed only when this changes, so
+    /// a scroll inside one block costs one binary search.
+    pub outline_spy_block: Option<usize>,
+    /// An outline row the user chose (click or Enter). It keeps the mark
+    /// while its heading is on screen below the top line, as at the end of
+    /// a document where a short last section cannot reach the top.
+    pub outline_hold: Option<usize>,
+    /// The pointer is over the outline list: the scroll-spy then leaves the
+    /// list where the user put it.
+    pub outline_hovered: bool,
     pub overlay: Overlay,
     pub overlay_query: String,
     pub overlay_selected: usize,
@@ -676,6 +690,9 @@ impl Default for App {
             full_mindmap_request_seq: 0,
             tree_viewport: None,
             outline_viewport: None,
+            outline_spy_block: None,
+            outline_hold: None,
+            outline_hovered: false,
             window_size: None,
             window_fullscreen: false,
             window_mode_last_trigger: None,
@@ -1293,6 +1310,8 @@ impl App {
         self.file = Some(path.clone());
         self.dirty = false;
         self.outline_cursor = 0;
+        self.outline_spy_block = None;
+        self.outline_hold = None;
         self.is_data_doc = data_lang_for(self.file.as_deref()).is_some();
         self.reader_select_all = false;
         self.mindmap_collapsed.clear();
@@ -1944,6 +1963,74 @@ impl App {
             total,
             ROW_H,
         )
+    }
+
+    /// Scroll-spy: marks the outline section that holds the reader's top
+    /// line and, unless the pointer is over the outline, scrolls the outline
+    /// list to keep the mark in view. Runs in `update` on `BodyScrolled`,
+    /// never in `view`; `jumping` is true while a heading jump is landing.
+    fn update_outline_spy(&mut self, jumping: bool) -> Task<Message> {
+        if self.outline_sections.is_empty() || self.view_mode != ViewMode::Rendered {
+            return Task::none();
+        }
+        let offset = self.body_offset();
+        let Some(dpos) = self.virt_window.display_pos_at(offset + OUTLINE_SPY_SLACK) else {
+            return Task::none();
+        };
+        let block = self.virt_window.display[dpos];
+        if self.outline_spy_block == Some(block) && self.outline_hold.is_none() {
+            return Task::none();
+        }
+        self.outline_spy_block = Some(block);
+        let Some(&top_line) = self.block_lines.get(block) else {
+            return Task::none();
+        };
+        let at_top = self
+            .outline_sections
+            .partition_point(|section| section.line <= top_line)
+            .checked_sub(1);
+        let mark = match self.outline_hold {
+            Some(held) if jumping => Some(held),
+            Some(held) if at_top.is_none_or(|top| held > top) && self.heading_on_screen(held) => {
+                Some(held)
+            }
+            _ => {
+                self.outline_hold = None;
+                at_top
+            }
+        };
+        let Some(mark) = mark else {
+            return Task::none();
+        };
+        if mark == self.outline_cursor {
+            return Task::none();
+        }
+        self.outline_cursor = mark;
+        let outline_shown = (self.sidebar_open || self.sidebar_peek)
+            && self.sidebar_tab == SidebarTab::Outline
+            && self.full_mindmap.is_none();
+        if outline_shown && !self.outline_hovered {
+            self.scroll_outline_to_cursor()
+        } else {
+            Task::none()
+        }
+    }
+
+    /// True when outline section `index`'s heading lies inside the reader's
+    /// viewport.
+    fn heading_on_screen(&self, index: usize) -> bool {
+        let Some(section) = self.outline_sections.get(index) else {
+            return false;
+        };
+        let Some(block) = crate::ipc::lines::block_for_line(section.line, &self.block_lines) else {
+            return false;
+        };
+        let Some(dpos) = self.virt_window.display_pos(block) else {
+            return false;
+        };
+        let top = self.virt_window.block_top(dpos);
+        let offset = self.body_offset();
+        top >= offset - 1.0 && top < offset + self.body_viewport_h()
     }
 
     fn scroll_outline_to_cursor(&self) -> Task<Message> {

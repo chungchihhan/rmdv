@@ -194,6 +194,8 @@ pub enum Message {
     TreeActivate,
     OutlineMove(isize),
     OutlineActivate,
+    /// The pointer entered (true) or left (false) the outline list.
+    OutlineHovered(bool),
     ScrollToLine(u32),
     TreeToggleAtCursor,
     CopyTreePath,

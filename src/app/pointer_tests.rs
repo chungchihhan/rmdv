@@ -1709,3 +1709,7 @@ mod reader_select;
 // --- P7: reader affordances (copy buttons, checkboxes, scrollbar, tables) ----
 
 mod reader_affordances;
+
+// --- P7: the outline follows the reader -----------------------------------
+
+mod outline_spy;

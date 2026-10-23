@@ -284,12 +284,16 @@ pub(in crate::app) fn sidebar_outline_body<'a>(
             outline_row(&sections[i], i, i == app.outline_cursor, pal)
         });
     }
-    scrollable(list.width(Length::Fill))
+    let list = scrollable(list.width(Length::Fill))
         .id(App::outline_scroll_id())
         .height(Length::Fill)
         .on_scroll(Message::OutlineScrolled)
         .direction(slim_scroll_direction())
-        .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled))
+        .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
+    // While the pointer is over the list, the scroll-spy leaves it alone.
+    mouse_area(list)
+        .on_enter(Message::OutlineHovered(true))
+        .on_exit(Message::OutlineHovered(false))
         .into()
 }
 

@@ -3291,10 +3291,13 @@ impl App {
             }
             Message::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
+                // A hidden outline reports no pointer exit.
+                self.outline_hovered = false;
                 self.restore_body_scroll()
             }
             Message::SetSidebarTab(tab) => {
                 self.sidebar_tab = tab;
+                self.outline_hovered = false;
                 // ← on the Files tab gives the arrow keys back to the tree.
                 self.reader_keys = false;
                 Task::none()
@@ -3460,6 +3463,7 @@ impl App {
             Message::OutlineRowClicked { index, line } => {
                 if index < self.outline_sections.len() {
                     self.outline_cursor = index;
+                    self.outline_hold = Some(index);
                 }
                 self.scroll_to_line_top(line)
             }
@@ -3467,7 +3471,12 @@ impl App {
                 let Some(s) = self.outline_sections.get(self.outline_cursor) else {
                     return Task::none();
                 };
+                self.outline_hold = Some(self.outline_cursor);
                 self.scroll_to_line_top(s.line)
+            }
+            Message::OutlineHovered(hovered) => {
+                self.outline_hovered = hovered;
+                Task::none()
             }
             Message::ScrollToLine(line) => self.scroll_to_line_top(line),
             Message::TreeToggleAtCursor => {
@@ -3779,13 +3788,16 @@ impl App {
                         Some(idx) => self.rebuild_virt_around_block(idx),
                         None => self.rebuild_virt_here(),
                     }
+                    let spy = self.update_outline_spy(anchor.is_some());
                     return Task::batch([
                         checkpoint,
                         restore.unwrap_or_else(Task::none),
                         self.measure_window_heights(),
+                        spy,
                     ]);
                 }
-                Task::batch([checkpoint, restore.unwrap_or_else(Task::none)])
+                let spy = self.update_outline_spy(anchor.is_some());
+                Task::batch([checkpoint, restore.unwrap_or_else(Task::none), spy])
             }
             Message::TableScrolled => {
                 self.last_scroll_at = Some(std::time::Instant::now());
