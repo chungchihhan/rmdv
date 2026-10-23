@@ -18,7 +18,9 @@
 //! A completed swipe comes back through [`subscription`] as a [`Swipe`].
 //! Other platforms keep the plain wheel; nothing here runs there.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+#[cfg(not(test))]
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 /// History has a stop behind (fingers move right).
 pub const BACK: u8 = 1;
@@ -49,7 +51,13 @@ pub enum Decision {
 pub const SUPPORTED: bool = cfg!(target_os = "macos");
 
 static ARMED: AtomicU8 = AtomicU8::new(0);
+#[cfg(not(test))]
 static POINTER_OK: AtomicBool = AtomicBool::new(false);
+// Unit tests run in parallel threads, each with its own headless UI.
+#[cfg(test)]
+thread_local! {
+    static POINTER_OK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 /// The directions a swipe may go now ([`BACK`], [`FORWARD`]); `0` turns
 /// swipes off. The app sets it after every update.
@@ -65,13 +73,19 @@ pub fn armed() -> u8 {
 /// The pointer is over the reader and over nothing that scrolls
 /// horizontally.
 pub fn set_pointer_ok(ok: bool) {
+    #[cfg(not(test))]
     POINTER_OK.store(ok, Ordering::Relaxed);
+    #[cfg(test)]
+    POINTER_OK.set(ok);
 }
 
-// Only the macOS monitor reads it.
+// Only the macOS monitor (and tests) read it.
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-fn pointer_ok() -> bool {
-    POINTER_OK.load(Ordering::Relaxed)
+pub(crate) fn pointer_ok() -> bool {
+    #[cfg(not(test))]
+    return POINTER_OK.load(Ordering::Relaxed);
+    #[cfg(test)]
+    POINTER_OK.get()
 }
 
 /// Decide a gesture from its first scroll deltas (`dx` positive: the

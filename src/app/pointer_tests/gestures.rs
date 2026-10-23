@@ -307,9 +307,9 @@ fn hscroll_rows(ui: &mut PointerUi, app: &App, x: f32) -> Vec<f32> {
     (5..100)
         .map(|i| i as f32 * 8.0)
         .filter(|y| {
-            let mut probe = HScrollProbe::new(Point::new(x, *y));
+            let mut probe = HScrollProbe::new();
             ui.operate(app, &mut probe);
-            probe.found()
+            probe.covers(Point::new(x, *y))
         })
         .collect()
 }
@@ -326,9 +326,12 @@ fn the_probe_finds_a_wide_table_under_the_pointer_and_follows_the_scroll() {
         "the table near the top scrolls horizontally: {rows:?}"
     );
     let below = rows.last().copied().unwrap_or_default() + 120.0;
-    let mut probe = HScrollProbe::new(Point::new(x, below));
+    let mut probe = HScrollProbe::new();
     ui.operate(&app, &mut probe);
-    assert!(!probe.found(), "the paragraphs below do not");
+    assert!(
+        !probe.covers(Point::new(x, below)),
+        "the paragraphs below do not"
+    );
 
     // Scrolled down, the table has left the top of the reader.
     let _ = ui.send(
@@ -344,6 +347,95 @@ fn the_probe_finds_a_wide_table_under_the_pointer_and_follows_the_scroll() {
     let plain = long_doc_app();
     let mut ui = PointerUi::new();
     assert_eq!(hscroll_rows(&mut ui, &plain, x), Vec::<f32>::new());
+}
+
+#[test]
+fn the_swipe_probe_walks_the_reader_once_per_layout_not_per_move() {
+    use crate::app::view::PROBE_WALKS;
+    if !crate::native_swipe::SUPPORTED {
+        return;
+    }
+    let mut app = wide_table_app();
+    app.history.back.push(HistoryEntry {
+        path: PathBuf::from("/tmp/pointer-earlier.md"),
+        position: 0.0,
+        mode: ViewMode::Rendered,
+    });
+    assert!(app.reader_swipe_probe());
+    let mut ui = PointerUi::new();
+    let column = ui.id_bounds(&app, "reader-column").expect("reader column");
+    let x = column.center_x();
+    let rows = hscroll_rows(&mut ui, &app, x);
+    let table_y = rows[rows.len() / 2];
+    let text_y = rows.last().copied().unwrap_or_default() + 120.0;
+    let moves = |y: f32| -> Vec<Event> {
+        (0..20)
+            .map(|i| {
+                Event::Mouse(mouse::Event::CursorMoved {
+                    position: Point::new(x + i as f32, y),
+                })
+            })
+            .collect()
+    };
+
+    PROBE_WALKS.set(0);
+    ui.send(&app, Point::new(x + 19.0, text_y), moves(text_y));
+    assert!(
+        crate::native_swipe::pointer_ok(),
+        "over the paragraphs a swipe may start"
+    );
+    ui.send(&app, Point::new(x + 19.0, table_y), moves(table_y));
+    assert!(
+        !crate::native_swipe::pointer_ok(),
+        "over the wide table the table scrolls"
+    );
+    assert!(
+        PROBE_WALKS.get() <= 2,
+        "one walk per layout, not one per move: {}",
+        PROBE_WALKS.get()
+    );
+}
+
+#[test]
+fn a_swipe_armed_under_a_still_pointer_sees_what_is_under_it() {
+    use crate::native_swipe::{pointer_ok, set_pointer_ok};
+    if !crate::native_swipe::SUPPORTED {
+        return;
+    }
+    let redraw = || {
+        vec![Event::Window(iced::window::Event::RedrawRequested(
+            std::time::Instant::now(),
+        ))]
+    };
+    let earlier = HistoryEntry {
+        path: PathBuf::from("/tmp/pointer-earlier.md"),
+        position: 0.0,
+        mode: ViewMode::Rendered,
+    };
+
+    // Over text with nothing to go back to; a link then adds a Back stop
+    // while the pointer rests. The redraw after that update refreshes it.
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    let at = over_reader_text(&mut ui, &app);
+    ui.move_to(&app, at);
+    set_pointer_ok(false);
+    app.history.back.push(earlier.clone());
+    assert!(app.reader_swipe_probe());
+    ui.send(&app, at, redraw());
+    assert!(pointer_ok(), "the first swipe after arming may go Back");
+
+    // The pointer rests over a wide table when a swipe becomes armed.
+    let mut app = wide_table_app();
+    let mut ui = PointerUi::new();
+    let column = ui.id_bounds(&app, "reader-column").expect("reader column");
+    let rows = hscroll_rows(&mut ui, &app, column.center_x());
+    let at = Point::new(column.center_x(), rows[rows.len() / 2]);
+    ui.move_to(&app, at);
+    set_pointer_ok(true);
+    app.history.back.push(earlier);
+    ui.send(&app, at, redraw());
+    assert!(!pointer_ok(), "the table keeps its sideways scroll");
 }
 
 fn swipe_fixture(tag: &str) -> (App, PathBuf) {

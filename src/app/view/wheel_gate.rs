@@ -83,6 +83,13 @@ impl WheelGate<'_> {
     /// Tell the swipe bridge whether a swipe may start at the pointer: over
     /// the reader and over no horizontal scroller. Only with `swipe` (see
     /// [`Gate::Reader`]), so other platforms and other states pay nothing.
+    ///
+    /// The horizontal scrollers are found once per layout and kept in the
+    /// gate's state; a pointer move only tests the pointer against them. A
+    /// wheel event moves the content, so it drops them, and the redraw that
+    /// follows finds them again. That redraw (and the one after any update,
+    /// such as the one that arms a swipe) also refreshes the flag under a
+    /// pointer that has not moved.
     fn sync_swipe_pointer(
         &mut self,
         tree: &mut Tree,
@@ -91,45 +98,54 @@ impl WheelGate<'_> {
         cursor: mouse::Cursor,
         renderer: &iced::Renderer,
     ) {
-        let moved = matches!(
-            event,
-            Event::Mouse(
-                mouse::Event::CursorMoved { .. }
-                    | mouse::Event::WheelScrolled { .. }
-                    | mouse::Event::CursorLeft
-            )
-        );
-        if !moved {
-            return;
-        }
-        let ok = match cursor.position_over(layout.bounds()) {
-            Some(at) => {
-                let mut probe = HScrollProbe::new(at);
-                self.content.as_widget_mut().operate(
-                    &mut tree.children[0],
-                    child_layout(layout),
-                    renderer,
-                    &mut probe,
-                );
-                !probe.found()
+        match event {
+            Event::Mouse(mouse::Event::WheelScrolled { .. }) => {
+                tree.state.downcast_mut::<State>().hscrollers = None;
+                return;
             }
-            None => false,
+            Event::Mouse(mouse::Event::CursorMoved { .. } | mouse::Event::CursorLeft)
+            | Event::Window(iced::window::Event::RedrawRequested(_)) => {}
+            _ => return,
+        }
+        let Some(at) = cursor.position_over(layout.bounds()) else {
+            crate::native_swipe::set_pointer_ok(false);
+            return;
         };
+        let (state, children) = (tree.state.downcast_mut::<State>(), &mut tree.children);
+        let hscrollers = state.hscrollers.get_or_insert_with(|| {
+            #[cfg(test)]
+            PROBE_WALKS.set(PROBE_WALKS.get() + 1);
+            let mut probe = HScrollProbe::new();
+            self.content.as_widget_mut().operate(
+                &mut children[0],
+                child_layout(layout),
+                renderer,
+                &mut probe,
+            );
+            probe.rects
+        });
+        let ok = !covers(hscrollers, at);
         crate::native_swipe::set_pointer_ok(ok);
     }
 }
 
-/// Finds whether a point (in window coordinates) lies over a scrollable
-/// whose content is wider than it, such as a wide table, so a two-finger
-/// swipe there scrolls the table instead of going Back.
+// How many times a gate walked its content for the swipe probe.
+#[cfg(test)]
+thread_local! {
+    pub(in crate::app) static PROBE_WALKS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Finds the scrollables whose content is wider than they are, such as a
+/// wide table, where they are in the window: a two-finger swipe over one
+/// scrolls it instead of going Back.
 ///
 /// A scrollable reports its bounds in its parent's content coordinates and
 /// then lays out its children shifted by its scroll offset (`translation`).
 /// The probe keeps the sum of the offsets above the widget it visits, so
 /// a table inside the scrolled reader is found where it is on screen.
 pub(in crate::app) struct HScrollProbe {
-    at: Point,
-    found: bool,
+    /// The horizontal scrollers found, in window coordinates.
+    rects: Vec<Rectangle>,
     /// The scroll offset of every `traverse` level now open.
     offsets: Vec<Vector>,
     /// The offset the next `traverse` adds: a scrollable's translation, set
@@ -138,17 +154,18 @@ pub(in crate::app) struct HScrollProbe {
 }
 
 impl HScrollProbe {
-    pub(in crate::app) fn new(at: Point) -> Self {
+    pub(in crate::app) fn new() -> Self {
         Self {
-            at,
-            found: false,
+            rects: Vec::new(),
             offsets: Vec::new(),
             next: Vector::ZERO,
         }
     }
 
-    pub(in crate::app) fn found(&self) -> bool {
-        self.found
+    /// A horizontal scroller lies under `at` (window coordinates).
+    #[cfg(test)]
+    pub(in crate::app) fn covers(&self, at: Point) -> bool {
+        covers(&self.rects, at)
     }
 
     fn offset(&self) -> Vector {
@@ -158,9 +175,6 @@ impl HScrollProbe {
 
 impl Operation for HScrollProbe {
     fn traverse(&mut self, operate: &mut dyn FnMut(&mut dyn Operation)) {
-        if self.found {
-            return;
-        }
         let level = self.offset() + std::mem::replace(&mut self.next, Vector::ZERO);
         self.offsets.push(level);
         operate(self);
@@ -179,9 +193,13 @@ impl Operation for HScrollProbe {
         translation: Vector,
         _state: &mut dyn iced::advanced::widget::operation::Scrollable,
     ) {
-        let at = self.at + self.offset();
-        if content_bounds.width > bounds.width + 0.5 && bounds.contains(at) {
-            self.found = true;
+        if content_bounds.width > bounds.width + 0.5 {
+            let offset = self.offset();
+            self.rects.push(Rectangle {
+                x: bounds.x - offset.x,
+                y: bounds.y - offset.y,
+                ..bounds
+            });
         }
         self.next = translation;
     }
@@ -206,6 +224,9 @@ struct State {
     modifiers: keyboard::Modifiers,
     /// The editor lines scrolled but not sent yet (less than one line).
     partial_lines: f32,
+    /// The reader's horizontal scrollers in window coordinates (see
+    /// [`HScrollProbe`]); `None` until found after a layout or a scroll.
+    hscrollers: Option<Vec<Rectangle>>,
 }
 
 impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
@@ -239,6 +260,8 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
         renderer: &iced::Renderer,
         limits: &layout::Limits,
     ) -> layout::Node {
+        // A new layout may move or resize the horizontal scrollers.
+        tree.state.downcast_mut::<State>().hscrollers = None;
         let child = self
             .content
             .as_widget_mut()
@@ -359,6 +382,12 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
             translation,
         )
     }
+}
+
+/// One of the horizontal scrollers `rects` (window coordinates) lies
+/// under `at`.
+fn covers(rects: &[Rectangle], at: Point) -> bool {
+    rects.iter().any(|rect| rect.contains(at))
 }
 
 fn child_layout(layout: Layout<'_>) -> Layout<'_> {
