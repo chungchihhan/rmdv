@@ -294,6 +294,8 @@ pub enum Message {
     FullMindmapSelectNode(WorkspaceNodeId),
     /// A pointer click on a node: select it and show the panel.
     FullMindmapPointerSelect(WorkspaceNodeId),
+    /// A double click on a node: select it, then do what Enter does.
+    FullMindmapActivateNode(WorkspaceNodeId),
     FullMindmapDeselect,
     FullMindmapNavigate(MindmapDir),
     FullMindmapDiveWorkspace(WorkspaceNodeId),

@@ -27,6 +27,9 @@ const ZOOM_ANIM_DURATION: Duration = Duration::from_millis(140);
 /// How far (screen px) the pointer may move between press and release and
 /// still count as a click. Beyond it the press becomes a pan.
 const CLICK_SLOP: f32 = 4.0;
+/// Two clicks on one node within this interval are a double click. It
+/// matches Iced's own `mouse::Click`, which the reader uses.
+const DOUBLE_CLICK: Duration = Duration::from_millis(300);
 /// World distance from a branch node's right edge to its chevron center.
 const CHEVRON_INSET: f32 = 12.0;
 /// World half-size of the drawn chevron.
@@ -358,6 +361,8 @@ pub struct MindmapState<Id = BlockId> {
     /// chevron. Its action runs on release, and only when the pointer did
     /// not move past [`CLICK_SLOP`].
     pressed: Option<(Id, bool)>,
+    /// When and where the last single click landed, for double clicks.
+    last_click: Option<(Instant, Id)>,
     /// The node the pointer last clicked. When the app then focuses it, the
     /// canvas keeps it where it is on screen instead of centering it. A key
     /// press or a click on empty canvas hands focus back to centering.
@@ -389,6 +394,7 @@ impl<Id> Default for MindmapState<Id> {
             hovered_idx: None,
             pressed: None,
             pointer_focus: None,
+            last_click: None,
             touch_points: Vec::new(),
             touch_span: None,
             native_pinch_log: None,
@@ -441,6 +447,9 @@ pub struct MindmapProgram<'a, Id, Message> {
     pub native_pinch_log: f64,
     pub on_toggle: Box<dyn Fn(Id) -> Message + 'a>,
     pub on_select: Box<dyn Fn(Id) -> Message + 'a>,
+    /// A double click on a node: what Enter does there. `None` makes a
+    /// double click two single clicks.
+    pub on_activate: Option<Box<dyn Fn(Id) -> Message + 'a>>,
     pub on_deselect: Message,
 }
 
@@ -1098,6 +1107,59 @@ where
     }
 }
 
+impl<'a, Id, Message: Clone> MindmapProgram<'a, Id, Message>
+where
+    Id: Clone + Eq + std::hash::Hash,
+{
+    /// The left button came up at `now`. A still release on a node is its
+    /// click; `now` is a parameter so tests can time double clicks on a
+    /// test clock.
+    fn release(
+        &self,
+        state: &mut MindmapState<Id>,
+        now: Instant,
+    ) -> Option<canvas::Action<Message>> {
+        state.drag_origin.take()?;
+        let moved = std::mem::take(&mut state.drag_moved);
+        let pressed = state.pressed.take();
+        // Only a quick second click on the same node's body is a double
+        // click; a drag, a chevron, or empty canvas in between starts over.
+        let previous = state.last_click.take();
+        if moved {
+            return Some(canvas::Action::capture());
+        }
+        let Some((id, chevron)) = pressed else {
+            // A still click on empty canvas.
+            state.pointer_focus = None;
+            if self.selected.is_some() {
+                return Some(canvas::Action::publish(self.on_deselect.clone()).and_capture());
+            }
+            return Some(canvas::Action::capture());
+        };
+        if !self.nodes.iter().any(|n| n.id.as_ref() == Some(&id)) {
+            return Some(canvas::Action::capture());
+        }
+        // The chevron folds a branch; the rest of a node selects it
+        // (and the app opens the panel), as the arrow keys do. The
+        // focus sync on the next redraw keeps the node in place, or
+        // brings it into view if the panel would cover it.
+        state.pointer_focus = Some(id.clone());
+        let msg = if chevron {
+            (self.on_toggle)(id)
+        } else if let Some(activate) = self.on_activate.as_ref().filter(|_| {
+            previous.as_ref().is_some_and(|(at, prev)| {
+                *prev == id && now.saturating_duration_since(*at) <= DOUBLE_CLICK
+            })
+        }) {
+            activate(id)
+        } else {
+            state.last_click = Some((now, id.clone()));
+            (self.on_select)(id)
+        };
+        Some(canvas::Action::publish(msg).and_capture())
+    }
+}
+
 impl<'a, Id, Message: Clone> canvas::Program<Message, Theme, Renderer>
     for MindmapProgram<'a, Id, Message>
 where
@@ -1212,36 +1274,7 @@ where
                 None
             }
             iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
-                state.drag_origin.take()?;
-                let moved = std::mem::take(&mut state.drag_moved);
-                let pressed = state.pressed.take();
-                if moved {
-                    return Some(canvas::Action::capture());
-                }
-                let Some((id, chevron)) = pressed else {
-                    // A still click on empty canvas.
-                    state.pointer_focus = None;
-                    if self.selected.is_some() {
-                        return Some(
-                            canvas::Action::publish(self.on_deselect.clone()).and_capture(),
-                        );
-                    }
-                    return Some(canvas::Action::capture());
-                };
-                if !self.nodes.iter().any(|n| n.id.as_ref() == Some(&id)) {
-                    return Some(canvas::Action::capture());
-                }
-                // The chevron folds a branch; the rest of a node selects it
-                // (and the app opens the panel), as the arrow keys do. The
-                // focus sync on the next redraw keeps the node in place, or
-                // brings it into view if the panel would cover it.
-                state.pointer_focus = Some(id.clone());
-                let msg = if chevron {
-                    (self.on_toggle)(id)
-                } else {
-                    (self.on_select)(id)
-                };
-                Some(canvas::Action::publish(msg).and_capture())
+                self.release(state, Instant::now())
             }
             iced::Event::Window(window::Event::RedrawRequested(_)) => {
                 self.sync_anim(state);
@@ -1686,6 +1719,7 @@ mod tests {
             native_pinch_log: 0.0,
             on_toggle: Box::new(|_| ()),
             on_select: Box::new(|_| ()),
+            on_activate: None,
             on_deselect: (),
         }
     }
@@ -2065,6 +2099,7 @@ mod tests {
                 native_pinch_log: 0.0,
                 on_toggle: Box::new(|_| ()),
                 on_select: Box::new(|_| ()),
+                on_activate: None,
                 on_deselect: (),
             }
         };
@@ -2432,6 +2467,7 @@ mod tests {
     enum Ev {
         Toggle(PathId),
         Select(PathId),
+        Activate(PathId),
         Deselect,
     }
 
@@ -2454,6 +2490,7 @@ mod tests {
             native_pinch_log: 0.0,
             on_toggle: Box::new(Ev::Toggle),
             on_select: Box::new(Ev::Select),
+            on_activate: Some(Box::new(Ev::Activate)),
             on_deselect: Ev::Deselect,
         }
     }
@@ -2775,6 +2812,90 @@ mod tests {
         assert!(
             (shown.x - clicked.x).abs() < 0.5 && (shown.y - clicked.y).abs() < 0.5,
             "the folded node stays put: {clicked:?} -> {shown:?}"
+        );
+    }
+
+    /// A click whose release happens at `now`, so the double-click
+    /// interval is measured on a test clock, not the wall clock.
+    fn click_at_time(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        at: Point,
+        now: Instant,
+    ) -> Option<Ev> {
+        assert_eq!(press_at(program, state, at), None);
+        program
+            .release(state, now)
+            .and_then(|action| action.into_inner().0)
+    }
+
+    #[test]
+    fn a_double_click_activates_and_a_slow_second_click_selects() {
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        let mut state = live_state();
+        let leaf = node_center(&program, DOWNLOADS);
+        let other = node_center(&program, DOCUMENTS);
+        let downloads = PathId(DOWNLOADS.into());
+        let t0 = Instant::now();
+        let ms = Duration::from_millis;
+
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t0),
+            Some(Ev::Select(downloads.clone()))
+        );
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t0 + ms(150)),
+            Some(Ev::Activate(downloads.clone())),
+            "a quick second click on the same node activates it"
+        );
+        // A third quick click starts over instead of activating again.
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t0 + ms(250)),
+            Some(Ev::Select(downloads.clone()))
+        );
+
+        // Too slow: two single clicks.
+        let t1 = t0 + ms(2_000);
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t1),
+            Some(Ev::Select(downloads.clone()))
+        );
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t1 + DOUBLE_CLICK + ms(1)),
+            Some(Ev::Select(downloads.clone()))
+        );
+
+        // Two different nodes: two single clicks.
+        let t2 = t1 + ms(4_000);
+        assert!(matches!(
+            click_at_time(&program, &mut state, other, t2),
+            Some(Ev::Select(_))
+        ));
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t2 + ms(100)),
+            Some(Ev::Select(downloads.clone()))
+        );
+
+        // A chevron click never counts toward a double click.
+        let t3 = t2 + ms(4_000);
+        let chevron = chevron_point(&program, DOCUMENTS);
+        assert!(matches!(
+            click_at_time(&program, &mut state, chevron, t3),
+            Some(Ev::Toggle(_))
+        ));
+        assert!(matches!(
+            click_at_time(&program, &mut state, other, t3 + ms(100)),
+            Some(Ev::Select(_))
+        ));
+
+        // Without an activate action a double click is two selections.
+        program.on_activate = None;
+        let t4 = t3 + ms(4_000);
+        assert!(click_at_time(&program, &mut state, leaf, t4).is_some());
+        assert_eq!(
+            click_at_time(&program, &mut state, leaf, t4 + ms(100)),
+            Some(Ev::Select(downloads))
         );
     }
 

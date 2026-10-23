@@ -3635,6 +3635,8 @@ impl App {
                     native_pinch_log: self.mindmap_native_pinch_log,
                     on_toggle: Box::new(Message::MindmapToggleNode),
                     on_select: Box::new(Message::MindmapSelectLeaf),
+                    // The document mind map has no Enter action to repeat.
+                    on_activate: None,
                     on_deselect: Message::MindmapDeselect,
                 };
                 let canvas_el: Element<'_, Message> = iced::widget::canvas(program)

@@ -1061,12 +1061,35 @@ impl App {
             }
             Message::FullMindmapSelectNode(id) => self.select_full_mindmap_node(id),
             Message::FullMindmapPointerSelect(id) => {
+                // "More… (N left)" is a button: one click shows the next page.
+                let more = self
+                    .full_mindmap_graph()
+                    .and_then(|graph| graph.node(&id).map(|node| node.kind.clone()))
+                    == Some(WorkspaceNodeKind::More);
+                if more {
+                    return self.update(Message::FullMindmapShowMore(id.path().to_path_buf()));
+                }
                 // A click shows what it selected, as a document mind map
                 // click does. Keyboard selection leaves the panel as it is.
                 if let Some(full) = self.full_mindmap.as_mut() {
                     full.panel_open = true;
                 }
                 self.select_full_mindmap_node(id)
+            }
+            Message::FullMindmapActivateNode(id) => {
+                // The first click of the pair normally selected the node
+                // already; select it here if it did not, so Enter's action
+                // runs on the node under the pointer.
+                let selected = self
+                    .full_mindmap
+                    .as_ref()
+                    .is_some_and(|full| full.selected.as_ref() == Some(&id));
+                let select = if selected {
+                    Task::none()
+                } else {
+                    self.select_full_mindmap_node(id)
+                };
+                Task::batch([select, self.update(Message::FullMindmapActivate)])
             }
             Message::FullMindmapDeselect => {
                 let checkpoint = self.checkpoint_active_quick_slot();

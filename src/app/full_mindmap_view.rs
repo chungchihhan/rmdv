@@ -92,6 +92,7 @@ impl App {
             native_pinch_log: self.full_mindmap_native_pinch_log,
             on_toggle: Box::new(Message::FullMindmapToggleNode),
             on_select: Box::new(Message::FullMindmapPointerSelect),
+            on_activate: Some(Box::new(Message::FullMindmapActivateNode)),
             on_deselect: Message::FullMindmapDeselect,
         };
         let canvas: Element<'_, Message> = iced::widget::canvas(program)
