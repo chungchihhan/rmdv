@@ -643,3 +643,25 @@ fn losing_window_focus_stops_the_auto_scroll() {
     let later = autoscroll(&ui.move_to(&app, Point::new(below.x, below.y + 120.0)).0);
     assert!(later.is_empty(), "no stale drag restarts it: {later:?}");
 }
+
+#[test]
+fn shift_click_on_a_copy_button_still_copies() {
+    let (mut app, dir) = fixture("shift-copy");
+    let mut ui = PointerUi::new();
+    let text = paragraph(&mut ui, &app);
+    // A caret in the paragraph, then Shift+click on the code block's copy
+    // button: the button takes the press.
+    let _ = ui.click(&app, Point::new(text.x + 30.0, text.y + 8.0));
+    shift(&mut ui, &app, true);
+    let copy = ui
+        .text_bounds(&app, &crate::icon::ic::COPY.to_string())
+        .expect("the code block's copy button");
+    let messages = ui.click(&app, center(copy));
+    shift(&mut ui, &app, false);
+    assert!(
+        has(&messages, |m| matches!(m, Message::CopyBlockSource(..))),
+        "{messages:?}"
+    );
+    apply(&mut app, messages);
+    let _ = std::fs::remove_dir_all(&dir);
+}

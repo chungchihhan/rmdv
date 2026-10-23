@@ -215,6 +215,26 @@ fn locate(
     best.map(|(d, pos)| (pos, d == (0.0, 0.0)))
 }
 
+/// The scope's selection runs from `anchor` to `focus` (a Shift+click);
+/// the text widgets drop their own.
+fn extend_to(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    state: &mut State,
+    (anchor, focus): (Pos, Pos),
+) {
+    visit(content, tree, layout, renderer, |_, _, _, t| {
+        t.clear_selection();
+    });
+    state.press = Some(anchor);
+    state.unit = None;
+    state.span = Some((anchor, anchor));
+    state.crossing = true;
+    state.range = Some((anchor, focus));
+}
+
 /// `at` moved out to the edge of its word or line in its widget (to the
 /// end when `forward`), for a word or line drag.
 fn snap(
@@ -568,6 +588,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         let mut forward = true;
         let mut right_press = None;
         let mut beside_text = None;
+        let mut shift_beside = None;
         let mut on_text = None;
 
         match event_seen {
@@ -583,6 +604,8 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                 // Shift+click extends the selection (the scope's, else a
                 // text widget's, else from the caret) to the press. Inside
                 // the one widget that holds it, that widget extends its own.
+                // Beside the text, it waits until the content has seen the
+                // press (see `shift_beside`).
                 let extended = match located {
                     Some((focus, _)) if state.shift => state
                         .range
@@ -593,24 +616,23 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                         .map(|anchor| (anchor, focus)),
                     _ => None,
                 };
-                if let Some((anchor, focus)) = extended {
-                    visit(
+                let on_text_press = located.is_some_and(|(_, inside)| inside);
+                if let Some((anchor, focus)) = extended.filter(|_| on_text_press) {
+                    extend_to(
                         &mut self.content,
                         child_tree,
                         child,
                         renderer,
-                        |_, _, _, t| {
-                            t.clear_selection();
-                        },
+                        state,
+                        (anchor, focus),
                     );
-                    state.press = Some(anchor);
-                    state.unit = None;
-                    state.span = Some((anchor, anchor));
-                    state.crossing = true;
-                    state.range = Some((anchor, focus));
                     forward = false;
                     shell.capture_event();
                     shell.request_redraw();
+                } else if let Some(ends) = extended {
+                    // Beside the text, a link, an image, a button, or a
+                    // chevron takes the press first, as without Shift.
+                    shift_beside = Some(ends);
                 } else {
                     state.range = None;
                     state.crossing = false;
@@ -749,6 +771,22 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
             );
         }
 
+        // A Shift press beside the text that no element took extends the
+        // selection to the nearest text position.
+        if let Some(ends) = shift_beside {
+            if !shell.is_event_captured() {
+                extend_to(
+                    &mut self.content,
+                    child_tree,
+                    child,
+                    renderer,
+                    state,
+                    ends,
+                );
+                shell.capture_event();
+                shell.request_redraw();
+            }
+        }
         // A press beside the text that no element took (a link, an image,
         // a button, a chevron, a diagram) starts the scope's own selection
         // at the nearest text position.
