@@ -25,6 +25,8 @@ pub enum Message {
     WelcomeNeedsFile,
     CopyFilePath,
     VaultQueryChanged(String),
+    /// The vault page's clear button: empty the query and focus the field.
+    VaultQueryClear,
     /// Run the search for the current query (Enter when the query has changed).
     VaultRunSearch,
     /// Enter in the vault page: search if the query was edited, else open the hit.
@@ -51,6 +53,9 @@ pub enum Message {
     /// Apply a measured absolute scroll offset to the vault results page.
     VaultScrollTo(f32),
     ToggleShortcuts,
+    /// A shortcut-sheet row click: close the sheet, then run the row's
+    /// action.
+    ShortcutSheetRun(Box<Message>),
     /// Activate the slot addressed by its zero-based rail index.
     /// Pin (true) or close (false) the Quick Slots popover, the toolbar's
     /// pointer entry to the rail.
@@ -121,6 +126,9 @@ pub enum Message {
     /// Picker chose a file: open it AND select its parent as workspace.
     PickerOpenFile(PathBuf),
     OverlayQueryChanged(String),
+    /// An overlay query field's clear button: empty the query and focus
+    /// the field.
+    OverlayQueryClear,
     OverlayMove(isize),
     OverlayConfirm,
     /// Pointer click on a palette or theme row: select it, then confirm
@@ -306,6 +314,8 @@ pub enum Message {
     /// Settings → Toolbar: shown on hover or always.
     SetToolbarMode(crate::prefs::ToolbarMode),
     ToggleFooter,
+    /// A click on the status footer pill shows the next statistic.
+    FooterCycleStat,
     ToggleSoftSyntax,
     /// Window glass: off → sidebar → whole window (macOS).
     CycleGlass,

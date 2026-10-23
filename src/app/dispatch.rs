@@ -99,8 +99,10 @@ impl App {
             && matches!(
                 msg,
                 Message::OverlayQueryChanged(_)
+                    | Message::OverlayQueryClear
                     | Message::OverlayConfirm
                     | Message::VaultQueryChanged(_)
+                    | Message::VaultQueryClear
                     | Message::VaultEnter
                     | Message::QueryChanged(_)
                     | Message::TreeRenameInput(_)
@@ -430,6 +432,26 @@ impl App {
                     self.open_overlay(Overlay::Shortcuts);
                 }
                 Task::none()
+            }
+            Message::ShortcutSheetRun(action) => {
+                // As a palette pick: close the sheet, then run the action.
+                if self.overlay == Overlay::Shortcuts {
+                    self.overlay = Overlay::None;
+                }
+                Task::done(*action)
+            }
+            Message::FooterCycleStat => {
+                self.prefs.footer_stat = self.prefs.footer_stat.next();
+                self.save_prefs();
+                Task::none()
+            }
+            Message::OverlayQueryClear => {
+                let _ = self.update(Message::OverlayQueryChanged(String::new()));
+                iced::widget::operation::focus(Self::overlay_input_id())
+            }
+            Message::VaultQueryClear => {
+                let _ = self.update(Message::VaultQueryChanged(String::new()));
+                iced::widget::operation::focus(Self::vault_input_id())
             }
             Message::QuickSlotsModifier(held) => {
                 if held {

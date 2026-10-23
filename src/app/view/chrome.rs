@@ -54,30 +54,70 @@ pub(in crate::app) fn update_banner<'a>(version: &str, pal: Palette) -> Element<
         .into()
 }
 
-/// Bottom status bar: word count + estimated reading time (~200 wpm).
-pub(in crate::app) fn status_footer<'a>(words: usize, pal: Palette) -> Element<'a, Message> {
-    use iced::widget::{container, text as text_w};
-    let minutes = ((words as f32) / 200.0).ceil().max(1.0) as usize;
-    let label = format!(
-        "{} word{} · {} min read",
-        words,
-        if words == 1 { "" } else { "s" },
-        minutes
-    );
+/// The document counts the footer pill can show.
+#[derive(Debug, Clone, Copy)]
+pub(in crate::app) struct FooterCounts {
+    pub(in crate::app) words: usize,
+    pub(in crate::app) characters: usize,
+}
+
+/// The footer pill's text for `stat`. Reading time assumes ~200 wpm.
+pub(in crate::app) fn footer_label(counts: FooterCounts, stat: crate::prefs::FooterStat) -> String {
+    use crate::prefs::FooterStat;
+    let plural = |n: usize, one: &str| format!("{n} {one}{}", if n == 1 { "" } else { "s" });
+    let words = plural(counts.words, "word");
+    let minutes = ((counts.words as f32) / 200.0).ceil().max(1.0) as usize;
+    let time = format!("{minutes} min read");
+    match stat {
+        FooterStat::WordsAndTime => format!("{words} · {time}"),
+        FooterStat::Words => words,
+        FooterStat::ReadingTime => time,
+        FooterStat::Characters => plural(counts.characters, "character"),
+    }
+}
+
+/// The footer pill's id, for tests.
+pub(in crate::app) const STATUS_FOOTER_ID: &str = "status-footer";
+
+/// Bottom status pill: one document statistic. A click shows the next one
+/// (saved in prefs).
+pub(in crate::app) fn status_footer<'a>(
+    counts: FooterCounts,
+    stat: crate::prefs::FooterStat,
+    pal: Palette,
+) -> Element<'a, Message> {
+    use iced::widget::{button, container, text as text_w};
     // Translucent pill so document content remains visible scrolling behind it.
     let mut pill_bg = pal.bg;
     pill_bg.a = 0.82;
-    let pill = container(text_w(label).size(12.0).color(pal.muted))
+    let pill = button(text_w(footer_label(counts, stat)).size(12.0))
         .padding([4, 12])
-        .style(move |_| container::Style {
-            background: Some(pill_bg.into()),
-            border: iced::Border {
-                color: pal.border(),
-                width: 1.0,
-                radius: theme::radius::MD.into(),
-            },
-            ..Default::default()
+        .on_press(Message::FooterCycleStat)
+        .style(move |_, status| {
+            let (background, text_color) = match status {
+                button::Status::Hovered => (pal.hover(), pal.fg),
+                button::Status::Pressed => (pal.active(), pal.fg),
+                _ => (pill_bg, pal.muted),
+            };
+            button::Style {
+                background: Some(background.into()),
+                text_color,
+                border: iced::Border {
+                    color: pal.border(),
+                    width: 1.0,
+                    radius: theme::radius::MD.into(),
+                },
+                ..Default::default()
+            }
         });
+    let pill = container(action_tip(
+        pill,
+        "Show Next Statistic",
+        None,
+        iced::widget::tooltip::Position::Top,
+        pal,
+    ))
+    .id(STATUS_FOOTER_ID);
     // Float bottom-right over the reader; content scrolls underneath.
     container(pill)
         .width(Length::Fill)

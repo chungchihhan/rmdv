@@ -202,6 +202,8 @@ pub struct App {
     /// Whitespace-separated word count of `source`, refreshed on every parse
     /// so the footer never scans the whole document inside `view()`.
     source_words: usize,
+    /// Characters in `source`, for the footer pill.
+    source_chars: usize,
     pub ast: Vec<(BlockId, Block)>,
     pub theme_mode: ThemeMode,
     pub theme_preset: ThemePreset,
@@ -631,6 +633,7 @@ impl Default for App {
             file: None,
             source: String::new(),
             source_words: 0,
+            source_chars: 0,
             ast: Vec::new(),
             theme_mode: mode,
             theme_preset: preset,
@@ -2648,6 +2651,7 @@ impl App {
         // `mindmap_collapsed` writes in FileLoaded happen before this call.
         self.invalidate_mindmap_layout();
         self.source_words = self.source.split_whitespace().count();
+        self.source_chars = self.source.chars().count();
         if let Some(ast) = self.synthesize_data_ast() {
             self.ast = ast;
             // Data docs are one synthesized block at line 1; reset block_lines
@@ -3174,7 +3178,9 @@ impl App {
             .command_items()
             .into_iter()
             .filter_map(|(label, msg)| {
-                let s = picker::fuzzy_score(&self.overlay_query, label)?;
+                // Typing matches the command's name; its shortcut only shows.
+                let (name, _) = split_command_label(label);
+                let s = picker::fuzzy_score(&self.overlay_query, name)?;
                 Some((label, msg, s))
             })
             .collect();
@@ -4419,7 +4425,14 @@ impl App {
         // Status footer floats over the reader (content scrolls behind it),
         // pinned bottom-right. Shown for any open document except mindmap.
         let footer_layer: Element<'_, Message> = if footer_visible {
-            status_footer(self.source_words, pal)
+            status_footer(
+                FooterCounts {
+                    words: self.source_words,
+                    characters: self.source_chars,
+                },
+                self.prefs.footer_stat,
+                pal,
+            )
         } else {
             Space::new().into()
         };

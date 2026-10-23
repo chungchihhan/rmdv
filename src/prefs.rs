@@ -55,6 +55,43 @@ pub struct Prefs {
         deserialize_with = "lenient_sidebar_width"
     )]
     pub sidebar_width: f32,
+    /// The statistic the status footer pill shows; a click cycles it.
+    #[serde(default, deserialize_with = "lenient_footer_stat")]
+    pub footer_stat: FooterStat,
+}
+
+/// The statistic the status footer pill shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FooterStat {
+    /// "N words · M min read", the original pill.
+    #[default]
+    WordsAndTime,
+    Words,
+    ReadingTime,
+    Characters,
+}
+
+impl FooterStat {
+    /// The statistic a click shows next.
+    pub fn next(self) -> Self {
+        match self {
+            FooterStat::WordsAndTime => FooterStat::Words,
+            FooterStat::Words => FooterStat::ReadingTime,
+            FooterStat::ReadingTime => FooterStat::Characters,
+            FooterStat::Characters => FooterStat::WordsAndTime,
+        }
+    }
+}
+
+/// An unknown footer statistic falls back to the default instead of failing
+/// the whole file.
+fn lenient_footer_stat<'de, D>(deserializer: D) -> Result<FooterStat, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
 /// When the top toolbar shows.
@@ -216,6 +253,7 @@ impl Default for Prefs {
             quick_slots: crate::quick_slots::QuickSlotsStore::default(),
             toolbar: ToolbarMode::Always,
             sidebar_width: default_sidebar_width(),
+            footer_stat: FooterStat::default(),
         }
     }
 }
