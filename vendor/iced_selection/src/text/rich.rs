@@ -315,6 +315,30 @@ impl<Link> State<Link> {
         point: Point,
         bounds: core::Rectangle,
     ) -> Option<(usize, usize)> {
+        self.hit_grapheme(point, bounds)
+            .map(|(line, index, _)| (line, index))
+    }
+
+    /// The grapheme under `point`: its line and index. A press on the
+    /// right half of a grapheme puts the caret after it; this is still
+    /// the grapheme that was pressed.
+    fn grapheme_under(
+        &self,
+        point: Point,
+        bounds: core::Rectangle,
+    ) -> Option<(usize, usize)> {
+        self.hit_grapheme(point, bounds).map(|(line, index, after)| {
+            (line, if after { index.saturating_sub(1) } else { index })
+        })
+    }
+
+    /// The caret position nearest to `point` (line, grapheme index), and
+    /// whether it lies after the grapheme the point is over.
+    fn hit_grapheme(
+        &self,
+        point: Point,
+        bounds: core::Rectangle,
+    ) -> Option<(usize, usize, bool)> {
         let bounded_x = if point.y < bounds.y {
             bounds.x
         } else if point.y > bounds.y + bounds.height {
@@ -359,6 +383,7 @@ impl<Link> State<Link> {
                 true,
             )
             .count(),
+            cursor.affinity == cosmic_text::Affinity::Before,
         ))
     }
 
@@ -828,6 +853,9 @@ where
                             state.dragging = Some(Dragging::Grapheme);
                         }
                         click::Kind::Double => {
+                            let (line, index) = state
+                                .grapheme_under(position, bounds)
+                                .unwrap_or((line, index));
                             state.selection.select_word(
                                 line,
                                 index,

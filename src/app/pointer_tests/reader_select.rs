@@ -317,3 +317,130 @@ fn the_selection_follows_the_auto_scroll_across_window_rebuilds() {
         "the selection end followed the scroll: {reached} vs {on_screen} on screen before"
     );
 }
+
+// --- Chinese and Japanese words ------------------------------------------------
+
+const MIXED: &str = "中文分詞測試 with English";
+
+/// A document whose second block is `MIXED`.
+fn cjk_app() -> App {
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        std::path::PathBuf::from("/tmp/pointer-cjk.md"),
+        format!("# Words\n\n{MIXED}\n\nAfter the words.\n"),
+    ))));
+    app
+}
+
+fn mixed_paragraph(ui: &mut PointerUi, app: &App) -> Rectangle {
+    block_bounds(ui, app, |b| {
+        crate::plain_text::block_text(b).is_some_and(|t| t.starts_with("中文"))
+    })
+}
+
+/// Double-clicks the `n`th character of `MIXED` (each Han character is one
+/// em wide) and returns the word the reader selected.
+fn double_click_char(app: &mut App, ui: &mut PointerUi, n: usize) -> Option<String> {
+    let text = mixed_paragraph(ui, app);
+    let em = app.typography.body_size;
+    let at = Point::new(text.x + (n as f32 + 0.3) * em, text.y + em * 0.6);
+    let messages = ui.double_click(app, at);
+    apply(app, messages);
+    let after = block_bounds(ui, app, |b| {
+        crate::plain_text::block_text(b).is_some_and(|t| t.starts_with("After"))
+    });
+    selected(app, ui, Point::new(after.x + 4.0, after.y + 8.0))
+}
+
+#[test]
+fn double_click_on_chinese_selects_a_dictionary_word() {
+    let mut app = cjk_app();
+    let mut ui = PointerUi::new();
+    let first = double_click_char(&mut app, &mut ui, 0);
+    let fifth = double_click_char(&mut app, &mut ui, 4);
+    // The right half of a character is still that character's word.
+    let text = mixed_paragraph(&mut ui, &app);
+    let em = app.typography.body_size;
+    let at = Point::new(text.x + 1.8 * em, text.y + em * 0.6);
+    let messages = ui.double_click(&app, at);
+    apply(&mut app, messages);
+    let after = Point::new(text.x + 4.0, text.y + text.height + 30.0);
+    let second_right_half = selected(&mut app, &mut ui, after);
+    if cfg!(target_os = "macos") {
+        assert_eq!(first.as_deref(), Some("中文"));
+        assert_eq!(fifth.as_deref(), Some("測試"));
+        assert_eq!(second_right_half.as_deref(), Some("中文"));
+    } else {
+        // UAX #29 elsewhere: one ideograph per word.
+        assert_eq!(first.as_deref(), Some("中"));
+        assert_eq!(fifth.as_deref(), Some("測"));
+        assert_eq!(second_right_half.as_deref(), Some("文"));
+    }
+}
+
+#[test]
+fn double_click_on_english_beside_chinese_selects_the_english_word() {
+    let mut app = cjk_app();
+    let mut ui = PointerUi::new();
+    let text = mixed_paragraph(&mut ui, &app);
+    let em = app.typography.body_size;
+    // Past "中文分詞測試 with " (six ems and a few Latin letters).
+    let mut found = None;
+    for step in 0..25 {
+        let at = Point::new(
+            text.x + 6.0 * em + 2.0 + step as f32 * 8.0,
+            text.y + em * 0.6,
+        );
+        let messages = ui.double_click(&app, at);
+        apply(&mut app, messages);
+        let after = Point::new(text.x + 4.0, text.y + text.height + 30.0);
+        if let Some(word) = selected(&mut app, &mut ui, after) {
+            if word.chars().any(|c| c.is_ascii_uppercase()) {
+                found = Some(word);
+                break;
+            }
+            assert!(
+                ["with", " "].contains(&word.as_str()),
+                "only Latin words beside the Chinese: {word:?}"
+            );
+        }
+    }
+    assert_eq!(found.as_deref(), Some("English"));
+}
+
+#[test]
+fn word_bounds_split_chinese_by_dictionary_and_latin_by_uax29() {
+    use iced_selection::word::{next_end_of_word, previous_start_of_word, word_around};
+    let word = |g: usize| {
+        let (start, end) = word_around(MIXED, g);
+        MIXED
+            .chars()
+            .skip(start)
+            .take(end - start)
+            .collect::<String>()
+    };
+    // "中文分詞測試 with English": graphemes 0-5 are Han, 7-10 "with".
+    assert_eq!(word(8), "with");
+    assert_eq!(word(6), " ");
+    assert_eq!(word(MIXED.chars().count()), "English", "past the end");
+    // Katakana stays one word on every platform.
+    assert_eq!(word_around("カタカナ語", 1).0, 0);
+    if cfg!(target_os = "macos") {
+        // The system dictionary decides: it joins 中文 and 測試 (it may
+        // keep 分 and 詞 apart).
+        assert_eq!(
+            (word(0), word(1), word(5)),
+            ("中文".into(), "中文".into(), "測試".into())
+        );
+        assert_eq!(next_end_of_word(MIXED, 0), 2);
+        assert_eq!(next_end_of_word(MIXED, 4), 6);
+        assert_eq!(previous_start_of_word(MIXED, 7), 4, "spaces are skipped");
+        assert_eq!(previous_start_of_word(MIXED, 5), 4);
+    } else {
+        assert_eq!((word(0), word(1)), ("中".into(), "文".into()));
+        assert_eq!(next_end_of_word(MIXED, 0), 1);
+    }
+    assert_eq!(next_end_of_word(MIXED, 6), 11, "the next word is \"with\"");
+    assert_eq!(previous_start_of_word("", 0), 0);
+    assert_eq!(next_end_of_word("", 0), 0);
+}
