@@ -1344,7 +1344,8 @@ where
         // click; a drag, a chevron, or empty canvas in between starts over.
         let previous = state.last_click.take();
         if moved {
-            return Some(canvas::Action::capture());
+            // One frame to bring back the hover fill the drag hid.
+            return Some(canvas::Action::request_redraw().and_capture());
         }
         let Some((id, chevron)) = pressed else {
             // A still click on empty canvas.
@@ -1520,6 +1521,12 @@ where
                 } else {
                     false
                 };
+                // The node list, a zoom, or a pan can move a different node
+                // under a still pointer. This frame draws anyway, so the
+                // hover follows without asking for another one.
+                state.hovered_idx = cursor
+                    .position_in(bounds)
+                    .and_then(|pos| self.node_at(state, pos));
                 if node_running || pan_running || zoom_running || pinch_zoomed {
                     Some(canvas::Action::request_redraw())
                 } else {
@@ -3242,6 +3249,79 @@ mod tests {
         let _ = press_at(&program, &mut state, leaf);
         let _ = move_at(&program, &mut state, Point::new(leaf.x + 30.0, leaf.y));
         assert_eq!(program.hover_highlight(&state), None);
+    }
+
+    /// One redraw with the pointer at `at`; returns its redraw request.
+    fn redraw_at(
+        program: &MindmapProgram<'static, PathId, Ev>,
+        state: &mut MindmapState<PathId>,
+        at: Point,
+    ) -> Option<window::RedrawRequest> {
+        canvas::Program::update(
+            program,
+            state,
+            &iced::Event::Window(window::Event::RedrawRequested(Instant::now())),
+            POINTER_BOUNDS,
+            mouse::Cursor::Available(at),
+        )
+        .map(|action| action.into_inner().1)
+        .filter(|request| *request != window::RedrawRequest::Wait)
+    }
+
+    #[test]
+    fn the_hover_follows_the_node_under_a_still_pointer() {
+        // The node list changes under a still pointer: a folder gains
+        // children, and the node at the hovered index moves away.
+        let before = pointer_program(folder_graph(None), None);
+        let mut state = live_state();
+        settle(&before, &mut state, POINTER_BOUNDS);
+        let at = node_center(&before, DOWNLOADS);
+        let _ = move_at(&before, &mut state, at);
+        let downloads = node_idx(&before, DOWNLOADS);
+        assert_eq!(before.hover_highlight(&state), Some(downloads));
+        let mut after = pointer_program(notes_graph(), None);
+        after.autocenter = false;
+        settle(&after, &mut state, POINTER_BOUNDS);
+        let under = after.node_at(&state, at);
+        assert_ne!(under, Some(node_idx(&after, DOWNLOADS)), "it moved");
+        assert_eq!(
+            redraw_at(&after, &mut state, at),
+            None,
+            "the hover fix costs no extra frame"
+        );
+        assert_eq!(after.hover_highlight(&state), under);
+
+        // A zoom button zooms about the canvas center, not the pointer.
+        let mut program = pointer_program(notes_graph(), None);
+        program.autocenter = false;
+        let mut state = live_state();
+        settle(&program, &mut state, POINTER_BOUNDS);
+        let at = node_center(&program, DOWNLOADS);
+        let _ = move_at(&program, &mut state, at);
+        let _ = redraw_at(&program, &mut state, at);
+        for _ in 0..3 {
+            program.zoom_request = program.zoom_request.next(ZoomCommand::In);
+            let _ = redraw_at(&program, &mut state, at);
+            finish_zoom(&mut state);
+        }
+        let _ = redraw_at(&program, &mut state, at);
+        let under = program.node_at(&state, at);
+        assert_ne!(under, Some(node_idx(&program, DOWNLOADS)), "it moved");
+        assert_eq!(program.hover_highlight(&state), under);
+
+        // A drag hides the fill; its release redraws once to bring it back.
+        let _ = press_at(&program, &mut state, at);
+        let far = Point::new(at.x + 60.0, at.y);
+        let _ = move_at(&program, &mut state, far);
+        let released = canvas::Program::update(
+            &program,
+            &mut state,
+            &iced::Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)),
+            POINTER_BOUNDS,
+            mouse::Cursor::Available(far),
+        )
+        .map(|action| action.into_inner().1);
+        assert_eq!(released, Some(window::RedrawRequest::NextFrame));
     }
 
     #[test]
