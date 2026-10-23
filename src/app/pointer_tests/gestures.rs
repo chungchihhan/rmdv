@@ -121,6 +121,34 @@ fn reader_zoom_stops_at_the_keyboard_limit() {
 }
 
 #[test]
+fn a_reader_zoom_gesture_writes_prefs_once_after_it_ends() {
+    let mut app = long_doc_app();
+    let path = app
+        .quick_slots_persistence_path
+        .clone()
+        .expect("the test prefs path");
+    let _ = std::fs::remove_file(&path);
+    let start = app.font_scale;
+    for _ in 0..3 {
+        let _ = app.update(Message::ReaderZoomBy(1.0));
+        let _ = app.update(Message::ReaderZoomFlush);
+    }
+    assert!(app.font_scale > start);
+    assert!(
+        !path.exists(),
+        "no synchronous prefs write per flush during the gesture"
+    );
+
+    // The trailing write: a stale timer does nothing, the latest writes.
+    let latest = app.reader_zoom_save;
+    let _ = app.update(Message::ReaderZoomSave(latest - 1));
+    assert!(!path.exists(), "a timer of an earlier flush");
+    let _ = app.update(Message::ReaderZoomSave(latest));
+    assert_eq!(crate::prefs::load_from(&path).font_scale, app.font_scale);
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn pinch_over_the_reader_collects_font_steps() {
     let mut app = long_doc_app();
     let _ = app.update(Message::MindmapNativePinch(0.25));

@@ -143,7 +143,9 @@ impl App {
     }
 
     /// Apply the whole steps collected since the timer started, with one
-    /// rebuild, the same steps and limits as ⌘+ and ⌘−.
+    /// rebuild, the same steps and limits as ⌘+ and ⌘−. Prefs are written
+    /// once, [`GESTURE_GAP`] after the last flush that changed the font,
+    /// not on every flush: the write syncs the file to disk.
     pub(super) fn reader_zoom_flush(&mut self) -> Task<Message> {
         let steps = self.reader_zoom.take_steps();
         if steps == 0 || !self.reader_zoom_allowed() {
@@ -156,7 +158,21 @@ impl App {
             self.reader_zoom.clear();
             return Task::none();
         }
-        self.font_size_changed(format!("Font {:.0} px", size))
+        self.reader_zoom_save = self.reader_zoom_save.wrapping_add(1);
+        let seq = self.reader_zoom_save;
+        let save = Task::perform(async { tokio::time::sleep(GESTURE_GAP).await }, move |_| {
+            Message::ReaderZoomSave(seq)
+        });
+        Task::batch([self.font_size_changed(format!("Font {:.0} px", size)), save])
+    }
+
+    /// The trailing prefs write of a reader zoom gesture: only for the
+    /// latest flush, so a gesture writes once after it pauses.
+    pub(super) fn reader_zoom_save(&mut self, seq: u64) -> Task<Message> {
+        if seq == self.reader_zoom_save {
+            self.save_prefs();
+        }
+        Task::none()
     }
 }
 

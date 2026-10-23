@@ -398,6 +398,9 @@ pub struct App {
     pub image_zoom_pinch_log: f64,
     /// Pinch and ⌘+scroll over the reader, collected into font steps.
     pub(crate) reader_zoom: gestures::ZoomAccumulator,
+    /// The latest reader zoom flush that changed the font; its trailing
+    /// [`Message::ReaderZoomSave`] writes prefs.
+    reader_zoom_save: u64,
     /// The sharper raster of the diagram open in the viewer, and the last
     /// request id given out; see `zoom_raster`.
     image_zoom_raster: Option<ZoomRaster>,
@@ -690,6 +693,7 @@ impl Default for App {
             image_zoom_request: crate::mindmap::ZoomRequest::default(),
             image_zoom_pinch_log: 0.0,
             reader_zoom: gestures::ZoomAccumulator::default(),
+            reader_zoom_save: 0,
             image_zoom_raster: None,
             image_zoom_raster_seq: 0,
             mindmap_layout: std::cell::RefCell::new(None),
@@ -868,8 +872,9 @@ impl App {
     }
 
     /// `steps` ⌘+ (positive) or ⌘− (negative) steps at once, each clamped
-    /// as [`Self::adjust_font_scale`] clamps it, with one typography rebuild
-    /// and one prefs write.
+    /// as [`Self::adjust_font_scale`] clamps it, with one typography rebuild.
+    /// It does not write prefs: a gesture flushes many times, and the caller
+    /// writes once when it pauses.
     fn step_font_scale(&mut self, steps: i32) -> f32 {
         let factor = if steps > 0 { 1.1 } else { 1.0 / 1.1 };
         let mut scale = self.font_scale;
@@ -880,7 +885,6 @@ impl App {
             self.font_scale = scale;
             self.rebuild_typography();
             self.prefs.font_scale = self.font_scale;
-            self.save_prefs();
         }
         self.typography.body_size
     }

@@ -229,6 +229,9 @@ pub enum Message {
     ReaderZoomBy(f32),
     /// Apply the whole font steps the reader zoom gesture collected.
     ReaderZoomFlush,
+    /// The reader zoom gesture paused after flush `seq`: write the font
+    /// size to prefs once, unless a later flush came since.
+    ReaderZoomSave(u64),
     /// Settings → Line spacing.
     SetLineSpacing(crate::theme::LineSpacing),
     /// Settings → Toolbar: shown on hover or always.

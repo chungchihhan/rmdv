@@ -851,6 +851,7 @@ impl App {
             }
             Message::ReaderZoomBy(steps) => self.reader_zoom_by(steps),
             Message::ReaderZoomFlush => self.reader_zoom_flush(),
+            Message::ReaderZoomSave(seq) => self.reader_zoom_save(seq),
             Message::FontSizeReset => {
                 self.font_scale = 1.0;
                 self.rebuild_typography();
