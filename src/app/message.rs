@@ -94,12 +94,10 @@ pub enum Message {
     /// A right press anywhere in the window, in window coordinates. A
     /// context menu that a widget opens on the same press appears here.
     PointerRightPress(iced::Point),
-    /// Pointer position over the open context menu; a changed position is
-    /// real motion (see [`Message::ListPointerMoved`]).
-    ContextMenuPointer(iced::Point),
-    /// Pointer motion over a context menu item; it highlights the item only
-    /// after real pointer motion.
-    ContextMenuHover(usize),
+    /// Pointer motion over a context menu item, with the pointer's position
+    /// in the menu; it highlights the item only after real pointer motion
+    /// (a changed position, see [`Message::ListPointerMoved`]).
+    ContextMenuHover(usize, iced::Point),
     /// Up or Down in the open context menu: the next enabled item.
     ContextMenuMove(isize),
     /// Enter in the open context menu: choose the highlighted item.

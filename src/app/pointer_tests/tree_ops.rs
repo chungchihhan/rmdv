@@ -650,3 +650,20 @@ fn a_close_confirmation_ends_an_inline_rename() {
     assert_eq!(rename_value(&app), None, "the confirmation owns the keys");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_rename_field_under_a_menu_takes_no_typing_or_enter() {
+    let (mut app, dir) = tree_fixture("ops-rename-menu");
+    let beta = dir.join("beta.md");
+    let _ = app.update(Message::TreeRenameStart(beta.clone()));
+    let _ = app.update(Message::PointerRightPress(Point::new(40.0, 80.0)));
+    app.open_context_menu(vec![MenuEntry::item("Copy", Message::Noop)], None);
+
+    let _ = app.update(Message::TreeRenameInput("zz.md".into()));
+    let _ = app.update(Message::TreeRenameCommit);
+
+    assert_eq!(rename_value(&app), Some((beta.as_path(), "beta.md")));
+    assert!(beta.is_file());
+    assert!(app.context_menu.is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}

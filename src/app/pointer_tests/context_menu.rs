@@ -285,6 +285,37 @@ fn hover_highlights_an_item_only_after_the_pointer_moves() {
 }
 
 #[test]
+fn moves_in_the_highlighted_item_and_the_wheel_publish_nothing() {
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    open_at(&mut app, &mut ui, Point::new(400.0, 200.0));
+    let first = center(ui.text_bounds(&app, "Show Outline").expect("first item"));
+    for x in [first.x, first.x + 3.0] {
+        let messages = ui.move_to(&app, Point::new(x, first.y)).0;
+        apply(&mut app, messages);
+    }
+    assert_eq!(
+        app.context_menu.as_ref().and_then(|m| m.highlighted),
+        Some(0)
+    );
+
+    // Each message rebuilds the whole view; the highlighted item stays quiet.
+    let messages = ui.move_to(&app, Point::new(first.x + 6.0, first.y)).0;
+    assert!(messages.is_empty(), "{messages:?}");
+    let wheel = || {
+        vec![Event::Mouse(mouse::Event::WheelScrolled {
+            delta: mouse::ScrollDelta::Pixels { x: 0.0, y: -120.0 },
+        })]
+    };
+    let menu = center(menu_bounds(&mut ui, &app));
+    let over_menu = ui.send(&app, menu, wheel()).0;
+    assert!(over_menu.is_empty(), "{over_menu:?}");
+    let over_backdrop = ui.send(&app, Point::new(900.0, 600.0), wheel()).0;
+    assert!(over_backdrop.is_empty(), "{over_backdrop:?}");
+    assert!(app.context_menu.is_some());
+}
+
+#[test]
 fn a_context_menu_closes_on_unfocus_resize_and_view_changes() {
     let mut app = long_doc_app();
     let reopen = |app: &mut App| {

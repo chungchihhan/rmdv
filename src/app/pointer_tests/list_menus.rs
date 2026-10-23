@@ -248,3 +248,43 @@ fn a_vault_hit_menu_opens_the_hit_it_was_opened_on() {
     assert_eq!(app.pending_nav.as_ref().and_then(|nav| nav.line), Some(9));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Esc, as the keyboard reports it.
+pub(super) fn escape() -> Event {
+    Event::Keyboard(iced::keyboard::Event::KeyPressed {
+        key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+        modified_key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+        physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Escape),
+        location: iced::keyboard::Location::Standard,
+        modifiers: iced::keyboard::Modifiers::default(),
+        text: None,
+        repeat: false,
+    })
+}
+
+#[test]
+fn the_find_field_under_a_menu_takes_no_typing_and_keeps_focus() {
+    const FIND: &str = "search-input";
+    let mut app = long_doc_app();
+    let mut ui = PointerUi::new();
+    super::group2::apply_ui(&mut app, &mut ui, vec![Message::ToggleSearch]);
+    assert_eq!(ui.focused(&app, FIND), Some(true));
+    let _ = right_press(&mut app, &mut ui, Point::new(640.0, 400.0));
+    assert!(app.context_menu.is_some(), "the reader menu opens");
+
+    let typed = ui.type_char(&app, 'x');
+    assert!(
+        !has(&typed, |m| matches!(m, Message::QueryChanged(_))),
+        "the keys belong to the menu: {typed:?}"
+    );
+    let _ = app.update(Message::QueryChanged("x".into()));
+    assert_eq!(app.query, "", "a query change under the menu does nothing");
+
+    // Esc closes the menu (the key subscription sends the close); the field
+    // underneath keeps its focus.
+    let messages = ui.send(&app, Point::new(640.0, 400.0), vec![escape()]).0;
+    apply(&mut app, messages);
+    let _ = app.update(Message::ContextMenuClose);
+    assert!(app.context_menu.is_none());
+    assert_eq!(ui.focused(&app, FIND), Some(true));
+}

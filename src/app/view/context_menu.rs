@@ -1,7 +1,9 @@
 //! The context menu layer (MDV-048 P6): a clear backdrop that closes the
 //! menu on any press outside it, and the menu itself at the pointer.
 
+use super::menu_sink::MenuSink;
 use super::*;
+use iced::Vector;
 
 /// Container id of the open context menu's panel.
 pub(in crate::app) const CONTEXT_MENU_ID: &str = "context-menu";
@@ -9,6 +11,8 @@ pub(in crate::app) const CONTEXT_MENU_ID: &str = "context-menu";
 /// The open menu over the whole window. A press outside the menu (left,
 /// right, or middle) closes it and goes no further; the wheel, hover, and
 /// cursor shape stop at the backdrop too, as while a native menu tracks.
+/// Keys stop here as well: the key subscription gives them to the menu,
+/// and a field focused underneath must not also take them.
 pub(in crate::app) fn context_menu_layer<'a>(
     menu: &'a ContextMenu,
     pal: Palette,
@@ -17,8 +21,7 @@ pub(in crate::app) fn context_menu_layer<'a>(
         .interaction(iced::mouse::Interaction::Idle)
         .on_press(Message::ContextMenuClose)
         .on_right_press(Message::ContextMenuClose)
-        .on_middle_press(Message::ContextMenuClose)
-        .on_scroll(|_| Message::Noop);
+        .on_middle_press(Message::ContextMenuClose);
     // Laid out against the window, so the menu can flip and stay inside it.
     let placed = iced::widget::responsive(move |window| {
         let origin = context_menu_origin(menu.at, menu.size(), window);
@@ -27,11 +30,14 @@ pub(in crate::app) fn context_menu_layer<'a>(
             .y(origin.y)
             .into()
     });
-    stack![backdrop, placed].into()
+    MenuSink::new(stack![backdrop, placed]).into()
 }
 
 fn context_menu_panel<'a>(menu: &'a ContextMenu, pal: Palette) -> Element<'a, Message> {
     let mut list = Column::new().width(Length::Fill);
+    // Each item's top edge in the panel, so its hover reports the pointer in
+    // one frame for the whole menu.
+    let mut top = context_menu::MENU_PAD;
     for (index, entry) in menu.entries.iter().enumerate() {
         list = list.push(match entry {
             MenuEntry::Item {
@@ -40,6 +46,7 @@ fn context_menu_panel<'a>(menu: &'a ContextMenu, pal: Palette) -> Element<'a, Me
                 message,
             } => menu_item(
                 index,
+                Vector::new(context_menu::MENU_PAD, top),
                 label,
                 *shortcut,
                 message.is_some(),
@@ -48,6 +55,7 @@ fn context_menu_panel<'a>(menu: &'a ContextMenu, pal: Palette) -> Element<'a, Me
             ),
             MenuEntry::Separator => menu_separator(pal),
         });
+        top += entry.height();
     }
     let panel = container(list)
         .id(iced::widget::Id::new(CONTEXT_MENU_ID))
@@ -63,20 +71,14 @@ fn context_menu_panel<'a>(menu: &'a ContextMenu, pal: Palette) -> Element<'a, Me
             shadow: theme::shadow::MENU,
             ..Default::default()
         });
-    // The tracker reports pointer motion before the items' hovers, so a
-    // still pointer under a freshly opened menu highlights nothing.
-    let tracked = stack![
-        panel,
-        mouse_area(Space::new().width(Length::Fill).height(Length::Fill))
-            .on_move(Message::ContextMenuPointer),
-    ];
     // Opaque: a press on the menu (a disabled item, the padding) never
-    // reaches the backdrop; the wheel stops here too.
-    iced::widget::opaque(mouse_area(tracked).on_scroll(|_| Message::Noop))
+    // reaches the backdrop.
+    iced::widget::opaque(panel)
 }
 
 fn menu_item<'a>(
     index: usize,
+    offset: Vector,
     label: &'a str,
     shortcut: Option<&'static str>,
     enabled: bool,
@@ -120,10 +122,18 @@ fn menu_item<'a>(
             ..Default::default()
         })
         .on_press_maybe(enabled.then_some(Message::ContextMenuChoose(index)));
-    if enabled {
-        hover_row(item, highlighted, Message::ContextMenuHover(index))
+    if !enabled {
+        return item.into();
+    }
+    // Always a MouseArea, so a highlight change keeps the item's state. The
+    // highlighted item reports no moves: they would change nothing, and each
+    // message rebuilds the whole view.
+    let area = mouse_area(item);
+    if highlighted {
+        area.into()
     } else {
-        item.into()
+        area.on_move(move |at| Message::ContextMenuHover(index, at + offset))
+            .into()
     }
 }
 

@@ -141,3 +141,24 @@ fn keys_typed_while_the_editor_menu_is_open_do_not_edit() {
     let _ = app.update(Message::EditorAction(Action::Edit(Edit::Enter)));
     assert_eq!(editor_text(&app), original);
 }
+
+#[test]
+fn esc_closes_the_editor_menu_and_the_editor_keeps_focus() {
+    let (mut app, mut ui) = editing();
+    let _ = right_press(&mut app, &mut ui, Point::new(640.0, 400.0));
+    assert!(app.context_menu.is_some());
+
+    let messages = ui
+        .send(
+            &app,
+            Point::new(640.0, 400.0),
+            vec![super::list_menus::escape()],
+        )
+        .0;
+    apply(&mut app, messages);
+    // What the key subscription sends for Esc.
+    let _ = app.update(Message::ContextMenuClose);
+
+    assert!(app.context_menu.is_none());
+    assert_eq!(ui.focused(&app, EDITOR), Some(true), "typing still goes in");
+}

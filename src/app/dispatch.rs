@@ -91,8 +91,10 @@ impl App {
         {
             return Task::none();
         }
-        // So can the finder's and the vault page's query fields: while a
-        // context menu is open, typing and Enter belong to the menu.
+        // So can the finder's, the vault page's, and the find bar's query
+        // fields, and a rename field: while a context menu is open, typing
+        // and Enter belong to the menu. The menu layer stops the keys; this
+        // drops what a field would still send.
         if self.context_menu.is_some()
             && matches!(
                 msg,
@@ -100,6 +102,9 @@ impl App {
                     | Message::OverlayConfirm
                     | Message::VaultQueryChanged(_)
                     | Message::VaultEnter
+                    | Message::QueryChanged(_)
+                    | Message::TreeRenameInput(_)
+                    | Message::TreeRenameCommit
             )
         {
             return Task::none();
@@ -4185,8 +4190,7 @@ impl App {
             Message::Noop => Task::none(),
             // Handled by `context_menu_message` above.
             Message::PointerRightPress(_)
-            | Message::ContextMenuPointer(_)
-            | Message::ContextMenuHover(_)
+            | Message::ContextMenuHover(..)
             | Message::ContextMenuMove(_)
             | Message::ContextMenuActivate
             | Message::ContextMenuChoose(_)

@@ -6,6 +6,7 @@ use super::*;
 mod chrome;
 mod context_menu;
 mod edge_peek;
+mod menu_sink;
 mod overlays;
 mod press_outside;
 mod press_watch;

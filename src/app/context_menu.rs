@@ -89,7 +89,8 @@ pub(super) struct ContextMenu {
     /// The highlighted item: by the arrow keys, or by the pointer after it
     /// moves.
     pub(super) highlighted: Option<usize>,
-    /// Pointer motion over the menu, so a still pointer never highlights.
+    /// Pointer motion over the menu's items, so a still pointer never
+    /// highlights.
     pub(super) pointer: ListPointer,
     /// The file tree row the menu acts on; the row shows a ring while the
     /// menu is open. `None` for the workspace root and other surfaces.
@@ -240,14 +241,11 @@ impl App {
                 self.reader_menu_target = None;
                 Task::none()
             }
-            Message::ContextMenuPointer(at) => {
+            Message::ContextMenuHover(index, at) => {
                 if let Some(menu) = self.context_menu.as_mut() {
+                    // The first report is where the pointer rests: a still
+                    // pointer under a freshly opened menu highlights nothing.
                     menu.pointer.moved(*at);
-                }
-                Task::none()
-            }
-            Message::ContextMenuHover(index) => {
-                if let Some(menu) = self.context_menu.as_mut() {
                     let enabled = menu.entries.get(*index).is_some_and(MenuEntry::enabled);
                     if menu.pointer.take_motion() && enabled {
                         menu.highlighted = Some(*index);
