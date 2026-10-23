@@ -129,7 +129,8 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
 - P8: the main window's frame (size, position, zoomed) is saved in prefs
   once it has been still for 500 ms after a move or resize, and on close;
   full screen is never saved or restored (a zoomed window keeps its normal
-  frame under the zoom). On launch, macOS reads the screens' visible areas
+  frame under the zoom; with no normal frame saved yet it saves the launch
+  size, centered, so the zoomed size never becomes the normal one). On launch, macOS reads the screens' visible areas
   from AppKit before the window opens (it answers before `NSApplication`
   exists) and puts the window fully on the screen it overlaps most, or the
   nearest one, at least 640×420. Other platforms have no screen list

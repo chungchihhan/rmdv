@@ -162,14 +162,32 @@ fn a_maximized_window_keeps_its_normal_frame_under_the_zoom() {
 }
 
 #[test]
-fn a_first_zoomed_frame_is_saved_as_it_is() {
-    // No normal frame to keep: the zoomed frame is the saved one.
+fn a_first_zoomed_frame_keeps_the_launch_size_as_the_normal_frame() {
+    // No normal frame saved yet: the zoomed size must not become it, or
+    // the next launch un-zooms to a screen-sized window. The window opens
+    // zoomed again and un-zooms to the launch size, centered.
+    let launch = window_settings(false).size;
+    let normal = WindowFrame {
+        width: launch.width,
+        height: launch.height,
+        x: None,
+        y: None,
+        maximized: true,
+    };
     let (mut app, path) = fresh_app();
     let id = Id::unique();
     let _ = app.update(Message::WindowMoved(id, Point::new(0.0, 34.0)));
     let _ = app.update(Message::WindowResized(id, Size::new(1470.0, 922.0)));
     settle(&mut app, id, false, true);
-    assert_eq!(saved(&path), Some(frame(0.0, 34.0, 1470.0, 922.0, true)));
+    assert_eq!(saved(&path), Some(normal));
+
+    // A close while zoomed, before any normal frame, saves the same.
+    let _ = std::fs::remove_file(&path);
+    let (mut app, path) = fresh_app();
+    let _ = app.update(Message::WindowResized(id, Size::new(1470.0, 922.0)));
+    app.window_maximized = true;
+    let _ = app.update(Message::WindowCloseRequested(id));
+    assert_eq!(saved(&path), Some(normal));
     let _ = std::fs::remove_file(&path);
 }
 

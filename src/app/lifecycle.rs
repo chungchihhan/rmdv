@@ -126,8 +126,10 @@ impl App {
     }
 
     /// The frame to save now, or `None` to keep the saved one. Full screen
-    /// and a minimized (zero-size) window keep it; a maximized window keeps the normal frame under the zoom
-    /// and only marks it maximized.
+    /// and a minimized (zero-size) window keep it; a maximized window keeps
+    /// the normal frame under the zoom and only marks it maximized. With no
+    /// normal frame saved yet, a maximized window saves the launch size,
+    /// centered: its zoomed size must not become the normal frame.
     fn current_window_frame(
         &self,
         fullscreen: bool,
@@ -137,12 +139,20 @@ impl App {
             return None;
         }
         if maximized {
-            if let Some(saved) = self.prefs.window {
-                return Some(crate::window_frame::WindowFrame {
+            let launch = window_settings(false).size;
+            return Some(match self.prefs.window {
+                Some(saved) => crate::window_frame::WindowFrame {
                     maximized: true,
                     ..saved
-                });
-            }
+                },
+                None => crate::window_frame::WindowFrame {
+                    width: launch.width,
+                    height: launch.height,
+                    x: None,
+                    y: None,
+                    maximized: true,
+                },
+            });
         }
         // A minimized window on Windows reports 0×0 at -32000, -32000.
         let size = self
