@@ -276,6 +276,12 @@ pub enum Message {
     /// The hide delay after the pointer left the toolbar band ran out; the
     /// number is the hover generation that started it.
     ToolbarHideAfter(u64),
+    /// The pointer entered (true) or left (false) the sidebar peek: the band
+    /// at the left window edge, or the peeking sidebar itself.
+    SidebarPeek(bool),
+    /// The hide delay after the pointer left the sidebar peek ran out; the
+    /// number is the peek generation that started it.
+    SidebarPeekHideAfter(u64),
     /// A toolbar segment: show this view.
     ToolbarView(ToolbarView),
     /// A press on the toolbar's blank space or the sidebar header: move the

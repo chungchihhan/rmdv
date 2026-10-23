@@ -4,6 +4,7 @@
 use super::*;
 
 mod chrome;
+mod edge_peek;
 mod overlays;
 mod press_watch;
 mod settings;
@@ -14,6 +15,7 @@ mod vault_search;
 mod widgets;
 
 pub(super) use chrome::*;
+pub(super) use edge_peek::EdgePeek;
 pub(super) use overlays::*;
 pub(super) use press_watch::PressWatch;
 pub(super) use settings::*;

@@ -119,6 +119,7 @@ mod paths;
 mod preview_worker;
 mod scroll_tasks;
 mod settings;
+mod sidebar_peek;
 mod slots;
 mod toolbar;
 mod types;
@@ -322,6 +323,14 @@ pub struct App {
     toolbar_hover_generation: u64,
     /// Where the hover band last sat in the widget tree (`App::toolbar_band_slot`).
     toolbar_band_at: Option<ToolbarBandSlot>,
+    /// The hidden sidebar shows over the content, because the pointer came
+    /// to the left window edge (`App::sidebar_peek_hover`).
+    sidebar_peek: bool,
+    /// The pointer is over the peek.
+    sidebar_peek_hovered: bool,
+    /// Bumped on every peek enter and leave; a hide delay that started under
+    /// an older generation does nothing.
+    sidebar_peek_generation: u64,
     /// Last document text known to have been persisted successfully. `source`
     /// may contain an unsaved Zen edit after switching back to rendered mode.
     pub saved_source: String,
@@ -620,6 +629,9 @@ impl Default for App {
             toolbar_revealed: false,
             toolbar_hover_generation: 0,
             toolbar_band_at: None,
+            sidebar_peek: false,
+            sidebar_peek_hovered: false,
+            sidebar_peek_generation: 0,
             saved_source: String::new(),
             dirty: false,
             edit_history: crate::history::SnapshotStack::default(),
@@ -4071,12 +4083,26 @@ impl App {
             ),
             None => Space::new().into(),
         };
+        // The hidden sidebar peeks over the content from the left edge. The
+        // layer is always built, so its band keeps its state (a held button)
+        // across rebuilds.
+        let peek_allowed = self.sidebar_peek_allowed();
+        let peek: Element<'_, Message> = if self.sidebar_peek && peek_allowed {
+            sidebar_peek_view(self, self.palette)
+        } else {
+            Space::new().into()
+        };
+        let peek_layer: Element<'_, Message> = EdgePeek::new(peek)
+            .on_enter((peek_allowed && !self.sidebar_peek).then_some(Message::SidebarPeek(true)))
+            .top(TOOLBAR_BAND_H)
+            .into();
         let base: Element<'_, Message> = iced::widget::stack![
             Element::from(main),
             footer_layer,
             kb_button_layer,
             link_pill_layer,
             quick_slots_layer,
+            peek_layer,
             overlay_layer
         ]
         .into();

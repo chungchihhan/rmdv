@@ -269,7 +269,7 @@ fn hover_count(messages: &[Message], entered: bool) -> usize {
 }
 
 /// Waits for the messages a task yields, timers included.
-fn wait_outputs(task: Task<Message>) -> Vec<Message> {
+pub(super) fn wait_outputs(task: Task<Message>) -> Vec<Message> {
     use iced::futures::StreamExt;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_time()

@@ -17,6 +17,7 @@ impl App {
         // ⌘Q reads this from AppKit, outside the update loop.
         crate::macos_quit::set_unsaved(self.dirty);
         self.sync_toolbar_band();
+        self.sync_sidebar_peek();
         if let Some(glass) = self.sync_glass() {
             task = Task::batch([task, glass]);
         }
@@ -861,6 +862,11 @@ impl App {
                 if generation == self.toolbar_hover_generation && !self.toolbar_hovered {
                     self.toolbar_revealed = false;
                 }
+                Task::none()
+            }
+            Message::SidebarPeek(entered) => self.sidebar_peek_hover(entered),
+            Message::SidebarPeekHideAfter(generation) => {
+                self.sidebar_peek_hide_after(generation);
                 Task::none()
             }
             Message::ToolbarView(target) => self.toolbar_view(target),

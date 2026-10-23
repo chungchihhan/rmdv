@@ -1619,3 +1619,7 @@ mod history;
 // --- P3 group 2: links --------------------------------------------------------
 
 mod links;
+
+// --- Polish: sidebar peek at the left window edge --------------------------
+
+mod sidebar_peek;
