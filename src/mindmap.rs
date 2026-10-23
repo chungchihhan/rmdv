@@ -142,6 +142,28 @@ fn fit_label_at(s: &str, max_width: f32, size: f32) -> (String, bool) {
     (acc, true)
 }
 
+/// Like [`fit_label_at`], but drops from the start and keeps the end, so a
+/// long path keeps its file name.
+fn fit_tail_at(s: &str, max_width: f32, size: f32) -> (String, bool) {
+    if text_width_at(s, size) <= max_width {
+        return (s.to_string(), false);
+    }
+    let budget = (max_width - glyph_advance_at('…', size)).max(0.0);
+    let mut kept = Vec::new();
+    let mut w = 0.0;
+    for c in s.chars().rev() {
+        let adv = glyph_advance_at(c, size);
+        if w + adv > budget {
+            break;
+        }
+        kept.push(c);
+        w += adv;
+    }
+    let mut out = String::from('…');
+    out.extend(kept.into_iter().rev());
+    (out, true)
+}
+
 /// Smallest label size worth drawing; below it the text is hidden.
 const LABEL_FONT_MIN: f32 = 8.0;
 
@@ -450,6 +472,10 @@ pub struct MindmapProgram<'a, Id, Message> {
     /// A double click on a node: what Enter does there. `None` makes a
     /// double click two single clicks.
     pub on_activate: Option<Box<dyn Fn(Id) -> Message + 'a>>,
+    /// Text for the hover tooltip of any node, for example a Full Mindmap
+    /// node's full path. Without it the tooltip shows only a truncated
+    /// label in full.
+    pub hover_text: Option<Box<dyn Fn(&Id) -> Option<String> + 'a>>,
     pub on_deselect: Message,
 }
 
@@ -965,6 +991,28 @@ where
         }
     }
 
+    /// The node drawn with the hover fill.
+    /// Only clickable nodes get it, and not while a drag pans the canvas.
+    fn hover_highlight(&self, state: &MindmapState<Id>) -> Option<usize> {
+        if state.drag_origin.is_some() && state.drag_moved {
+            return None;
+        }
+        state
+            .hovered_idx
+            .filter(|&i| self.nodes.get(i).is_some_and(|n| n.id.is_some()))
+    }
+
+    /// The hover tooltip for node `idx`: the navigator's `hover_text`, or
+    /// else a truncated label in full.
+    fn tooltip_text(&self, idx: usize) -> Option<String> {
+        let n = self.nodes.get(idx)?;
+        self.hover_text
+            .as_ref()
+            .zip(n.id.as_ref())
+            .and_then(|(text, id)| text(id))
+            .or_else(|| (n.truncated && !n.full_label.is_empty()).then(|| n.full_label.clone()))
+    }
+
     /// The node whose box contains the canvas point `pos`, at its rendered
     /// (animated) position.
     fn node_at(&self, state: &MindmapState<Id>, pos: Point) -> Option<usize> {
@@ -1002,6 +1050,10 @@ where
     fn hit(&self, state: &MindmapState<Id>, pos: Point) -> Option<(usize, bool)> {
         if let Some(i) = self.node_at(state, pos) {
             return Some((i, self.on_chevron(state, i, pos)));
+        }
+        // At this zoom and closer, every chevron zone lies inside its node.
+        if zoom_of(state) * CHEVRON_HIT >= CHEVRON_HIT_MIN {
+            return None;
         }
         (0..self.nodes.len())
             .find(|&i| self.on_chevron(state, i, pos))
@@ -1443,6 +1495,16 @@ where
         // Nodes.
         frame.fill(&surface_backgrounds, surface_fill);
         frame.fill(&accent_backgrounds, accent_fill);
+        // One extra path for the node under the pointer. Hover changes
+        // request a single redraw; a still pointer requests none.
+        if let Some(i) = self.hover_highlight(state) {
+            let (nx, ny) = positions[i];
+            let (sx, sy) = (proj_x(nx), proj_y(ny));
+            if visible(sx, sy) {
+                let hover_bg = Path::new(|b| append_rounded_rect(b, sx, sy, s_w, s_h, radius));
+                frame.fill(&hover_bg, self.palette.hover());
+            }
+        }
         frame.stroke(&subtle_borders, subtle_border_stroke);
         frame.stroke(&accent_borders, accent_border_stroke);
 
@@ -1513,45 +1575,46 @@ where
         frame.stroke(&folded_chevrons, chevron_stroke(self.palette.accent));
         frame.stroke(&open_chevrons, chevron_stroke(self.palette.muted));
 
-        // Tooltip: show full label only when hovering a truncated node.
-        if let Some(idx) = state.hovered_idx {
-            if let Some(n) = self.nodes.get(idx) {
-                if n.truncated && !n.full_label.is_empty() {
-                    let (nx, ny) = self.pos(state, idx);
-                    let nsx = proj_x(nx);
-                    let nsy = proj_y(ny);
-                    let tip_text = n.full_label.clone();
-                    let tip_pad_x = 8.0;
-                    let tip_pad_y = 5.0;
-                    let tip_w = (text_width_at(&tip_text, FONT_SIZE) + tip_pad_x * 2.0)
-                        .min(bounds.width - 12.0);
-                    let tip_h = FONT_SIZE + tip_pad_y * 2.0;
-                    let mut tip_x = nsx + s_w / 2.0 - tip_w / 2.0;
-                    let mut tip_y = nsy - tip_h - 6.0;
-                    if tip_y < 4.0 {
-                        tip_y = nsy + s_h + 6.0;
-                    }
-                    tip_x = tip_x.clamp(4.0, (bounds.width - tip_w - 4.0).max(4.0));
-                    let tip_radius = 6.0_f32.min(tip_h * 0.5);
-                    let tip_bg = Path::new(|b| {
-                        append_rounded_rect(b, tip_x, tip_y, tip_w, tip_h, tip_radius);
-                    });
-                    frame.fill(&tip_bg, Fill::from(self.palette.surface));
-                    let tip_border = Stroke::default()
-                        .with_color(self.palette.rule)
-                        .with_width(1.0);
-                    frame.stroke(&tip_bg, tip_border);
-                    frame.fill_text(Text {
-                        content: tip_text,
-                        position: Point::new(tip_x + tip_w / 2.0, tip_y + tip_h / 2.0),
-                        color: self.palette.fg,
-                        size: iced::Pixels(FONT_SIZE),
-                        align_x: iced::alignment::Horizontal::Center.into(),
-                        align_y: iced::alignment::Vertical::Center.into(),
-                        ..Text::default()
-                    });
-                }
+        // Tooltip: the navigator's hover text, or a truncated label in full.
+        let tooltip = state
+            .hovered_idx
+            .and_then(|idx| self.tooltip_text(idx).map(|text| (idx, text)));
+        if let Some((idx, tip_text)) = tooltip {
+            let (nx, ny) = self.pos(state, idx);
+            let nsx = proj_x(nx);
+            let nsy = proj_y(ny);
+            let tip_pad_x = 8.0;
+            let tip_pad_y = 5.0;
+            // A path wider than the canvas keeps its end.
+            let max_text_w = (bounds.width - 12.0 - tip_pad_x * 2.0).max(1.0);
+            let (tip_text, _) = fit_tail_at(&tip_text, max_text_w, FONT_SIZE);
+            let tip_w =
+                (text_width_at(&tip_text, FONT_SIZE) + tip_pad_x * 2.0).min(bounds.width - 12.0);
+            let tip_h = FONT_SIZE + tip_pad_y * 2.0;
+            let mut tip_x = nsx + s_w / 2.0 - tip_w / 2.0;
+            let mut tip_y = nsy - tip_h - 6.0;
+            if tip_y < 4.0 {
+                tip_y = nsy + s_h + 6.0;
             }
+            tip_x = tip_x.clamp(4.0, (bounds.width - tip_w - 4.0).max(4.0));
+            let tip_radius = crate::theme::radius::SM.min(tip_h * 0.5);
+            let tip_bg = Path::new(|b| {
+                append_rounded_rect(b, tip_x, tip_y, tip_w, tip_h, tip_radius);
+            });
+            frame.fill(&tip_bg, Fill::from(self.palette.surface));
+            let tip_border = Stroke::default()
+                .with_color(self.palette.rule)
+                .with_width(1.0);
+            frame.stroke(&tip_bg, tip_border);
+            frame.fill_text(Text {
+                content: tip_text,
+                position: Point::new(tip_x + tip_w / 2.0, tip_y + tip_h / 2.0),
+                color: self.palette.fg,
+                size: iced::Pixels(FONT_SIZE),
+                align_x: iced::alignment::Horizontal::Center.into(),
+                align_y: iced::alignment::Vertical::Center.into(),
+                ..Text::default()
+            });
         }
 
         let _ = self.content_size;
@@ -1720,6 +1783,7 @@ mod tests {
             on_toggle: Box::new(|_| ()),
             on_select: Box::new(|_| ()),
             on_activate: None,
+            hover_text: None,
             on_deselect: (),
         }
     }
@@ -2100,6 +2164,7 @@ mod tests {
                 on_toggle: Box::new(|_| ()),
                 on_select: Box::new(|_| ()),
                 on_activate: None,
+                hover_text: None,
                 on_deselect: (),
             }
         };
@@ -2491,6 +2556,7 @@ mod tests {
             on_toggle: Box::new(Ev::Toggle),
             on_select: Box::new(Ev::Select),
             on_activate: Some(Box::new(Ev::Activate)),
+            hover_text: None,
             on_deselect: Ev::Deselect,
         }
     }
@@ -2897,6 +2963,83 @@ mod tests {
             click_at_time(&program, &mut state, leaf, t4 + ms(100)),
             Some(Ev::Select(downloads))
         );
+    }
+
+    #[test]
+    fn hover_fills_a_clickable_node_and_a_still_pointer_redraws_nothing() {
+        let program = pointer_program(notes_graph(), None);
+        let mut state = live_state();
+        let leaf = node_center(&program, DOWNLOADS);
+        let hover = |state: &mut MindmapState<PathId>, at: Point| {
+            canvas::Program::update(
+                &program,
+                state,
+                &iced::Event::Mouse(mouse::Event::CursorMoved { position: at }),
+                POINTER_BOUNDS,
+                mouse::Cursor::Available(at),
+            )
+            .map(|action| action.into_inner().1)
+        };
+
+        assert_eq!(
+            hover(&mut state, leaf),
+            Some(window::RedrawRequest::NextFrame),
+            "entering a node redraws once"
+        );
+        assert_eq!(
+            program.hover_highlight(&state),
+            Some(node_idx(&program, DOWNLOADS))
+        );
+        let inside = Point::new(leaf.x + 30.0, leaf.y);
+        assert_eq!(
+            hover(&mut state, inside),
+            None,
+            "moving within it: no redraw"
+        );
+        assert_eq!(
+            hover(&mut state, inside),
+            None,
+            "a still pointer: no redraw"
+        );
+
+        // Empty canvas and the document's unselectable root get no fill.
+        assert_eq!(
+            hover(&mut state, Point::new(5.0, 5.0)),
+            Some(window::RedrawRequest::NextFrame)
+        );
+        assert_eq!(program.hover_highlight(&state), None);
+        let mut doc_nodes = notes_graph();
+        doc_nodes[0].id = None;
+        let doc = pointer_program(doc_nodes, None);
+        let mut doc_state = live_state();
+        let root = Point::new(doc.nodes[0].x + 20.0, doc.nodes[0].y + 10.0);
+        let _ = move_at(&doc, &mut doc_state, root);
+        assert_eq!(doc.hover_highlight(&doc_state), None);
+
+        // A drag shows the grab, not a hover fill.
+        let _ = move_at(&program, &mut state, leaf);
+        let _ = press_at(&program, &mut state, leaf);
+        let _ = move_at(&program, &mut state, Point::new(leaf.x + 30.0, leaf.y));
+        assert_eq!(program.hover_highlight(&state), None);
+    }
+
+    #[test]
+    fn a_hover_text_tooltip_shows_for_every_node() {
+        let mut program = pointer_program(notes_graph(), None);
+        let downloads = node_idx(&program, DOWNLOADS);
+        assert_eq!(
+            program.tooltip_text(downloads),
+            None,
+            "short labels need none"
+        );
+        program.hover_text = Some(Box::new(|id: &PathId| Some(id.0.clone())));
+        assert_eq!(program.tooltip_text(downloads).as_deref(), Some(DOWNLOADS));
+
+        // A path too wide for the canvas keeps its end, where the name is.
+        let long = format!("/{}/notes.md", "very-long-folder".repeat(20));
+        let (fitted, cut) = fit_tail_at(&long, 300.0, FONT_SIZE);
+        assert!(cut && fitted.starts_with('…') && fitted.ends_with("/notes.md"));
+        assert!(text_width_at(&fitted, FONT_SIZE) <= 300.0);
     }
 
     #[test]

@@ -93,6 +93,14 @@ impl App {
             on_toggle: Box::new(Message::FullMindmapToggleNode),
             on_select: Box::new(Message::FullMindmapPointerSelect),
             on_activate: Some(Box::new(Message::FullMindmapActivateNode)),
+            // The tooltip names where a node is on disk; status rows
+            // ("More…", "Loading…") fall back to their label.
+            hover_text: Some(Box::new(|id: &WorkspaceNodeId| match id {
+                WorkspaceNodeId::Root(path)
+                | WorkspaceNodeId::Folder(path)
+                | WorkspaceNodeId::File(path) => Some(path.display().to_string()),
+                WorkspaceNodeId::Status(..) => None,
+            })),
             on_deselect: Message::FullMindmapDeselect,
         };
         let canvas: Element<'_, Message> = iced::widget::canvas(program)

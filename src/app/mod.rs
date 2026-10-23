@@ -3637,6 +3637,7 @@ impl App {
                     on_select: Box::new(Message::MindmapSelectLeaf),
                     // The document mind map has no Enter action to repeat.
                     on_activate: None,
+                    hover_text: None,
                     on_deselect: Message::MindmapDeselect,
                 };
                 let canvas_el: Element<'_, Message> = iced::widget::canvas(program)
