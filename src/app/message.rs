@@ -270,6 +270,8 @@ pub enum Message {
     MindmapPanelDragStart(f32),
     MindmapPanelDragMove(f32),
     MindmapPanelDragEnd,
+    /// A double click on the panel divider: back to the default width.
+    MindmapPanelResetWidth,
     ToggleMindmapAutocenter,
     ToggleMindmapPanel,
     MindmapCyclePanelWidth,
@@ -315,6 +317,7 @@ pub enum Message {
     FullMindmapPanelDragStart(f32),
     FullMindmapPanelDragMove(f32),
     FullMindmapPanelDragEnd,
+    FullMindmapPanelResetWidth,
     FullMindmapFileLoaded {
         request: PendingFullMindmapOpen,
         result: Result<(PathBuf, String), String>,

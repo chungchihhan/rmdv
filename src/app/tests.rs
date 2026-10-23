@@ -5908,8 +5908,14 @@ fn mindmap_panel_width_keeps_minimum_on_narrow_windows() {
 
 #[test]
 fn mindmap_panel_drag_has_no_upper_cap() {
-    assert_eq!(mindmap_panel_width_for_drag(800.0, 400.0, 0.0), 1200.0);
-    assert_eq!(mindmap_panel_width_for_drag(400.0, 400.0, 600.0), 240.0);
+    assert_eq!(
+        mindmap_panel_width_for_drag(800.0, 400.0, 0.0, None),
+        1200.0
+    );
+    assert_eq!(
+        mindmap_panel_width_for_drag(400.0, 400.0, 600.0, None),
+        240.0
+    );
 }
 
 #[test]

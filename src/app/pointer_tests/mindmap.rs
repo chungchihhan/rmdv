@@ -447,3 +447,67 @@ fn a_full_mindmap_preview_link_resolves_from_the_previewed_file() {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&dir2);
 }
+
+#[test]
+fn dragging_a_mind_map_panel_divider_stops_at_a_max_width() {
+    let (mut app, dir) = document_mindmap_app("p4-divider-max");
+    app.window_size = Some(iced::Size::new(1280.0, 800.0));
+    let _ = app.update(Message::MindmapPanelDragStart(0.0));
+    let _ = app.update(Message::MindmapPanelDragMove(1000.0));
+    let _ = app.update(Message::MindmapPanelDragMove(-2000.0));
+    let _ = app.update(Message::MindmapPanelDragEnd);
+    assert!(
+        app.mindmap_panel_width <= 1280.0 * MIND_PANEL_MAX_FRAC + 0.01,
+        "{}",
+        app.mindmap_panel_width
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut app, dir) = full_mindmap_app("p4-fmm-divider-max");
+    app.window_size = Some(iced::Size::new(1280.0, 800.0));
+    let _ = app.update(Message::FullMindmapTogglePanel);
+    let _ = app.update(Message::FullMindmapPanelDragStart(0.0));
+    let _ = app.update(Message::FullMindmapPanelDragMove(1000.0));
+    let _ = app.update(Message::FullMindmapPanelDragMove(-2000.0));
+    let width = app.full_mindmap.as_ref().unwrap().panel_width;
+    assert!(width <= 1280.0 * MIND_PANEL_MAX_FRAC + 0.01, "{width}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The divider's hit area: wide enough to grab, with the resize cursor
+/// at both edges, and a double click puts the default width back.
+fn check_divider(app: &mut App, id: &'static str, width: impl Fn(&App) -> f32) {
+    let mut ui = PointerUi::new();
+    let handle = ui.id_bounds(app, id).expect("panel divider");
+    assert!(handle.width >= 9.0, "a wide hit area: {handle:?}");
+    for x in [handle.x + 1.0, handle.x + handle.width - 1.0] {
+        let (_, cursor) = ui.move_to(app, Point::new(x, handle.center_y()));
+        assert_eq!(cursor, mouse::Interaction::ResizingHorizontally, "at {x}");
+    }
+    assert_ne!(width(app), MIND_PANEL_DEFAULT);
+    let messages = ui.double_click(app, center(handle));
+    apply(app, messages);
+    assert_eq!(
+        width(app),
+        MIND_PANEL_DEFAULT,
+        "a double click resets the width"
+    );
+}
+
+#[test]
+fn a_mind_map_panel_divider_is_easy_to_grab_and_resets_on_double_click() {
+    let (mut app, dir) = document_mindmap_app("p4-divider-reset");
+    app.mindmap_panel_width = 600.0;
+    check_divider(&mut app, "mindmap-panel-divider", |app| {
+        app.mindmap_panel_width
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut app, dir) = full_mindmap_app("p4-fmm-divider-reset");
+    let _ = app.update(Message::FullMindmapTogglePanel);
+    app.full_mindmap.as_mut().unwrap().panel_width = 600.0;
+    check_divider(&mut app, "full-mindmap-panel-divider", |app| {
+        app.full_mindmap.as_ref().unwrap().panel_width
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+}

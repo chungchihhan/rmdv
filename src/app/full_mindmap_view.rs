@@ -130,7 +130,7 @@ impl App {
         let body: Element<'_, Message> = if full.panel_open {
             irow![
                 canvas,
-                full_mindmap_panel_resize_handle(self.reader_fill()),
+                full_mindmap_panel_resize_handle(self.reader_fill(), pal),
                 with_panel_close(
                     self.full_mindmap_panel_view(&graph, pal, full.panel_width, recently_scrolled),
                     Message::FullMindmapTogglePanel,

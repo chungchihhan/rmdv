@@ -1385,8 +1385,12 @@ impl App {
                         match anchor {
                             None => full.panel_drag = Some((origin, Some(cursor_x))),
                             Some(anchor) => {
-                                full.panel_width =
-                                    mindmap_panel_width_for_drag(origin, anchor, cursor_x);
+                                full.panel_width = mindmap_panel_width_for_drag(
+                                    origin,
+                                    anchor,
+                                    cursor_x,
+                                    self.window_size,
+                                );
                             }
                         }
                     }
@@ -2209,12 +2213,28 @@ impl App {
                             self.mindmap_panel_drag = Some((orig_w, Some(cursor_x)));
                         }
                         Some(ax) => {
-                            self.mindmap_panel_width =
-                                mindmap_panel_width_for_drag(orig_w, ax, cursor_x);
+                            self.mindmap_panel_width = mindmap_panel_width_for_drag(
+                                orig_w,
+                                ax,
+                                cursor_x,
+                                self.window_size,
+                            );
                         }
                     }
                 }
                 Task::none()
+            }
+            Message::MindmapPanelResetWidth => {
+                self.mindmap_panel_width = MIND_PANEL_DEFAULT;
+                self.mindmap_panel_step = 0;
+                Task::none()
+            }
+            Message::FullMindmapPanelResetWidth => {
+                if let Some(full) = self.full_mindmap.as_mut() {
+                    full.panel_width = MIND_PANEL_DEFAULT;
+                    full.panel_step = 0;
+                }
+                self.refresh_full_mindmap_preview_heights()
             }
             Message::MindmapPanelDragEnd => {
                 self.mindmap_panel_drag = None;

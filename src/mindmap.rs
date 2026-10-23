@@ -12,7 +12,8 @@ pub const NODE_H: f32 = 36.0;
 pub const X_GAP: f32 = 60.0;
 pub const Y_GAP: f32 = 12.0;
 pub const PAD: f32 = 32.0;
-pub const PANEL_HANDLE_W: f32 = 5.0;
+/// Width of the canvas-to-panel divider: its whole width is the grab area.
+pub const PANEL_HANDLE_W: f32 = 9.0;
 const FONT_SIZE: f32 = 14.0;
 // Hard cap to bound the truncate scan on pathological inputs. The pixel
 // budget below will usually cut earlier; this is just a safety lid.

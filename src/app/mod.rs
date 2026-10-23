@@ -53,6 +53,9 @@ const SIDEBAR_MIN: f32 = 160.0;
 const SIDEBAR_MAX: f32 = 600.0;
 const MIND_PANEL_DEFAULT: f32 = 380.0;
 const MIND_PANEL_MIN: f32 = 240.0;
+/// A dragged mind map panel stops at this fraction of the window width, so
+/// the canvas keeps room.
+const MIND_PANEL_MAX_FRAC: f32 = 0.8;
 /// Window-width fractions cycled by ⌘⌥W: 1/3, 1/2, 2/3.
 const MIND_PANEL_FRACS: [f32; 3] = [1.0 / 3.0, 0.5, 2.0 / 3.0];
 const MIND_PANEL_MAX_BLOCKS: usize = 80;
@@ -91,8 +94,17 @@ fn mindmap_panel_width_for_step(step: usize, window_size: Option<iced::Size>) ->
         .max(MIND_PANEL_MIN)
 }
 
-fn mindmap_panel_width_for_drag(origin: f32, anchor: f32, cursor_x: f32) -> f32 {
-    (origin + anchor - cursor_x).max(MIND_PANEL_MIN)
+fn mindmap_panel_width_for_drag(
+    origin: f32,
+    anchor: f32,
+    cursor_x: f32,
+    window_size: Option<iced::Size>,
+) -> f32 {
+    let max = window_size
+        .map(|size| size.width * MIND_PANEL_MAX_FRAC)
+        .unwrap_or(f32::INFINITY)
+        .max(MIND_PANEL_MIN);
+    (origin + anchor - cursor_x).clamp(MIND_PANEL_MIN, max)
 }
 
 fn editor_font() -> iced::Font {
@@ -3667,7 +3679,7 @@ impl App {
                         self.mindmap_panel_width,
                     );
                     let panel = with_panel_close(panel, Message::ToggleMindmapPanel, pal);
-                    let handle = mindmap_panel_resize_handle(reader_fill);
+                    let handle = mindmap_panel_resize_handle(reader_fill, pal);
                     irow![canvas_with_hint, handle, panel].into()
                 } else {
                     canvas_with_hint
