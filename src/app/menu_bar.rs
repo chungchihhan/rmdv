@@ -545,6 +545,125 @@ impl App {
         }
     }
 
+    /// What a click on `command` runs now; `None`: the item is disabled.
+    /// An item with a shortcut runs what its key runs on the surface that
+    /// has the keys now, so a click never reaches past a text field, the
+    /// editor, a modal card, or an open menu.
+    pub(super) fn menu_message(&self, command: MenuCommand) -> Option<Message> {
+        use MenuCommand as C;
+        let context = self.key_context();
+        let spec = command.spec();
+        let key = |shortcut: Shortcut| key_message(context, shortcut_event(shortcut), false);
+        if let (Some(accept), Some(shortcut)) = (spec.keyed, spec.shortcut) {
+            let message = key(shortcut);
+            if !accept(&message) {
+                return None;
+            }
+            let enabled = match command {
+                C::Save => self.dirty,
+                C::Back => self.can_go(HistoryDir::Back),
+                C::Forward => self.can_go(HistoryDir::Forward),
+                C::QuickSlot(index) => self.quick_slots.occupied(usize::from(index)).is_some(),
+                C::NextSlot | C::PreviousSlot => (0..crate::quick_slots::SLOT_COUNT)
+                    .any(|index| self.quick_slots.occupied(index).is_some()),
+                _ => true,
+            };
+            return enabled.then(|| match command {
+                // Settings… opens the page; its key toggles it.
+                C::Settings => Message::OpenSettings,
+                _ => message,
+            });
+        }
+        // Items without a key of their own wait, as keys do, while a menu
+        // or a modal card is open.
+        if context.menu_open
+            || context.slot_replace_open
+            || context.close_confirm_open
+            || context.renaming
+        {
+            return None;
+        }
+        let palette_allowed =
+            || matches!(key(Shortcut::cmd_shift('p')), Message::OpenCommandPalette);
+        // The editor's text, unless a search field has the keys.
+        let editor_keys = context.editing && !context.focused && !context.overlay_open;
+        let editor_selected = editor_keys
+            && self
+                .editor
+                .as_ref()
+                .and_then(|editor| editor.selection())
+                .is_some_and(|text| !text.is_empty());
+        let has_file = self.file.is_some();
+        let full_mindmap = self.full_mindmap.is_some();
+        match command {
+            C::Cut => editor_selected.then_some(Message::EditorMenuCut),
+            C::Copy if editor_keys => editor_selected.then_some(Message::EditorMenuCopy),
+            // The reader copies a whole-document selection, as ⌘C does; a
+            // partial selection is its text widget's own.
+            C::Copy => matches!(key(Shortcut::cmd('c')), Message::CopyDocument)
+                .then_some(Message::CopyDocument),
+            C::Paste => editor_keys.then_some(Message::EditorMenuPaste),
+            C::SelectAll if editor_keys => Some(Message::EditorAction(
+                iced::widget::text_editor::Action::SelectAll,
+            )),
+            C::SelectAll => (matches!(key(Shortcut::cmd('a')), Message::SelectAllDocument)
+                && self.reader_shows_document()
+                && !self.ast.is_empty())
+            .then_some(Message::SelectAllDocument),
+            // As the toolbar's view switch enables its segments.
+            C::View(view) => {
+                let enabled = match view {
+                    ToolbarView::Read => has_file || full_mindmap,
+                    ToolbarView::Edit | ToolbarView::Mindmap => has_file,
+                    ToolbarView::FullMindmap => has_file || self.workspace.is_some(),
+                };
+                (enabled && !context.overlay_open).then_some(Message::ToolbarView(view))
+            }
+            C::AlwaysShowToolbar => (!context.overlay_open)
+                .then_some(Message::SetToolbarMode(self.prefs.toolbar.toggled())),
+            // Palette commands: where the palette could open.
+            C::ToggleFooter => palette_allowed().then_some(Message::ToggleFooter),
+            C::PickTheme => palette_allowed().then_some(Message::OpenThemePicker),
+            C::Website => Some(Message::OpenLink(WEBSITE.to_string())),
+            _ => None,
+        }
+    }
+
+    /// The Open Recent paths: folders, then files, as the welcome page
+    /// lists them.
+    pub(super) fn menu_recent(&self) -> Vec<PathBuf> {
+        self.recent
+            .folders
+            .iter()
+            .chain(&self.recent.paths)
+            .cloned()
+            .collect()
+    }
+
+    /// What a click on Open Recent item `index` runs: it opens the path,
+    /// where ⌘P could open a file.
+    fn recent_message(&self, index: usize) -> Option<Message> {
+        let path = self.menu_recent().into_iter().nth(index)?;
+        let context = self.key_context();
+        matches!(
+            key_message(context, shortcut_event(Shortcut::cmd('p')), false),
+            Message::OpenFileFinder
+        )
+        .then_some(Message::OpenFileFinderPath(path))
+    }
+
+    /// A click on a menu bar item: run what the item stands for now.
+    pub(super) fn native_menu_click(&mut self, tag: u32) -> Task<Message> {
+        let message = match tag.checked_sub(native_menu::RECENT_TAG) {
+            Some(index) => self.recent_message(index as usize),
+            None => MenuCommand::from_tag(tag).and_then(|command| self.menu_message(command)),
+        };
+        match message {
+            Some(message) => self.update(message),
+            None => Task::none(),
+        }
+    }
+
     /// Install the menu bar once, after NSApp and the window exist.
     pub(super) fn install_native_menu(&self) {
         if cfg!(target_os = "macos") && !native_menu::installed() {
@@ -804,5 +923,268 @@ mod tests {
             }
             seen.push((shortcut, title));
         }
+    }
+
+    fn show(message: &Option<Message>) -> String {
+        format!("{message:?}")
+    }
+
+    /// The states the parity test walks: each surface that owns the keys
+    /// differently.
+    fn surfaces() -> Vec<(&'static str, App)> {
+        let mut out = vec![("reader", reader_app()), ("editing", editing_app())];
+        let mut welcome = App::default();
+        welcome.workspace = None;
+        out.push(("welcome", welcome));
+        let mut settings = reader_app();
+        let _ = settings.update(Message::OpenSettings);
+        assert!(settings.settings_open);
+        out.push(("settings", settings));
+        let mut vault = reader_app();
+        let _ = vault.update(Message::OpenVaultSearch);
+        assert!(vault.vault_open);
+        out.push(("vault", vault));
+        let mut palette = reader_app();
+        let _ = palette.update(Message::OpenCommandPalette);
+        assert!(palette.overlay != Overlay::None);
+        out.push(("palette", palette));
+        let mut search = reader_app();
+        let _ = search.update(Message::ToggleSearch);
+        assert!(search.search_open);
+        out.push(("search", search));
+        let mut mindmap = reader_app();
+        let _ = mindmap.update(Message::ToggleMindmap);
+        assert_eq!(mindmap.view_mode, ViewMode::Mindmap);
+        out.push(("mindmap", mindmap));
+        let mut full = reader_app();
+        let _ = full.update(Message::ToggleFullMindmap);
+        assert!(full.full_mindmap.is_some());
+        out.push(("full mindmap", full));
+        let mut select_all = reader_app();
+        let _ = select_all.update(Message::SelectAllDocument);
+        assert!(select_all.reader_select_all);
+        out.push(("select all", select_all));
+        let mut menu = reader_app();
+        menu.open_context_menu(vec![MenuEntry::item("X", Message::Noop)], None);
+        out.push(("context menu", menu));
+        let mut confirm = editing_app();
+        confirm.dirty = true;
+        confirm.close_confirm = Some(CloseConfirm { window: None });
+        out.push(("close confirm", confirm));
+        out
+    }
+
+    /// Each item with a shortcut runs, on a click, what its key runs on
+    /// the same surface, and is disabled where the key does something
+    /// else or nothing: a click never reaches past the surface that owns
+    /// the keys.
+    #[test]
+    fn a_click_runs_what_the_key_runs_on_every_surface() {
+        let mut enabled = 0;
+        for (surface, app) in surfaces() {
+            for command in MenuCommand::ALL {
+                let spec = command.spec();
+                let (Some(accept), Some(shortcut)) = (spec.keyed, spec.shortcut) else {
+                    continue;
+                };
+                let key = key_message(app.key_context(), shortcut_event(shortcut), false);
+                let click = app.menu_message(command);
+                if !accept(&key) {
+                    assert!(
+                        click.is_none(),
+                        "{surface}: {command:?} is {} but the key runs {key:?}",
+                        show(&click)
+                    );
+                    continue;
+                }
+                let Some(click) = click else {
+                    // Enabled-only refinements: Save needs edits, Back and
+                    // Forward a history, a slot a file.
+                    assert!(
+                        matches!(
+                            command,
+                            MenuCommand::Save
+                                | MenuCommand::Back
+                                | MenuCommand::Forward
+                                | MenuCommand::QuickSlot(_)
+                                | MenuCommand::NextSlot
+                                | MenuCommand::PreviousSlot
+                        ),
+                        "{surface}: {command:?} is disabled but the key runs {key:?}"
+                    );
+                    continue;
+                };
+                enabled += 1;
+                let expected = match command {
+                    // Settings… opens the page; the key toggles it.
+                    MenuCommand::Settings => format!("{:?}", Message::OpenSettings),
+                    _ => format!("{key:?}"),
+                };
+                assert_eq!(format!("{click:?}"), expected, "{surface}: {command:?}");
+            }
+        }
+        assert!(enabled > 60, "most keyed items act somewhere: {enabled}");
+    }
+
+    #[test]
+    fn modal_cards_and_open_menus_disable_every_item() {
+        for (surface, app) in surfaces() {
+            if !matches!(surface, "context menu" | "close confirm") {
+                continue;
+            }
+            for command in MenuCommand::ALL {
+                assert!(
+                    app.menu_message(command).is_none(),
+                    "{surface}: {command:?} must wait for the card"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn edit_items_follow_the_focus() {
+        use MenuCommand as C;
+        let reader = reader_app();
+        assert!(reader.menu_message(C::Cut).is_none());
+        assert!(reader.menu_message(C::Paste).is_none());
+        // The reader copies a whole-document selection; a partial one is
+        // the text widget's own (its ⌘C).
+        assert!(reader.menu_message(C::Copy).is_none());
+        assert!(matches!(
+            reader.menu_message(C::SelectAll),
+            Some(Message::SelectAllDocument)
+        ));
+        let mut all = reader_app();
+        let _ = all.update(Message::SelectAllDocument);
+        assert!(matches!(
+            all.menu_message(C::Copy),
+            Some(Message::CopyDocument)
+        ));
+
+        let mut editing = editing_app();
+        assert!(editing.menu_message(C::Cut).is_none(), "nothing selected");
+        assert!(editing.menu_message(C::Copy).is_none());
+        assert!(matches!(
+            editing.menu_message(C::Paste),
+            Some(Message::EditorMenuPaste)
+        ));
+        assert!(matches!(
+            editing.menu_message(C::SelectAll),
+            Some(Message::EditorAction(
+                iced::widget::text_editor::Action::SelectAll
+            ))
+        ));
+        let _ = editing.update(Message::EditorAction(
+            iced::widget::text_editor::Action::SelectAll,
+        ));
+        assert!(matches!(
+            editing.menu_message(C::Cut),
+            Some(Message::EditorMenuCut)
+        ));
+        assert!(matches!(
+            editing.menu_message(C::Copy),
+            Some(Message::EditorMenuCopy)
+        ));
+
+        // A focused search field keeps its own text keys.
+        let mut search = editing_app();
+        let _ = search.update(Message::ToggleSearch);
+        for command in [C::Cut, C::Copy, C::Paste, C::SelectAll] {
+            assert!(search.menu_message(command).is_none(), "{command:?}");
+        }
+    }
+
+    #[test]
+    fn pointer_items_run_their_commands() {
+        use MenuCommand as C;
+        let reader = reader_app();
+        assert!(matches!(
+            reader.menu_message(C::View(ToolbarView::Edit)),
+            Some(Message::ToolbarView(ToolbarView::Edit))
+        ));
+        assert!(matches!(
+            reader.menu_message(C::View(ToolbarView::FullMindmap)),
+            Some(Message::ToolbarView(ToolbarView::FullMindmap))
+        ));
+        let mut welcome = App::default();
+        welcome.workspace = None;
+        assert!(welcome.menu_message(C::View(ToolbarView::Edit)).is_none());
+        assert!(welcome
+            .menu_message(C::View(ToolbarView::FullMindmap))
+            .is_none());
+        assert!(matches!(
+            reader.menu_message(C::AlwaysShowToolbar),
+            Some(Message::SetToolbarMode(_))
+        ));
+        assert!(matches!(
+            reader.menu_message(C::ToggleFooter),
+            Some(Message::ToggleFooter)
+        ));
+        assert!(matches!(
+            reader.menu_message(C::PickTheme),
+            Some(Message::OpenThemePicker)
+        ));
+        assert!(matches!(
+            reader.menu_message(C::Website),
+            Some(Message::OpenLink(link)) if link == WEBSITE
+        ));
+    }
+
+    /// A tag from the menu bar does what the item's message does.
+    #[test]
+    fn a_menu_tag_runs_like_the_key() {
+        use MenuCommand as C;
+        let mut by_menu = reader_app();
+        let mut by_key = reader_app();
+        let sidebar = by_menu.sidebar_open;
+        let _ = by_menu.update(Message::NativeMenu(C::ToggleSidebar.tag()));
+        let _ = by_key.update(Message::ToggleSidebar);
+        assert_ne!(by_menu.sidebar_open, sidebar, "the menu toggled it");
+        assert_eq!(by_menu.sidebar_open, by_key.sidebar_open);
+
+        let _ = by_menu.update(Message::NativeMenu(C::FontUp.tag()));
+        let _ = by_key.update(Message::FontSizeUp);
+        assert_eq!(by_menu.font_scale, by_key.font_scale);
+
+        let _ = by_menu.update(Message::NativeMenu(C::View(ToolbarView::Edit).tag()));
+        assert_eq!(by_menu.view_mode, ViewMode::Raw);
+
+        // An unknown tag and a disabled item do nothing.
+        let mut confirm = editing_app();
+        confirm.dirty = true;
+        confirm.close_confirm = Some(CloseConfirm { window: None });
+        let open = confirm.sidebar_open;
+        let _ = confirm.update(Message::NativeMenu(C::ToggleSidebar.tag()));
+        let _ = confirm.update(Message::NativeMenu(0));
+        assert_eq!(confirm.sidebar_open, open);
+        assert!(confirm.close_confirm.is_some());
+    }
+
+    #[test]
+    fn open_recent_lists_folders_then_files_and_opens_them() {
+        let dir = std::env::temp_dir().join(format!("menu-recent-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let file = dir.join("note.md");
+        std::fs::write(&file, "# Note\n").expect("write");
+        let mut app = reader_app();
+        app.recent = crate::recent::Recent {
+            paths: vec![file.clone()],
+            folders: vec![dir.clone()],
+        };
+        assert_eq!(app.menu_recent(), vec![dir.clone(), file.clone()]);
+        // The load is a task; the click runs the welcome page's message.
+        assert!(matches!(
+            app.recent_message(1),
+            Some(Message::OpenFileFinderPath(path)) if path == file
+        ));
+        assert!(app.recent_message(2).is_none());
+        let mut menu = reader_app();
+        menu.recent = app.recent.clone();
+        menu.open_context_menu(vec![MenuEntry::item("X", Message::Noop)], None);
+        assert!(
+            menu.recent_message(0).is_none(),
+            "an open menu has the keys"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -988,6 +988,7 @@ impl App {
                 Task::none()
             }
             Message::ToolbarView(target) => self.toolbar_view(target),
+            Message::NativeMenu(tag) => self.native_menu_click(tag),
             // A fullscreen window neither moves nor zooms, as on macOS.
             Message::WindowDrag if !self.window_fullscreen => {
                 iced::window::latest().and_then(iced::window::drag)

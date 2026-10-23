@@ -395,6 +395,8 @@ pub enum Message {
     SidebarPeekHideAfter(u64),
     /// A toolbar segment: show this view.
     ToolbarView(ToolbarView),
+    /// A click on a native menu bar item, by its tag (MDV-048 P8).
+    NativeMenu(u32),
     /// A press on the toolbar's blank space or the sidebar header: move the
     /// window, as a press on a titlebar does.
     WindowDrag,

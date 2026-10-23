@@ -3433,6 +3433,7 @@ impl App {
         });
         let macos_open = crate::macos_open::subscription().map(Message::OpenFileFinderPath);
         let macos_quit = crate::macos_quit::subscription().map(|()| Message::QuitRequested);
+        let native_menu = crate::native_menu::subscription().map(Message::NativeMenu);
         let close_requests = iced::window::close_requests().map(Message::WindowCloseRequested);
         let window_events = iced::window::events().filter_map(|(id, event)| match event {
             iced::window::Event::Unfocused => Some(Message::WindowUnfocused(id)),
@@ -3468,6 +3469,7 @@ impl App {
             native_swipe,
             macos_open,
             macos_quit,
+            native_menu,
             close_requests,
         ])
     }
