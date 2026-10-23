@@ -49,6 +49,12 @@ pub struct Prefs {
     /// When the top toolbar shows (Settings → Toolbar).
     #[serde(default, deserialize_with = "lenient_toolbar")]
     pub toolbar: ToolbarMode,
+    /// Sidebar width set by dragging its divider.
+    #[serde(
+        default = "default_sidebar_width",
+        deserialize_with = "lenient_sidebar_width"
+    )]
+    pub sidebar_width: f32,
 }
 
 /// When the top toolbar shows.
@@ -75,6 +81,36 @@ impl ToolbarMode {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_sidebar_width() -> f32 {
+    SIDEBAR_WIDTH_DEFAULT
+}
+
+/// Sidebar width limits, shared with the divider drag.
+pub const SIDEBAR_WIDTH_DEFAULT: f32 = 280.0;
+pub const SIDEBAR_WIDTH_MIN: f32 = 160.0;
+pub const SIDEBAR_WIDTH_MAX: f32 = 600.0;
+
+/// A missing or malformed sidebar width falls back to the default; an
+/// out-of-range one is clamped. Neither fails the whole file.
+fn lenient_sidebar_width<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(clamp_sidebar_width(
+        value.as_f64().map_or(default_sidebar_width(), |v| v as f32),
+    ))
+}
+
+/// Keeps a sidebar width finite and inside the divider's range.
+pub fn clamp_sidebar_width(width: f32) -> f32 {
+    if width.is_finite() {
+        width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+    } else {
+        default_sidebar_width()
+    }
 }
 
 fn default_glass_opacity() -> f32 {
@@ -179,6 +215,7 @@ impl Default for Prefs {
             mindmap_scroll_pans: false,
             quick_slots: crate::quick_slots::QuickSlotsStore::default(),
             toolbar: ToolbarMode::Always,
+            sidebar_width: default_sidebar_width(),
         }
     }
 }

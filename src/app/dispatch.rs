@@ -3972,13 +3972,32 @@ impl App {
                 Task::none()
             }
             Message::SidebarDragMove(x) => {
-                if self.sidebar_drag.is_some() {
-                    self.sidebar_width = x.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                let Some(start) = self.sidebar_drag else {
+                    return Task::none();
+                };
+                if x < SIDEBAR_COLLAPSE_X {
+                    // Past the minimum: the sidebar collapses and keeps the
+                    // width it had before the drag for the next opening.
+                    if !self.sidebar_open {
+                        return Task::none();
+                    }
+                    self.sidebar_open = false;
+                    self.sidebar_width = start;
+                    self.outline_hovered = false;
+                    return self.restore_body_scroll();
                 }
-                Task::none()
+                self.sidebar_width = x.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                if self.sidebar_open {
+                    return Task::none();
+                }
+                // Dragged back out during the same drag.
+                self.sidebar_open = true;
+                self.restore_body_scroll()
             }
             Message::SidebarDragEnd => {
-                self.sidebar_drag = None;
+                if self.sidebar_drag.take().is_some() {
+                    self.save_sidebar_width();
+                }
                 Task::none()
             }
             Message::SidebarResetWidth => {
@@ -3986,6 +4005,7 @@ impl App {
                 // The double click's own press started a drag; end it before
                 // jitter drags the width back.
                 self.sidebar_drag = None;
+                self.save_sidebar_width();
                 Task::none()
             }
             Message::ReaderScrollbarHover(hovered) => {

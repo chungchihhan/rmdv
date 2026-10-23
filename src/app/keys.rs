@@ -470,6 +470,22 @@ pub(super) fn reader_select_all_key(
     }
 }
 
+/// While the sidebar divider is dragged: pointer moves set the width and
+/// the left release ends the drag, wherever the pointer is. A release the
+/// window never saw (the next press, or the window losing focus) ends it
+/// too, so the divider never stays stuck to the pointer.
+pub(super) fn sidebar_drag_message(event: &iced::Event) -> Option<Message> {
+    use iced::mouse::{Button, Event};
+    match event {
+        iced::Event::Mouse(Event::CursorMoved { position }) => {
+            Some(Message::SidebarDragMove(position.x))
+        }
+        iced::Event::Mouse(Event::ButtonReleased(Button::Left) | Event::ButtonPressed(_))
+        | iced::Event::Window(iced::window::Event::Unfocused) => Some(Message::SidebarDragEnd),
+        _ => None,
+    }
+}
+
 /// The mouse side buttons go Back and Forward in navigation history.
 /// Presses only: the release would act a second time. `App::history_go`
 /// ignores them while a modal is open.

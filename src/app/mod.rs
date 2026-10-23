@@ -24,7 +24,7 @@ mod image_cache;
 use image_cache::IMAGE_CACHE_BYTE_BUDGET;
 pub use image_cache::{ImageCache, ImageState};
 
-const SIDEBAR_WIDTH: f32 = 280.0;
+const SIDEBAR_WIDTH: f32 = crate::prefs::SIDEBAR_WIDTH_DEFAULT;
 const QUICK_SLOTS_RAIL_GAP: f32 = 10.0;
 const QUICK_SLOTS_RAIL_REVEAL_DELAY_MS: u64 = 500;
 /// In-document search runs on every keystroke below this source size and is
@@ -53,11 +53,13 @@ const TREE_INDENT: f32 = 14.0;
 const SCROLLER_FADE_MS: u64 = 1200;
 /// How long a block's copy button shows its check after a copy.
 const COPY_FLASH: std::time::Duration = std::time::Duration::from_millis(1500);
-const SIDEBAR_MIN: f32 = 160.0;
+const SIDEBAR_MIN: f32 = crate::prefs::SIDEBAR_WIDTH_MIN;
 /// Scroll-spy: a heading this close below the reader's top line already
 /// counts as the current section (a jump lands it a few pixels low).
 const OUTLINE_SPY_SLACK: f32 = 4.0;
-const SIDEBAR_MAX: f32 = 600.0;
+const SIDEBAR_MAX: f32 = crate::prefs::SIDEBAR_WIDTH_MAX;
+/// A divider drag left of this x collapses the sidebar.
+const SIDEBAR_COLLAPSE_X: f32 = SIDEBAR_MIN / 2.0;
 const MIND_PANEL_DEFAULT: f32 = 380.0;
 /// Container id of the document mind map panel's text area.
 const MINDMAP_PANEL_TEXT_ID: &str = "mindmap-panel-text";
@@ -705,7 +707,7 @@ impl Default for App {
             copy_flash: None,
             copy_flash_seq: 0,
             reader_autoscroll: None,
-            sidebar_width: SIDEBAR_WIDTH,
+            sidebar_width: crate::prefs::clamp_sidebar_width(prefs.sidebar_width),
             sidebar_drag: None,
             hl_cache: crate::highlight::HlCache::default(),
             height_cache: crate::virt::HeightCache::default(),
@@ -994,6 +996,14 @@ impl App {
             crate::prefs::save_to(path, &self.prefs);
         } else {
             crate::prefs::save(&self.prefs);
+        }
+    }
+
+    /// Remember the sidebar width for the next launch; one write per drag.
+    fn save_sidebar_width(&mut self) {
+        if self.prefs.sidebar_width != self.sidebar_width {
+            self.prefs.sidebar_width = self.sidebar_width;
+            self.save_prefs();
         }
     }
 
@@ -3740,15 +3750,7 @@ impl App {
             iced::Subscription::none()
         };
         let drag = if self.sidebar_drag.is_some() && !full_mindmap {
-            iced::event::listen_with(|ev, _status, _id| match ev {
-                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    Some(Message::SidebarDragMove(position.x))
-                }
-                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
-                    iced::mouse::Button::Left,
-                )) => Some(Message::SidebarDragEnd),
-                _ => None,
-            })
+            iced::event::listen_with(|ev, _status, _id| sidebar_drag_message(&ev))
         } else {
             iced::Subscription::none()
         };

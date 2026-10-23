@@ -192,6 +192,9 @@ pub(in crate::app) fn sidebar_tab_button<'a>(
 /// Container id of the divider between the sidebar and the reader.
 pub(in crate::app) const SIDEBAR_DIVIDER_ID: &str = "sidebar-divider";
 
+/// Container id of the hairline the sidebar divider shows on hover.
+pub(in crate::app) const SIDEBAR_DIVIDER_LINE_ID: &str = "sidebar-divider-line";
+
 /// Id of the file tree's inline rename field.
 pub(in crate::app) const TREE_RENAME_ID: &str = "tree-rename";
 
@@ -467,6 +470,7 @@ pub(in crate::app) fn with_panel_close<'a>(
 /// the panel to its default width.
 fn panel_divider<'a>(
     id: &'static str,
+    width: f32,
     fill: Color,
     pal: Palette,
     press: Message,
@@ -476,7 +480,7 @@ fn panel_divider<'a>(
     let area = mouse_area(
         container(
             Space::new()
-                .width(Length::Fixed(crate::mindmap::PANEL_HANDLE_W))
+                .width(Length::Fixed(width))
                 .height(Length::Fill),
         )
         .id(iced::widget::Id::new(id))
@@ -491,17 +495,26 @@ fn panel_divider<'a>(
     .on_release(release)
     .on_double_click(reset);
     let hairline = container(
-        container(Space::new().width(Length::Fixed(1.0)).height(Length::Fill)).style(move |_| {
-            container::Style {
+        container(Space::new().width(Length::Fixed(1.0)).height(Length::Fill))
+            .id(iced::widget::Id::new(divider_line_id(id)))
+            .style(move |_| container::Style {
                 background: Some(pal.subtle.into()),
                 ..Default::default()
-            }
-        }),
+            }),
     )
-    .width(Length::Fixed(crate::mindmap::PANEL_HANDLE_W))
+    .width(Length::Fixed(width))
     .height(Length::Fill)
-    .center_x(Length::Fixed(crate::mindmap::PANEL_HANDLE_W));
+    .center_x(Length::Fixed(width));
     iced::widget::hover(area, hairline)
+}
+
+/// Id of the hairline a divider shows on hover.
+fn divider_line_id(id: &'static str) -> &'static str {
+    match id {
+        SIDEBAR_DIVIDER_ID => SIDEBAR_DIVIDER_LINE_ID,
+        "mindmap-panel-divider" => "mindmap-panel-divider-line",
+        _ => "full-mindmap-panel-divider-line",
+    }
 }
 
 pub(in crate::app) fn mindmap_panel_resize_handle<'a>(
@@ -510,6 +523,7 @@ pub(in crate::app) fn mindmap_panel_resize_handle<'a>(
 ) -> Element<'a, Message> {
     panel_divider(
         "mindmap-panel-divider",
+        crate::mindmap::PANEL_HANDLE_W,
         fill,
         pal,
         Message::MindmapPanelDragStart(0.0),
@@ -524,6 +538,7 @@ pub(in crate::app) fn full_mindmap_panel_resize_handle<'a>(
 ) -> Element<'a, Message> {
     panel_divider(
         "full-mindmap-panel-divider",
+        crate::mindmap::PANEL_HANDLE_W,
         fill,
         pal,
         Message::FullMindmapPanelDragStart(0.0),
@@ -532,22 +547,22 @@ pub(in crate::app) fn full_mindmap_panel_resize_handle<'a>(
     )
 }
 
+/// The divider between the sidebar and the reader: a 5 px grab area that
+/// shows a hairline on hover, as the mind map panel divider does.
 pub(in crate::app) fn sidebar_resize_handle<'a>(pal: Palette) -> Element<'a, Message> {
-    mouse_area(
-        container(Space::new().width(Length::Fixed(5.0)).height(Length::Fill))
-            .id(iced::widget::Id::new(SIDEBAR_DIVIDER_ID))
-            .style(move |_| container::Style {
-                background: Some(pal.sidebar.into()),
-                ..Default::default()
-            })
-            .height(Length::Fill),
+    panel_divider(
+        SIDEBAR_DIVIDER_ID,
+        SIDEBAR_DIVIDER_W,
+        pal.sidebar,
+        pal,
+        Message::SidebarDragStart,
+        Message::SidebarDragEnd,
+        Message::SidebarResetWidth,
     )
-    .interaction(iced::mouse::Interaction::ResizingHorizontally)
-    .on_press(Message::SidebarDragStart)
-    .on_release(Message::SidebarDragEnd)
-    .on_double_click(Message::SidebarResetWidth)
-    .into()
 }
+
+/// Width of the sidebar divider's grab area.
+const SIDEBAR_DIVIDER_W: f32 = 5.0;
 
 /// Estimate the pixel width a [`tree_row`] needs at the given depth. Used to
 /// size the surrounding Column so the focus ring fills the sidebar width AND

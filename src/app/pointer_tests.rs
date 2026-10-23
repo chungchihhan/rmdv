@@ -1713,3 +1713,7 @@ mod reader_affordances;
 // --- P7: the outline follows the reader -----------------------------------
 
 mod outline_spy;
+
+// --- P7: the sidebar divider ------------------------------------------------
+
+mod sidebar_divider;
