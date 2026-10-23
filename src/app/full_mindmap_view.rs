@@ -131,7 +131,11 @@ impl App {
             irow![
                 canvas,
                 full_mindmap_panel_resize_handle(self.reader_fill()),
-                self.full_mindmap_panel_view(&graph, pal, full.panel_width, recently_scrolled),
+                with_panel_close(
+                    self.full_mindmap_panel_view(&graph, pal, full.panel_width, recently_scrolled),
+                    Message::FullMindmapTogglePanel,
+                    pal,
+                ),
             ]
             .into()
         } else {
@@ -276,7 +280,8 @@ impl App {
                 )
                 .padding(Padding {
                     top: 20.0,
-                    right: 18.0,
+                    // Clear of the panel's close button.
+                    right: 40.0,
                     bottom: 10.0,
                     left: 18.0,
                 })

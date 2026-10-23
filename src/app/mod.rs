@@ -2683,7 +2683,7 @@ impl App {
         let pal_c = *pal;
         let content: Element<'_, Message> = match self.mindmap_panel_shown {
             None => container(
-                text("Click a leaf heading to see its content")
+                text("Click a heading to see its content")
                     .color(pal.muted)
                     .size(13),
             )
@@ -3666,6 +3666,7 @@ impl App {
                         recently_scrolled,
                         self.mindmap_panel_width,
                     );
+                    let panel = with_panel_close(panel, Message::ToggleMindmapPanel, pal);
                     let handle = mindmap_panel_resize_handle(reader_fill);
                     irow![canvas_with_hint, handle, panel].into()
                 } else {

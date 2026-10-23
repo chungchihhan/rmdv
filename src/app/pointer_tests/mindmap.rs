@@ -222,3 +222,66 @@ fn full_mindmap_zoom_buttons_drive_their_own_canvas() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn an_empty_canvas_click_clears_the_selection_but_keeps_the_panel() {
+    let (mut app, dir) = document_mindmap_app("p4-deselect-keeps-panel");
+    assert!(app.mindmap_panel_open && app.mindmap_selected.is_some());
+    let _ = app.update(Message::MindmapDeselect);
+    assert_eq!(app.mindmap_selected, None);
+    assert_eq!(app.mindmap_panel_shown, None);
+    assert!(app.mindmap_panel_open, "deselect is not close");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut app, dir) = full_mindmap_app("p4-fmm-deselect-keeps-panel");
+    let file = WorkspaceNodeId::File(dir.join("alpha.md"));
+    let _ = app.update(Message::FullMindmapPointerSelect(file));
+    let _ = app.update(Message::FullMindmapDeselect);
+    let full = app.full_mindmap.as_ref().unwrap();
+    assert_eq!(full.selected, None);
+    assert!(full.panel_open, "deselect is not close");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_panel_close_button_hides_each_mind_map_panel() {
+    let (mut app, dir) = document_mindmap_app("p4-panel-close");
+    assert!(app.mindmap_panel_open);
+    let mut ui = PointerUi::new();
+    assert_tips(&tips(&mut ui, &app), &["Hide Panel  ⌘⌥B"]);
+    let close = ui
+        .text_bounds(&app, &ic::X.to_string())
+        .expect("panel close button");
+    assert!(close.x > 1280.0 - app.mindmap_panel_width, "{close:?}");
+    let messages = ui.click(&app, center(close));
+    assert!(
+        has(&messages, |m| matches!(m, Message::ToggleMindmapPanel)),
+        "{messages:?}"
+    );
+    apply(&mut app, messages);
+    assert!(!app.mindmap_panel_open);
+    assert!(
+        app.mindmap_selected.is_some(),
+        "closing keeps the selection"
+    );
+    assert!(ui.text_bounds(&app, &ic::X.to_string()).is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let (mut app, dir) = full_mindmap_app("p4-fmm-panel-close");
+    let file = WorkspaceNodeId::File(dir.join("alpha.md"));
+    let _ = app.update(Message::FullMindmapPointerSelect(file.clone()));
+    assert!(app.full_mindmap.as_ref().unwrap().panel_open);
+    let mut ui = PointerUi::new();
+    let close = ui
+        .text_bounds(&app, &ic::X.to_string())
+        .expect("Full Mindmap panel close button");
+    let messages = ui.click(&app, center(close));
+    apply(&mut app, messages);
+    let full = app.full_mindmap.as_ref().unwrap();
+    assert!(
+        !full.panel_open,
+        "the pointer closes the Full Mindmap panel"
+    );
+    assert_eq!(full.selected.as_ref(), Some(&file));
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -1918,10 +1918,10 @@ impl App {
                 Task::none()
             }
             Message::MindmapDeselect => {
+                // A click on empty canvas clears the selection; the panel
+                // stays open until its X or ⌘⌥B hides it.
                 self.mindmap_selected = None;
                 self.mindmap_panel_shown = None;
-                self.mindmap_panel_open = false;
-                self.mindmap_panel_drag = None;
                 Task::none()
             }
             Message::MindmapNavigate(dir) => {

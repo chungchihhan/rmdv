@@ -410,6 +410,30 @@ pub(in crate::app) fn outline_row<'a>(
         .into()
 }
 
+/// A mind map side panel with its close (X) button in the top-right
+/// corner. The button hides the panel as ⌘⌥B does; the selection stays.
+pub(in crate::app) fn with_panel_close<'a>(
+    panel: Element<'a, Message>,
+    on_close: Message,
+    pal: Palette,
+) -> Element<'a, Message> {
+    let close = action_tip(
+        ghost_lu(ic::X, pal).on_press(on_close),
+        "Hide Panel",
+        Some("⌘⌥B"),
+        Position::Left,
+        pal,
+    );
+    stack![
+        panel,
+        container(close)
+            .width(Length::Fill)
+            .padding(6)
+            .align_x(iced::alignment::Horizontal::Right),
+    ]
+    .into()
+}
+
 pub(in crate::app) fn mindmap_panel_resize_handle<'a>(fill: Color) -> Element<'a, Message> {
     mouse_area(
         container(
