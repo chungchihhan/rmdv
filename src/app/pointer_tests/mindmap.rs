@@ -765,3 +765,41 @@ fn a_narrow_mind_map_keeps_its_zoom_buttons_whole() {
     assert!(reset.width > 0.0 && reset.x + reset.width <= divider.x);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn the_panel_close_button_does_not_cover_panel_text() {
+    let (mut app, dir) = tree_fixture("p4-panel-close-clear");
+    let mut source = String::from("# Top\n\n");
+    for i in 0..60 {
+        source.push_str(&format!(
+            "Line{i} has enough words in it to wrap across the whole panel width easily.\n\n"
+        ));
+    }
+    let _ = app.update(Message::FileLoaded(Ok((dir.join("alpha.md"), source))));
+    let _ = app.update(Message::ToggleMindmap);
+    let _ = app.update(Message::MindmapSelectLeaf(DOC_ROOT));
+    assert!(app.mindmap_panel_open);
+    let mut ui = PointerUi::new();
+    let close = ui
+        .text_bounds(&app, &ic::X.to_string())
+        .expect("panel close button");
+    // The close button's whole hit area, not just its glyph.
+    let close = Rectangle {
+        x: close.x - 8.0,
+        y: close.y - 8.0,
+        width: close.width + 16.0,
+        height: close.height + 16.0,
+    };
+    let text = ui
+        .id_bounds(&app, MINDMAP_PANEL_TEXT_ID)
+        .expect("the panel's text area");
+    assert!(
+        text.y < close.y + close.height,
+        "long content starts at the top: {text:?}"
+    );
+    assert!(
+        text.x + text.width <= close.x,
+        "text stays clear of the close button: {text:?} vs {close:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

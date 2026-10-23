@@ -52,6 +52,8 @@ const SCROLLER_FADE_MS: u64 = 1200;
 const SIDEBAR_MIN: f32 = 160.0;
 const SIDEBAR_MAX: f32 = 600.0;
 const MIND_PANEL_DEFAULT: f32 = 380.0;
+/// Container id of the document mind map panel's text area.
+const MINDMAP_PANEL_TEXT_ID: &str = "mindmap-panel-text";
 const MIND_PANEL_MIN: f32 = 240.0;
 /// A dragged mind map panel stops at this fraction of the window width, so
 /// the canvas keeps room.
@@ -2631,6 +2633,19 @@ impl App {
     /// subtree and render it through the shared data code-block view. The pretty
     /// string is cached in `mindmap_data_panel` so it is computed at most once
     /// per selection change (mirrors the markdown panel's settle behavior).
+    /// Padded panel text. The right side clears the panel's close button,
+    /// which floats over the top-right corner.
+    fn mindmap_panel_text_area(content: Element<'_, Message>) -> Element<'_, Message> {
+        container(container(content).id(iced::widget::Id::new(MINDMAP_PANEL_TEXT_ID)))
+            .padding(Padding {
+                top: 24.0,
+                right: 40.0,
+                bottom: 24.0,
+                left: 24.0,
+            })
+            .into()
+    }
+
     fn mindmap_data_panel_view(
         &self,
         pal: &Palette,
@@ -2674,7 +2689,7 @@ impl App {
             .into(),
         };
 
-        let scrolled = scrollable(container(content).padding(Padding::from([24, 24])))
+        let scrolled = scrollable(Self::mindmap_panel_text_area(content))
             .height(Length::Shrink)
             .direction(slim_scroll_direction())
             .style(move |_, status| sleek_scrollable_style(status, pal_c, recently_scrolled));
@@ -2751,7 +2766,7 @@ impl App {
         // overflows. The scrollable measures the inner column's natural height:
         // a Fill-height wrapper would clamp to the viewport and kill scrolling,
         // so instead we anchor the column and let the outer container center it.
-        let scrolled = scrollable(container(content).padding(Padding::from([24, 24])))
+        let scrolled = scrollable(Self::mindmap_panel_text_area(content))
             .height(Length::Shrink)
             .direction(slim_scroll_direction())
             .style(move |_, status| sleek_scrollable_style(status, pal_c, recently_scrolled));
