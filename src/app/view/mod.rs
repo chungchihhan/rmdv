@@ -5,6 +5,7 @@ use super::*;
 
 mod chrome;
 mod overlays;
+mod press_watch;
 mod settings;
 mod sidebar;
 mod toolbar;
@@ -13,6 +14,7 @@ mod widgets;
 
 pub(super) use chrome::*;
 pub(super) use overlays::*;
+pub(super) use press_watch::PressWatch;
 pub(super) use settings::*;
 pub(super) use sidebar::*;
 pub(super) use toolbar::*;

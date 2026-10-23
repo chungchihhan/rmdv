@@ -462,36 +462,9 @@ fn palette_hover_moves_selection_after_pointer_motion() {
     assert_eq!(app.overlay_selected, target + 1);
 }
 
-// --- 4. Folder picker "Open This Folder" ------------------------------------
+// --- 4. Folder picker: rows click and double-click -------------------------
 
-#[test]
-fn folder_picker_open_this_folder_button_opens_workspace() {
-    let dir = std::env::temp_dir().join(format!("rmdv-pointer-picker-{}", std::process::id()));
-    std::fs::create_dir_all(dir.join("child")).unwrap();
-    std::fs::write(dir.join("child").join("a.md"), "a").unwrap();
-
-    let mut app = App::default();
-    app.overlay = Overlay::FolderPicker;
-    app.picker = Some(Picker::new(Some(dir.clone()), PickerMode::OpenAny, false));
-    let mut ui = PointerUi::new();
-    let button = ui
-        .text_bounds(&app, "Open This Folder")
-        .expect("picker footer has an Open This Folder button");
-    let messages = ui.click(&app, center(button));
-    assert!(has(&messages, |m| matches!(
-        m,
-        Message::PickerSelectFolderHere
-    )));
-    apply(&mut app, messages);
-
-    assert_eq!(app.overlay, Overlay::None);
-    assert!(app.picker.is_none());
-    assert_eq!(
-        app.workspace.as_deref(),
-        Some(canonicalize_existing_path(dir.clone()).as_path())
-    );
-    let _ = std::fs::remove_dir_all(&dir);
-}
+mod picker;
 
 // --- 5. Vault search close and search buttons --------------------------------
 

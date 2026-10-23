@@ -2318,7 +2318,7 @@ impl App {
             Message::PickerNavigate(p) => {
                 if let Some(pk) = self.picker.as_mut() {
                     if p.is_dir() {
-                        pk.navigate_to(p);
+                        pk.navigate_to(p.clone());
                         self.overlay_selected = 0;
                         self.list_pointer.settle();
                         // Leaf folder (no subfolders, readable): treat the
@@ -2328,8 +2328,10 @@ impl App {
                             let cwd = pk.cwd.clone();
                             self.overlay = Overlay::None;
                             self.picker = None;
+                            self.picker_click = PickerClick::Closed;
                             return Task::done(Message::OpenWorkspace(cwd));
                         }
+                        self.picker_click = PickerClick::Descended(p);
                     }
                 }
                 Task::none()
@@ -2350,15 +2352,28 @@ impl App {
                 }
                 Task::none()
             }
-            Message::PickerSelectFolderHere => {
-                if let Some(pk) = self.picker.take() {
-                    // Same close-then-open order as Enter on a folder row.
-                    self.overlay = Overlay::None;
-                    return Task::done(Message::OpenWorkspace(pk.cwd));
+            Message::PickerPointerPress { double } => {
+                // Any press consumes the last row click. Only the press that
+                // completes a double-click on the folder that click
+                // descended into opens it; the rows under the pointer have
+                // changed since.
+                let click = std::mem::take(&mut self.picker_click);
+                if let (true, PickerClick::Descended(folder)) = (double, click) {
+                    let still_there = self.overlay == Overlay::FolderPicker
+                        && self.picker.as_ref().is_some_and(|pk| pk.cwd == folder);
+                    if still_there {
+                        // Same close-then-open order as Enter on a folder row.
+                        self.overlay = Overlay::None;
+                        self.picker = None;
+                        return Task::done(Message::OpenWorkspace(folder));
+                    }
                 }
                 Task::none()
             }
             Message::PickerOpenFile(path) => {
+                if self.picker.is_some() {
+                    self.picker_click = PickerClick::Closed;
+                }
                 self.overlay = Overlay::None;
                 self.picker = None;
                 self.cancel_refresh_tracking();

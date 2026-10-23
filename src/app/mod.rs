@@ -256,6 +256,8 @@ pub struct App {
     /// Keyboard cursor over `SettingsRow::visible()`.
     pub settings_cursor: usize,
     pub picker: Option<Picker>,
+    /// What the picker's last row click did; see `PickerClick`.
+    picker_click: PickerClick,
     /// Opt-in workspace navigator. Kept separate from the document's
     /// `ViewMode::Mindmap` state so entering/exiting it cannot disturb an open
     /// document mindmap or Zen editor.
@@ -579,6 +581,7 @@ impl Default for App {
             settings_open: false,
             settings_cursor: 0,
             picker: None,
+            picker_click: PickerClick::Idle,
             full_mindmap: None,
             full_mindmap_request_seq: 0,
             tree_viewport: None,
@@ -2543,6 +2546,7 @@ impl App {
         self.overlay_selected = 0;
         self.overlay_viewport = None;
         self.list_pointer = ListPointer::default();
+        self.picker_click = PickerClick::Idle;
         if kind == Overlay::FolderPicker {
             let start = self.workspace.clone().or_else(|| {
                 self.file
@@ -4107,7 +4111,7 @@ impl App {
             Some(u) => update_banner(&u.version, pal),
             None => Space::new().into(),
         };
-        iced::widget::stack![
+        let root = iced::widget::stack![
             base,
             slot_replace_layer,
             close_confirm_layer,
@@ -4115,8 +4119,16 @@ impl App {
             toast_layer,
             update_layer,
             drop_layer
-        ]
-        .into()
+        ];
+        // The picker's double-click: presses are reported only while the
+        // picker is open or a row click just closed it.
+        let report: fn(bool) -> Message = |double| Message::PickerPointerPress { double };
+        let watching =
+            self.overlay == Overlay::FolderPicker || self.picker_click != PickerClick::Idle;
+        PressWatch::new(root)
+            .on_press(watching.then_some(report))
+            .swallow_double(self.picker_click != PickerClick::Idle)
+            .into()
     }
 }
 

@@ -82,7 +82,12 @@ pub enum Message {
     PickerNavigate(PathBuf),
     PickerParent,
     PickerHome,
-    PickerSelectFolderHere,
+    /// A left press while the folder picker watches presses (it is open, or
+    /// a row click just closed it); `double` when the press completes a
+    /// double-click.
+    PickerPointerPress {
+        double: bool,
+    },
     /// Picker chose a file: open it AND select its parent as workspace.
     PickerOpenFile(PathBuf),
     OverlayQueryChanged(String),
