@@ -75,6 +75,14 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
 - The native menu bar is hand-written with `objc2-app-kit`, macOS only, the
   same bridge style as `src/native_pinch.rs` and `src/macos_open.rs`.
 - Close protection covers the red close button and `⌘Q`.
+- The file tree's New File, New Folder, Rename, and Move to Trash rescan the
+  workspace synchronously, so a new item's row exists for its inline rename
+  and no stale row remains. The scan is bounded; at the 10,000-entry budget
+  it took 21–26 ms on a local SSD (P6 review, 2026-10-24), once per action.
+  A slow network volume would stall longer; an async rescan with a local
+  row patch is the fallback if the owner sees a hitch.
+- Rename, New File, or New Folder chosen from the sidebar peek pins the
+  sidebar open, as Keep Sidebar Open does, because the rename needs the tree.
 
 ## Phases (one branch and PR each, stacked)
 

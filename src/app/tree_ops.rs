@@ -213,6 +213,12 @@ impl App {
 
     /// Index the workspace again after a change made here, keeping open
     /// folders. A refresh still in flight read the old tree; it is dropped.
+    ///
+    /// Synchronous on purpose: New File and New Folder rename the new row
+    /// in place at once, and Rename and Trash must not leave a stale row
+    /// that opens a missing file. The scan is bounded by the tree budgets;
+    /// at the 10,000-entry budget it took 21–26 ms on a local SSD
+    /// (2026-10-24), once per user action. See MDV-048's decisions.
     fn reindex_workspace(&mut self) -> Task<Message> {
         let Some(root) = self.workspace.clone() else {
             return Task::none();

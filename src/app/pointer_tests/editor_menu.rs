@@ -134,8 +134,8 @@ fn keys_typed_while_the_editor_menu_is_open_do_not_edit() {
     let _ = right_press(&mut app, &mut ui, Point::new(640.0, 400.0));
     assert!(app.context_menu.is_some());
 
-    // The focused editor still sees the keys the menu takes (Enter, the
-    // arrows, letters); they edit nothing while the menu is open.
+    // The menu layer keeps the keys from the focused editor, and an editor
+    // action that still arrives edits nothing while the menu is open.
     let typed = ui.type_char(&app, 'x');
     apply(&mut app, typed);
     let _ = app.update(Message::EditorAction(Action::Edit(Edit::Enter)));

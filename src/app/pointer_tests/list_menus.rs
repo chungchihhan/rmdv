@@ -111,7 +111,8 @@ fn the_query_field_under_a_menu_takes_no_typing_or_enter() {
     let _ = right_press(&mut app, &mut ui, center(row));
     assert!(app.context_menu.is_some());
 
-    // The focused field still sees the keys; the menu owns them.
+    // The menu owns the keys; a query message that still arrives does
+    // nothing.
     let _ = app.update(Message::OverlayQueryChanged("gam".into()));
     assert_eq!(app.overlay_query, "", "typing goes to the menu");
     let _ = app.update(Message::OverlayConfirm);
