@@ -174,8 +174,9 @@ pub(super) fn context_menu_origin(
 }
 
 /// The parts of the app a context menu belongs to. When one changes (an
-/// overlay, a view, a modal, the sidebar), the menu no longer matches what
-/// is under it and closes.
+/// overlay, a view, a modal, the sidebar, the open document or workspace),
+/// the menu no longer matches what is under it and closes. Its items carry
+/// targets (a heading, a block, a path) taken from what was under it.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct MenuScope {
     overlay: Overlay,
@@ -188,6 +189,8 @@ pub(super) struct MenuScope {
     sidebar_tab: SidebarTab,
     window_fullscreen: bool,
     modal: (bool, bool),
+    file: Option<PathBuf>,
+    workspace: Option<PathBuf>,
 }
 
 impl App {
@@ -223,6 +226,8 @@ impl App {
                 self.quick_slot_replace.is_some(),
                 self.close_confirm.is_some(),
             ),
+            file: self.file.clone(),
+            workspace: self.workspace.clone(),
         }
     }
 
