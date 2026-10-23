@@ -929,3 +929,33 @@ fn a_document_mindmap_double_click_drops_a_pending_scroll_restore() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[test]
+fn a_document_mindmap_activation_reads_its_own_block_or_nothing() {
+    let (mut app, dir) = document_mindmap_app("p4-doc-activate-block");
+    let child = app
+        .ast
+        .iter()
+        .position(|(_, block)| matches!(block, crate::ast::Block::Heading { level: 2, .. }))
+        .expect("the Child heading");
+    let child_id = app.ast[child].0;
+    let paragraph_id = app.ast[child + 1].0;
+
+    // A block that is not a heading has no mind map node to read: no
+    // history stop, no checkpoint, the mind map stays.
+    let back = app.history.back.len();
+    let _ = app.update(Message::MindmapActivateNode(paragraph_id));
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    assert_eq!(app.history.back.len(), back, "no stop for a no-op");
+
+    // A heading and the paragraph after it can start on the same line (a
+    // .tex `\section{A} text`). The heading block is read, not whichever
+    // block a line lookup finds.
+    let line = app.block_lines[child];
+    app.block_lines[child + 1] = line;
+    let _ = app.update(Message::MindmapActivateNode(child_id));
+    assert_eq!(app.view_mode, ViewMode::Rendered, "the Reader shows");
+    assert_eq!(app.nav_anchor, Some(child), "the heading is the target");
+    assert_eq!(app.history.back.len(), back + 1, "one stop for the jump");
+    let _ = std::fs::remove_dir_all(&dir);
+}

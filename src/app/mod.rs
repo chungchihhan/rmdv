@@ -2249,6 +2249,12 @@ impl App {
         let Some(idx) = crate::ipc::lines::block_for_line(line, &self.block_lines) else {
             return Task::none();
         };
+        self.scroll_to_block_top(idx)
+    }
+
+    /// Shows the Reader with the heading at `idx` at the top. Any other
+    /// block is a no-op.
+    fn scroll_to_block_top(&mut self, idx: usize) -> Task<Message> {
         let Some((id, Block::Heading { .. })) = self.ast.get(idx) else {
             return Task::none();
         };

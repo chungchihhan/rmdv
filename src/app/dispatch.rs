@@ -1973,18 +1973,17 @@ impl App {
                 if self.view_mode != ViewMode::Mindmap || self.is_data_doc {
                     return Task::none();
                 }
-                let line = if id == crate::mindmap::DOC_ROOT {
+                // Resolve the heading block itself. A line lookup could land
+                // on another block that starts on the same line.
+                let heading = if id == crate::mindmap::DOC_ROOT {
                     None
                 } else {
-                    let Some(line) = self
-                        .ast
-                        .iter()
-                        .position(|(block, _)| *block == id)
-                        .and_then(|idx| self.block_lines.get(idx).copied())
-                    else {
+                    let Some(idx) = self.ast.iter().position(|(block, node)| {
+                        *block == id && matches!(node, Block::Heading { .. })
+                    }) else {
                         return Task::none();
                     };
-                    Some(line)
+                    Some(idx)
                 };
                 self.reader_select_all = false;
                 self.mindmap_panel_drag = None;
@@ -1997,8 +1996,8 @@ impl App {
                 self.quick_slot_body_restore = None;
                 self.quick_slot_preview_restore = None;
                 self.history.arriving = None;
-                let jump = match line {
-                    Some(line) => self.scroll_to_line_top(line),
+                let jump = match heading {
+                    Some(idx) => self.scroll_to_block_top(idx),
                     None => {
                         self.view_mode = ViewMode::Rendered;
                         Task::done(Message::ScrollToTop)
