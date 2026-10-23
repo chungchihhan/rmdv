@@ -887,9 +887,12 @@ impl App {
             Message::WindowDrag | Message::WindowTitlebarDoubleClick => Task::none(),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a
-                // finite magnification delta while a graph owns the visible
-                // surface; search and overlays retain their normal input.
-                if delta.is_finite() && self.overlay == Overlay::None {
+                // finite magnification delta while a graph or the image
+                // viewer owns the visible surface; search and the other
+                // overlays retain their normal input.
+                if delta.is_finite() && self.overlay == Overlay::ImageZoom {
+                    self.image_zoom_pinch_log += f64::from(delta);
+                } else if delta.is_finite() && self.overlay == Overlay::None {
                     if self.full_mindmap.is_some() {
                         self.full_mindmap_native_pinch_log += f64::from(delta);
                     } else if self.view_mode == ViewMode::Mindmap && !self.search_open {
@@ -2013,6 +2016,14 @@ impl App {
                     self.full_mindmap_zoom_request = self.full_mindmap_zoom_request.next(command);
                 } else {
                     self.mindmap_zoom_request = self.mindmap_zoom_request.next(command);
+                }
+                Task::none()
+            }
+            Message::ImageZoomCommand(command) => {
+                // The viewer applies the request on the redraw this message
+                // causes, as the mind map canvas does.
+                if self.overlay == Overlay::ImageZoom {
+                    self.image_zoom_request = self.image_zoom_request.next(command);
                 }
                 Task::none()
             }

@@ -261,6 +261,8 @@ pub enum Message {
     /// A mind map zoom button: Fit, −, 100%, or +. It drives the canvas on
     /// screen (the document mind map or Full Mindmap).
     MindmapZoom(crate::mindmap::ZoomCommand),
+    /// An image viewer zoom button or key: Fit, −, 100%, or +.
+    ImageZoomCommand(crate::mindmap::ZoomCommand),
     MindmapToggleNode(crate::ast::BlockId),
     MindmapSelectLeaf(crate::ast::BlockId),
     /// A double click on a document mind map node: read that heading in

@@ -387,6 +387,10 @@ pub struct App {
     /// [`crate::mindmap::ZoomRequest`].
     pub mindmap_zoom_request: crate::mindmap::ZoomRequest,
     pub full_mindmap_zoom_request: crate::mindmap::ZoomRequest,
+    /// The image viewer's latest zoom button or key, and its own native
+    /// pinch stream; see [`crate::zoom_viewer`].
+    pub image_zoom_request: crate::mindmap::ZoomRequest,
+    pub image_zoom_pinch_log: f64,
     /// Cached mindmap layout, lazily rebuilt from (ast, file, mindmap_collapsed).
     /// Every mutation of those inputs must invalidate it or atomically replace
     /// it with a layout built from the new state.
@@ -431,9 +435,8 @@ pub struct App {
     pub diagram_theme_id: u32,
     /// Pre-rasterized image::Handle of the diagram currently shown in the
     /// zoom overlay. `None` when overlay shows a normal raster/svg image.
-    /// Using image::Handle lets the zoom modal reuse iced's built-in
-    /// `image::viewer` for scroll-to-zoom + drag-to-pan + escape-to-close
-    /// parity with normal images. Handle clones are cheap (Arc inside).
+    /// Using image::Handle lets diagrams and images share one viewer
+    /// (`crate::zoom_viewer`). Handle clones are cheap (Arc inside).
     pub zoom_diagram: Option<iced::widget::image::Handle>,
     /// Line numbers (0-based) for each block in `ast`, parallel to `ast`.
     /// Built from `parser::parse`'s byte-offset return via `build_byte_to_line`.
@@ -673,6 +676,8 @@ impl Default for App {
             full_mindmap_native_pinch_log: 0.0,
             mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
             full_mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
+            image_zoom_request: crate::mindmap::ZoomRequest::default(),
+            image_zoom_pinch_log: 0.0,
             mindmap_layout: std::cell::RefCell::new(None),
             mindmap_layout_generation: std::cell::Cell::new(0),
             mindmap_data_panel: std::cell::RefCell::new(None),
@@ -3020,6 +3025,7 @@ impl App {
         let full_mindmap = self.full_mindmap.is_some();
         let focused = self.search_open && !full_mindmap;
         let overlay_open = self.overlay != Overlay::None;
+        let image_zoom_open = self.overlay == Overlay::ImageZoom;
         let sidebar_open = self.sidebar_open && !full_mindmap;
         let outline_active =
             self.sidebar_open && self.sidebar_tab == SidebarTab::Outline && !full_mindmap;
@@ -3078,6 +3084,7 @@ impl App {
                 slot_replace_open,
                 self.reader_select_all,
                 close_confirm_open,
+                image_zoom_open,
             ),
         ))
         .map(
@@ -3097,7 +3104,7 @@ impl App {
                         quick_slots_allowed,
                         settings_open,
                     ),
-                    (slot_replace_open, select_all, close_confirm_open),
+                    (slot_replace_open, select_all, close_confirm_open, image_zoom_open),
                 ),
                 (ev, reader_copied),
             )| {
@@ -3351,6 +3358,11 @@ impl App {
                     }
                     if editing {
                         return Message::ToggleViewMode;
+                    }
+                }
+                if image_zoom_open {
+                    if let Some(message) = image_zoom_key_message(&key, mods) {
+                        return message;
                     }
                 }
                 if overlay_open {
@@ -4067,6 +4079,10 @@ impl App {
                 self.zoom_url.as_deref(),
                 self.zoom_diagram.as_ref(),
                 &self.image_cache,
+                ImageZoomInput {
+                    request: self.image_zoom_request,
+                    pinch_log: self.image_zoom_pinch_log,
+                },
                 pal,
             ),
         };

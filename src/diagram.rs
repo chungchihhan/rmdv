@@ -76,9 +76,9 @@ pub enum DiagramState {
     /// Render completed successfully.
     ///
     /// - `inline` is a pre-rasterized image handle used for both inline view
-    ///   and the zoom modal (reuses iced's `image::viewer` for scroll-zoom
-    ///   + drag-pan + escape-close parity with normal images). Bypasses
-    ///   iced_wgpu's per-redraw SVG parse/raster step.
+    ///   and the zoom modal (`crate::zoom_viewer`, the same viewer as for
+    ///   normal images). Bypasses iced_wgpu's per-redraw SVG parse/raster
+    ///   step.
     /// - `source_bytes` is the raw SVG payload (copy/export).
     Ready {
         inline: image::Handle,
