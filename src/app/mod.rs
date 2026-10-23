@@ -3253,16 +3253,6 @@ impl App {
                         context_menu_key_message(&key)
                     };
                 }
-                // The inline rename field takes typing, editing keys, and
-                // Enter itself; no shortcut acts on the tree or the reader
-                // underneath it.
-                if renaming {
-                    return if released {
-                        Message::Noop
-                    } else {
-                        tree_rename_key_message(&key)
-                    };
-                }
                 // The replace-slot confirmation owns the keyboard: nothing
                 // reaches the surfaces underneath it.
                 if slot_replace_open {
@@ -3282,6 +3272,16 @@ impl App {
                         Message::Noop
                     } else {
                         close_confirm_key_message(&key, mods)
+                    };
+                }
+                // The inline rename field takes typing, editing keys, and
+                // Enter itself; no shortcut acts on the tree or the reader
+                // underneath it. Both confirmations above end a rename.
+                if renaming {
+                    return if released {
+                        Message::Noop
+                    } else {
+                        tree_rename_key_message(&key)
                     };
                 }
                 let cmd = mods.command() || mods.control();

@@ -635,3 +635,18 @@ fn operations_refuse_paths_through_a_symlinked_folder() {
     let _ = std::fs::remove_dir_all(&outside);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_close_confirmation_ends_an_inline_rename() {
+    let (mut app, dir) = tree_fixture("ops-close");
+    open(&mut app, &dir.join("alpha.md"));
+    app.dirty = true;
+    let _ = app.update(Message::TreeRenameStart(dir.join("beta.md")));
+    assert!(rename_value(&app).is_some());
+
+    let _ = app.update(Message::WindowCloseRequested(iced::window::Id::unique()));
+
+    assert!(app.close_confirm.is_some());
+    assert_eq!(rename_value(&app), None, "the confirmation owns the keys");
+    let _ = std::fs::remove_dir_all(&dir);
+}

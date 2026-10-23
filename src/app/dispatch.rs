@@ -24,6 +24,11 @@ impl App {
             self.tree_rename = None;
             self.reader_keys = false;
         }
+        // A confirmation card owns the keyboard; its Esc and Enter must not
+        // reach a rename field still focused underneath.
+        if self.close_confirm.is_some() || self.quick_slot_replace.is_some() {
+            self.tree_rename = None;
+        }
         // Every way out of the viewer (Esc, a click beside the image, an
         // open from Finder or the CLI, Zen) frees what it holds: the sharper
         // raster alone can be 64 MB.
