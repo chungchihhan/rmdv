@@ -91,13 +91,18 @@ fn left_edge_reveals_the_sidebar_over_the_content() {
         "the reader does not reflow"
     );
 
-    // The peek reports the pointer on it once (a repeat that changes
-    // nothing); plain moves inside it then publish nothing.
+    // The band alone does not confirm the hover. The peek reports the
+    // pointer on it once, on its first event, and that cancels the band's
+    // pending hide; plain moves inside it then publish nothing.
+    let band_generation = app.sidebar_peek_generation;
     let (messages, _) = ui.move_to(&app, Point::new(4.0, 400.0));
-    assert!(peek_count(&messages, true) <= 1, "{messages:?}");
+    assert_eq!(peek_count(&messages, true), 1, "{messages:?}");
     assert_eq!(peek_count(&messages, false), 0, "{messages:?}");
-    let generation = app.sidebar_peek_generation;
     apply(&mut app, messages);
+    let _ = app.update(Message::SidebarPeekHideAfter(band_generation));
+    assert!(app.sidebar_peek, "the peek's hover cancels the band's hide");
+    let generation = app.sidebar_peek_generation;
+    let _ = app.update(Message::SidebarPeek(true));
     assert_eq!(
         app.sidebar_peek_generation, generation,
         "a repeat is a no-op"
@@ -138,6 +143,37 @@ fn leaving_the_peek_hides_it_after_the_delay() {
     assert!(
         ui.text_bounds(&app, "beta.md").is_none(),
         "hidden after the delay"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_peek_hides_when_the_pointer_leaves_the_window_across_the_band() {
+    // The pointer slides out of the window across the band. The band
+    // reports it, then the window loses the pointer before the new peek
+    // could see it, so the peek never reports a leave of its own.
+    let (mut app, dir) = peek_app("leave-window");
+    let mut ui = PointerUi::new();
+    let _ = ui.move_to(&app, READER);
+    let (messages, _) = ui.move_to(&app, EDGE);
+    assert_eq!(peek_count(&messages, true), 1, "{messages:?}");
+    let mut hide = Vec::new();
+    for message in messages {
+        hide.extend(wait_outputs(app.update(message)));
+    }
+    assert!(app.sidebar_peek, "the peek shows");
+    for message in ui.leave_window(&app) {
+        hide.extend(wait_outputs(app.update(message)));
+    }
+    assert!(
+        has(&hide, |m| matches!(m, Message::SidebarPeekHideAfter(_))),
+        "a hide is scheduled: {hide:?}"
+    );
+    apply(&mut app, hide);
+    assert!(!app.sidebar_peek, "the peek does not stay open");
+    assert!(
+        ui.text_bounds(&app, "beta.md").is_none(),
+        "the reader is clear again"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

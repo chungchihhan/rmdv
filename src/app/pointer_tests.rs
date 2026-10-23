@@ -99,13 +99,33 @@ impl PointerUi {
         at: Point,
         events: Vec<Event>,
     ) -> (Vec<Message>, mouse::Interaction) {
+        self.send_cursor(app, mouse::Cursor::Available(at), events)
+    }
+
+    /// The pointer leaves the window: the event loop then reports no
+    /// cursor position.
+    fn leave_window(&mut self, app: &App) -> Vec<Message> {
+        self.send_cursor(
+            app,
+            mouse::Cursor::Unavailable,
+            vec![Event::Mouse(mouse::Event::CursorLeft)],
+        )
+        .0
+    }
+
+    fn send_cursor(
+        &mut self,
+        app: &App,
+        cursor: mouse::Cursor,
+        events: Vec<Event>,
+    ) -> (Vec<Message>, mouse::Interaction) {
         let cache = self.cache.take().unwrap_or_default();
         let mut ui = UserInterface::build(app.view(), self.size, cache, &mut self.renderer);
         let mut messages = Vec::new();
         let mut clipboard = iced::advanced::clipboard::Null;
         let (state, _) = ui.update(
             &events,
-            mouse::Cursor::Available(at),
+            cursor,
             &mut self.renderer,
             &mut clipboard,
             &mut messages,

@@ -23,23 +23,30 @@ impl App {
     }
 
     /// The pointer entered or left the peek (its edge band or the peeking
-    /// sidebar). Entering shows the peek at once; leaving hides it after a
-    /// short delay, which a return cancels.
+    /// sidebar). Entering the band shows the peek at once; leaving the peek
+    /// hides it after a short delay, which a return cancels.
+    ///
+    /// Only the peek itself confirms the hover. A new peek reports the
+    /// pointer on its first event, and it reports a leave only after that,
+    /// so a pointer that leaves the window across the band never produces
+    /// a leave. The band's entry therefore already starts the hide delay,
+    /// which the peek's own report cancels.
     pub(super) fn sidebar_peek_hover(&mut self, entered: bool) -> Task<Message> {
         if !self.sidebar_peek_allowed() {
             return Task::none();
         }
-        // The peek reports the pointer once more when it appears under it.
+        // The peek reports the pointer once more when it is already known.
         if entered && self.sidebar_peek && self.sidebar_peek_hovered {
             return Task::none();
         }
-        self.sidebar_peek_hovered = entered;
+        // An entry while the peek shows comes from the peek itself; an entry
+        // while it is hidden comes from the band.
+        let from_band = entered && !self.sidebar_peek;
+        self.sidebar_peek_hovered = entered && !from_band;
         self.sidebar_peek_generation = self.sidebar_peek_generation.wrapping_add(1);
-        if entered {
+        if from_band {
             self.sidebar_peek = true;
-            return Task::none();
-        }
-        if !self.sidebar_peek {
+        } else if entered || !self.sidebar_peek {
             return Task::none();
         }
         let generation = self.sidebar_peek_generation;
