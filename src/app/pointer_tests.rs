@@ -1721,3 +1721,7 @@ mod sidebar_divider;
 // --- P7: the Quick Slots popover --------------------------------------------
 
 mod slot_popover;
+
+// --- P7: hit targets and button states ----------------------------------------
+
+mod hit_targets;

@@ -155,12 +155,13 @@ pub(in crate::app) fn sidebar_tab_button<'a>(
     tab: SidebarTab,
     pal: Palette,
 ) -> Element<'a, Message> {
-    button(
+    let button = button(
         text(label)
             .size(11)
             .color(if active { pal.fg } else { pal.muted }),
     )
-    .padding(Padding::from([3, 9]))
+    // 7 px above and below the 11 px label's line: a 28 px tall target.
+    .padding(Padding::from([7, 9]))
     .style(move |_, status| {
         let bg = if active {
             Some(Background::Color(pal.hover()))
@@ -185,8 +186,12 @@ pub(in crate::app) fn sidebar_tab_button<'a>(
             ..Default::default()
         }
     })
-    .on_press(Message::SetSidebarTab(tab))
-    .into()
+    .on_press(Message::SetSidebarTab(tab));
+    let id = match tab {
+        SidebarTab::Files => "sidebar-tab-files",
+        SidebarTab::Outline => "sidebar-tab-outline",
+    };
+    container(button).id(iced::widget::Id::new(id)).into()
 }
 
 /// Container id of the divider between the sidebar and the reader.

@@ -128,6 +128,19 @@ pub(in crate::app) fn link_pill<'a>(label: &str, pal: Palette, left: f32) -> Ele
 /// Room kept on the right of the link pill for the word-count footer.
 const LINK_PILL_RIGHT_ROOM: f32 = 220.0;
 
+/// A toast's action button (Save, Undo): an accent pill.
+pub(in crate::app) fn toast_action_style(status: button::Status, pal: Palette) -> button::Style {
+    button::Style {
+        background: Some(Background::Color(accent_fill(status, pal))),
+        text_color: pal.accent_fg,
+        border: Border {
+            radius: theme::radius::PILL.into(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
 pub(in crate::app) fn toast_overlay<'a>(toast: &Toast, pal: Palette) -> Element<'a, Message> {
     use iced::widget::{button, container, text as text_w};
     let mut content = irow![text_w(toast.text.clone()).size(13.5).color(pal.fg)]
@@ -136,15 +149,7 @@ pub(in crate::app) fn toast_overlay<'a>(toast: &Toast, pal: Palette) -> Element<
     if let Some(action) = &toast.action {
         let action_button = button(text_w(action.label.clone()).size(12.5).color(pal.accent_fg))
             .padding(Padding::from([5, 10]))
-            .style(move |_, _| button::Style {
-                background: Some(Background::Color(pal.accent)),
-                text_color: pal.accent_fg,
-                border: Border {
-                    radius: theme::radius::PILL.into(),
-                    ..Default::default()
-                },
-                ..Default::default()
-            })
+            .style(move |_, status| toast_action_style(status, pal))
             .on_press(action.message.clone());
         content = content.push(action_button);
     }
@@ -553,6 +558,22 @@ fn welcome_recent<'a>(
 /// Container id of the pinned Quick Slots popover.
 pub(in crate::app) const QUICK_SLOTS_POPOVER_ID: &str = "quick-slots-popover";
 
+/// Side of a Quick Slot chip: a 28 px pointer target.
+const QUICK_SLOT_CHIP: f32 = 28.0;
+
+/// Container ids of the rail's slot rows, slot 1 first.
+pub(in crate::app) const QUICK_SLOT_CHIP_IDS: [&str; crate::quick_slots::SLOT_COUNT] = [
+    "quick-slot-1",
+    "quick-slot-2",
+    "quick-slot-3",
+    "quick-slot-4",
+    "quick-slot-5",
+    "quick-slot-6",
+    "quick-slot-7",
+    "quick-slot-8",
+    "quick-slot-9",
+];
+
 /// What a Quick Slot chip shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::app) enum SlotChipLook {
@@ -654,8 +675,8 @@ pub(in crate::app) fn quick_slots_rail<'a>(
             SlotChipLook::Unassignable
         };
         let slot_button = button(label)
-            .width(Length::Fixed(24.0))
-            .height(Length::Fixed(24.0))
+            .width(Length::Fixed(QUICK_SLOT_CHIP))
+            .height(Length::Fixed(QUICK_SLOT_CHIP))
             .padding(Padding::ZERO)
             .style(move |_, status| quick_slot_chip_style(look, status, pal));
         let mut slot_button = slot_button;
@@ -683,7 +704,7 @@ pub(in crate::app) fn quick_slots_rail<'a>(
                     .wrapping(iced::widget::text::Wrapping::None),
             )
             .width(Length::Fixed(220.0))
-            .height(Length::Fixed(24.0))
+            .height(Length::Fixed(QUICK_SLOT_CHIP))
             .padding(Padding::from([0, 6]))
             .align_y(iced::alignment::Vertical::Center)
             .clip(true)
@@ -703,7 +724,9 @@ pub(in crate::app) fn quick_slots_rail<'a>(
         } else {
             irow![slot_button].into()
         };
-        let slot_view = mouse_area(slot_view).on_right_press(Message::QuickSlotContextMenu(index));
+        let slot_view =
+            container(mouse_area(slot_view).on_right_press(Message::QuickSlotContextMenu(index)))
+                .id(iced::widget::Id::new(QUICK_SLOT_CHIP_IDS[index]));
         controls = controls.push(slot_view);
     }
     // Pinned from the toolbar, the rail is a popover: a panel that closes

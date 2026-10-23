@@ -8,28 +8,30 @@ pub(in crate::app) fn primary_button<'a>(
 ) -> button::Button<'a, Message> {
     button(text(label).size(13))
         .padding(Padding::from([8, 14]))
-        .style(move |_, status| {
-            let bg = match status {
-                button::Status::Hovered => Color {
-                    a: 0.92,
-                    ..pal.accent
-                },
-                button::Status::Pressed => Color {
-                    a: 0.80,
-                    ..pal.accent
-                },
-                _ => pal.accent,
-            };
-            button::Style {
-                background: Some(Background::Color(bg)),
-                text_color: pal.accent_fg,
-                border: Border {
-                    radius: theme::radius::PILL.into(),
-                    ..Default::default()
-                },
+        .style(move |_, status| button::Style {
+            background: Some(Background::Color(accent_fill(status, pal))),
+            text_color: pal.accent_fg,
+            border: Border {
+                radius: theme::radius::PILL.into(),
                 ..Default::default()
-            }
+            },
+            ..Default::default()
         })
+}
+
+/// An accent button's fill: lighter on hover, lighter again while pressed.
+pub(in crate::app) fn accent_fill(status: button::Status, pal: Palette) -> Color {
+    match status {
+        button::Status::Hovered => Color {
+            a: 0.92,
+            ..pal.accent
+        },
+        button::Status::Pressed => Color {
+            a: 0.80,
+            ..pal.accent
+        },
+        _ => pal.accent,
+    }
 }
 
 /// Quiet outlined pill that sits beside a [`primary_button`] as the
@@ -57,20 +59,28 @@ pub(in crate::app) fn secondary_button<'a>(
 }
 
 pub(in crate::app) fn ghost_lu<'a>(code: char, pal: Palette) -> button::Button<'a, Message> {
+    // 5 px above and below the 14 px glyph's line: a 28 px tall target.
     button(icon::glyph(code, 14.0, pal.muted))
-        .padding(Padding::from([4, 8]))
-        .style(move |_, status| button::Style {
-            background: match status {
-                button::Status::Hovered => Some(Background::Color(pal.hover())),
-                _ => None,
-            },
-            text_color: pal.muted,
-            border: Border {
-                radius: theme::radius::PILL.into(),
-                ..Default::default()
-            },
+        .padding(Padding::from([5, 8]))
+        .style(move |_, status| ghost_style(status, pal))
+}
+
+/// A ghost icon button's colors: no fill until hovered, darker while
+/// pressed.
+pub(in crate::app) fn ghost_style(status: button::Status, pal: Palette) -> button::Style {
+    button::Style {
+        background: match status {
+            button::Status::Hovered => Some(Background::Color(pal.hover())),
+            button::Status::Pressed => Some(Background::Color(pal.active())),
+            _ => None,
+        },
+        text_color: pal.muted,
+        border: Border {
+            radius: theme::radius::PILL.into(),
             ..Default::default()
-        })
+        },
+        ..Default::default()
+    }
 }
 
 /// Tooltip for an icon button: the action's name, then its shortcut when it
