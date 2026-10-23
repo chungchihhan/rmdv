@@ -52,9 +52,24 @@ impl Operation for Find<'_> {
     }
 }
 
+/// Registers the bundled Lucide font once, as `main` does, so toolbar
+/// icons measure as they draw. Without it a glyph falls back to whatever
+/// system font covers its private-use code point, or to nothing.
+fn load_icon_font() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let fonts = iced::advanced::graphics::text::font_system();
+        let mut fonts = fonts.write().expect("font system");
+        fonts.load_font(std::borrow::Cow::Borrowed(include_bytes!(
+            "../assets/fonts/lucide.ttf"
+        )));
+    });
+}
+
 impl PointerUi {
     fn new() -> Self {
         use iced::advanced::renderer::Headless;
+        load_icon_font();
         let renderer = iced::futures::executor::block_on(<iced::Renderer as Headless>::new(
             iced::Font::DEFAULT,
             iced::Pixels(16.0),

@@ -125,11 +125,11 @@ fn always_toolbar_shows_file_name_dirty_dot_and_named_controls() {
         .id_bounds(&app, "toolbar-dirty-dot")
         .expect("a dirty dot beside the name");
     assert!(dot.x > name.x + name.width - 1.0, "after the name");
-    for label in ["Read", "Edit", "Mind Map"] {
+    for id in ["view-read", "view-edit", "view-mindmap"] {
         let bounds = ui
-            .text_bounds(&app, label)
-            .unwrap_or_else(|| panic!("{label} segment"));
-        assert!(bounds.y < TOOLBAR_H, "{label} in the top strip");
+            .id_bounds(&app, id)
+            .unwrap_or_else(|| panic!("{id} segment"));
+        assert!(bounds.y < TOOLBAR_H, "{id} in the top strip");
     }
     for code in [ic::SAVE, ic::SEARCH, ic::COMMAND, ic::SETTINGS, ic::NETWORK] {
         let bounds = glyph_at(&mut ui, &app, code).expect("toolbar icon");
@@ -196,11 +196,11 @@ fn always_toolbar_buttons_send_their_actions() {
 
     let mut ui = PointerUi::new();
     for (label, view) in [
-        ("Read", ToolbarView::Read),
-        ("Edit", ToolbarView::Edit),
-        ("Mind Map", ToolbarView::Mindmap),
+        ("view-read", ToolbarView::Read),
+        ("view-edit", ToolbarView::Edit),
+        ("view-mindmap", ToolbarView::Mindmap),
     ] {
-        let bounds = ui.text_bounds(&app, label).expect("segment");
+        let bounds = ui.id_bounds(&app, label).expect("segment");
         let messages = ui.click(&app, center(bounds));
         assert!(
             has(
@@ -455,13 +455,13 @@ fn view_switch_leaves_settings_and_vault_search_to_show_the_view() {
 
 #[test]
 fn hover_toolbar_leaves_edit_mode_and_saves() {
-    let mut app = dirty_app();
+    let mut app = on_hover(dirty_app());
     let _ = app.update(Message::ToolbarHover(true));
     let mut ui = PointerUi::new();
     let save = glyph_at(&mut ui, &app, ic::SAVE).expect("Save in edit mode");
     let messages = ui.click(&app, center(save));
     assert!(has(&messages, |m| matches!(m, Message::SaveFile)));
-    let read = ui.text_bounds(&app, "Read").expect("Read segment");
+    let read = ui.id_bounds(&app, "view-read").expect("Read segment");
     let messages = ui.click(&app, center(read));
     apply(&mut app, messages);
     assert_eq!(app.view_mode, ViewMode::Rendered, "Read leaves edit mode");
@@ -486,7 +486,7 @@ fn document_mind_map_switches_back_and_toggles_its_panel_from_the_toolbar() {
     let messages = ui.click(&app, center(toggle));
     apply(&mut app, messages);
     assert_eq!(app.mindmap_panel_open, !open);
-    let read = ui.text_bounds(&app, "Read").expect("Read segment");
+    let read = ui.id_bounds(&app, "view-read").expect("Read segment");
     let messages = ui.click(&app, center(read));
     apply(&mut app, messages);
     assert_eq!(app.view_mode, ViewMode::Rendered);
@@ -510,7 +510,7 @@ fn full_mindmap_segment_enters_and_read_leaves_it() {
         bar.y + bar.height <= back.y,
         "the toolbar does not cover Back"
     );
-    let read = ui.text_bounds(&app, "Read").expect("Read segment");
+    let read = ui.id_bounds(&app, "view-read").expect("Read segment");
     let messages = ui.click(&app, center(read));
     apply(&mut app, messages);
     assert!(app.full_mindmap.is_none(), "Read leaves Full Mindmap");
@@ -683,7 +683,7 @@ fn always_toolbar_clicks_keep_the_zen_editor_focused() {
     // file name). The messages are not applied: the press alone decides
     // whether the editor keeps its focus.
     let save = glyph_at(&mut ui, &app, ic::SAVE).expect("Save");
-    let edit = ui.text_bounds(&app, "Edit").expect("Edit segment");
+    let edit = ui.id_bounds(&app, "view-edit").expect("Edit segment");
     let name = ui.text_bounds(&app, "pointer-long.md").expect("file name");
     for (what, at) in [
         ("Save", center(save)),
@@ -797,4 +797,56 @@ fn hover_toolbar_follows_its_band_when_the_find_bar_moves_it() {
         "a pointer on the find bar is not in the band"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+// --- Polish (MDV-048): icon view switch -----------------------------------
+
+const VIEW_SEGMENTS: [&str; 4] = [
+    "view-read",
+    "view-edit",
+    "view-mindmap",
+    "view-full-mindmap",
+];
+
+#[test]
+fn view_switch_segments_are_equal_width_icons() {
+    let app = always(long_doc_app());
+    let mut ui = PointerUi::new();
+    for label in ["Read", "Edit", "Mind Map"] {
+        assert!(
+            ui.text_bounds(&app, label).is_none(),
+            "{label} is an icon, not a word"
+        );
+    }
+    let segments: Vec<Rectangle> = VIEW_SEGMENTS
+        .iter()
+        .map(|id| {
+            ui.id_bounds(&app, id)
+                .unwrap_or_else(|| panic!("{id} segment"))
+        })
+        .collect();
+    for (id, code) in
+        VIEW_SEGMENTS
+            .iter()
+            .zip([ic::BOOK_OPEN, ic::PENCIL_LINE, ic::GIT_FORK, ic::NETWORK])
+    {
+        let glyph = glyph_at(&mut ui, &app, code).unwrap_or_else(|| panic!("{id} glyph"));
+        let segment = ui.id_bounds(&app, id).unwrap();
+        assert!(
+            segment.contains(glyph.center()),
+            "{id}: glyph {glyph:?} inside {segment:?}"
+        );
+    }
+    let first = segments[0];
+    for (id, s) in VIEW_SEGMENTS.iter().zip(&segments) {
+        assert!(
+            (s.width - first.width).abs() < 0.5 && (s.height - first.height).abs() < 0.5,
+            "{id} is as large as Read: {s:?} vs {first:?}"
+        );
+    }
+    // The four glyphs are distinct, so no two modes look alike.
+    let codes = [ic::BOOK_OPEN, ic::PENCIL_LINE, ic::GIT_FORK, ic::NETWORK];
+    for (i, a) in codes.iter().enumerate() {
+        assert!(!codes[i + 1..].contains(a));
+    }
 }
