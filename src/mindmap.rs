@@ -57,6 +57,11 @@ pub enum ZoomCommand {
     Reset,
 }
 
+/// The document mind map's root node: the document itself. It is
+/// selectable and foldable like a heading. The parser derives block ids
+/// from a hash, so a real block never takes this value in practice.
+pub const DOC_ROOT: BlockId = BlockId(u64::MAX);
+
 /// The latest zoom button press. The canvas keeps its own zoom, so the app
 /// bumps `generation` on each press and the canvas applies a request once,
 /// on the next redraw. A canvas that first sees a request takes it as
@@ -229,7 +234,7 @@ pub fn build_tree(
     let mut nodes: Vec<MNode> = Vec::new();
     let (root_label, root_trunc) = fit_label_for_node(doc_title);
     nodes.push(MNode {
-        id: None,
+        id: Some(DOC_ROOT),
         label: root_label,
         full_label: doc_title.to_string(),
         truncated: root_trunc,
@@ -239,6 +244,14 @@ pub fn build_tree(
         x: 0.0,
         y: 0.0,
     });
+    if collapsed.contains(&DOC_ROOT) {
+        // A folded root hides every heading, as a folded heading hides its
+        // subtree.
+        nodes[0].has_hidden_children = ast
+            .iter()
+            .any(|(_, block)| matches!(block, Block::Heading { .. }));
+        return nodes;
+    }
     let mut stack: Vec<(u8, usize)> = vec![(0, 0)];
     let mut skip_under: Option<u8> = None;
 
@@ -572,8 +585,8 @@ fn zoom_of<Id>(state: &MindmapState<Id>) -> f32 {
     }
 }
 
-/// A branch node carries a chevron that folds and unfolds it. Leaves and the
-/// document's unselectable root have none.
+/// A branch node carries a chevron that folds and unfolds it. Leaves and
+/// nodes without an id have none.
 fn has_chevron<Id>(node: &MNode<Id>) -> bool {
     node.id.is_some() && (!node.children.is_empty() || node.has_hidden_children)
 }
@@ -1827,6 +1840,24 @@ mod tests {
     }
 
     #[test]
+    fn the_document_root_is_a_node_that_selects_and_folds() {
+        let ast = vec![heading(1, 1, "Top"), heading(2, 2, "Child")];
+        let nodes = build_tree(&ast, "Document", &HashSet::new());
+        assert_eq!(nodes[0].id, Some(DOC_ROOT), "the root can be selected");
+        assert!(has_chevron(&nodes[0]), "the root folds like a branch");
+
+        let folded = build_tree(&ast, "Document", &HashSet::from([DOC_ROOT]));
+        assert_eq!(folded.len(), 1, "a folded root hides every heading");
+        assert!(folded[0].has_hidden_children);
+        assert!(folded[0].children.is_empty());
+
+        // A document with no headings has nothing to fold.
+        let empty = build_tree(&[], "Document", &HashSet::from([DOC_ROOT]));
+        assert!(!empty[0].has_hidden_children);
+        assert!(!has_chevron(&empty[0]));
+    }
+
+    #[test]
     fn document_tree_keeps_block_ids_and_collapse_behavior() {
         let ast = vec![
             heading(1, 1, "Top"),
@@ -1836,7 +1867,7 @@ mod tests {
         let collapsed = HashSet::from([BlockId(1)]);
         let nodes = build_tree(&ast, "Document", &collapsed);
 
-        assert_eq!(nodes[0].id, None);
+        assert_eq!(nodes[0].id, Some(DOC_ROOT));
         assert_eq!(nodes[0].children.len(), 2);
         assert_eq!(nodes[1].id, Some(BlockId(1)));
         assert!(nodes[1].has_hidden_children);

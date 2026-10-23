@@ -6,7 +6,7 @@
 use super::group3::{assert_tips, full_mindmap_app, tips, tree_fixture};
 use super::*;
 use crate::icon::ic;
-use crate::mindmap::ZoomCommand;
+use crate::mindmap::{ZoomCommand, DOC_ROOT};
 
 #[test]
 fn a_full_mindmap_click_selects_and_opens_the_panel() {
@@ -509,5 +509,61 @@ fn a_mind_map_panel_divider_is_easy_to_grab_and_resets_on_double_click() {
     check_divider(&mut app, "full-mindmap-panel-divider", |app| {
         app.full_mindmap.as_ref().unwrap().panel_width
     });
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn the_document_root_selects_the_whole_document() {
+    let (mut app, dir) = document_mindmap_app("p4-root-select");
+    let (nodes, _, _) = app.mindmap_layout();
+    assert_eq!(
+        nodes[0].id,
+        Some(DOC_ROOT),
+        "the root is a node, not canvas"
+    );
+    let first_heading = nodes[nodes[0].children[0]].id;
+
+    // A click on the root selects it, and the panel shows the document
+    // from its top.
+    let _ = app.update(Message::MindmapSelectLeaf(DOC_ROOT));
+    assert_eq!(app.mindmap_selected, Some(DOC_ROOT));
+    assert_eq!(app.mindmap_panel_shown, Some(DOC_ROOT));
+    assert!(app.mindmap_panel_open);
+    assert_eq!(
+        app.mindmap_panel_range(DOC_ROOT),
+        Some((0, app.ast.len(), false))
+    );
+
+    // Its chevron folds every heading, and unfolds them again.
+    let _ = app.update(Message::MindmapToggleNode(DOC_ROOT));
+    assert_eq!(app.mindmap_layout().0.len(), 1);
+    let _ = app.update(Message::MindmapToggleNode(DOC_ROOT));
+    assert_eq!(app.mindmap_layout().0.len(), nodes.len());
+
+    // The arrow keys keep their meaning: Right goes to the first heading,
+    // and Left from the root enters Full Mindmap. (Right schedules the
+    // panel settle timer, which needs a runtime.)
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let _guard = runtime.enter();
+    let _ = app.update(Message::MindmapNavigate(MindmapDir::Right));
+    assert_eq!(app.mindmap_selected, first_heading);
+    let _ = app.update(Message::MindmapSelectLeaf(DOC_ROOT));
+    let _ = app.update(Message::MindmapNavigate(MindmapDir::Left));
+    assert!(
+        app.full_mindmap.is_some(),
+        "Left from the root enters Full Mindmap"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn left_from_a_top_heading_still_enters_full_mindmap() {
+    let (mut app, dir) = document_mindmap_app("p4-root-left-boundary");
+    let (nodes, _, _) = app.mindmap_layout();
+    let top = nodes[nodes[0].children[0]].id;
+    assert_eq!(app.mindmap_selected, top);
+    let _ = app.update(Message::MindmapNavigate(MindmapDir::Left));
+    assert!(app.full_mindmap.is_some(), "Left never selects the root");
+    assert_ne!(app.mindmap_selected, Some(DOC_ROOT));
     let _ = std::fs::remove_dir_all(&dir);
 }

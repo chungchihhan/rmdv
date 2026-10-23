@@ -1991,13 +1991,17 @@ impl App {
                     }
                     return Task::none();
                 };
-                // The document root is represented by an unselectable node
-                // (`id == None`). Left at that boundary (including the
-                // no-selection/root semantic above) hands navigation to the
-                // current file's Full Mindmap workspace.
-                if dir == MindmapDir::Left
-                    && parents[cur_idx].map_or(true, |parent| nodes[parent].id.is_none())
-                {
+                // The document root (`DOC_ROOT`) is the boundary. Left from
+                // it, or from a top heading (including the no-selection
+                // semantic above), hands navigation to the current file's
+                // Full Mindmap workspace; Left never selects the root. A
+                // pointer click is the only way to select the root.
+                let is_doc_root = |idx: usize| {
+                    nodes[idx]
+                        .id
+                        .map_or(true, |id| id == crate::mindmap::DOC_ROOT)
+                };
+                if dir == MindmapDir::Left && parents[cur_idx].map_or(true, is_doc_root) {
                     return self.enter_full_mindmap_for_current_file();
                 }
                 let next_idx: Option<usize> = match dir {
@@ -2017,7 +2021,7 @@ impl App {
                             _ => unreachable!(),
                         }
                     })(),
-                    MindmapDir::Left => parents[cur_idx].filter(|&p| nodes[p].id.is_some()),
+                    MindmapDir::Left => parents[cur_idx].filter(|&p| !is_doc_root(p)),
                     MindmapDir::Right => {
                         let n = &nodes[cur_idx];
                         if !n.children.is_empty() {

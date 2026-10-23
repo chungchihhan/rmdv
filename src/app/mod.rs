@@ -2593,7 +2593,16 @@ impl App {
     fn mindmap_panel_range(&self, target: BlockId) -> Option<(usize, usize, bool)> {
         let mut start = None;
         let mut natural_end = self.ast.len();
-        for (i, (id, b)) in self.ast.iter().enumerate() {
+        if target == crate::mindmap::DOC_ROOT {
+            // The root shows the document from its top, within the same caps.
+            start = Some(0).filter(|_| !self.ast.is_empty());
+        }
+        let blocks = self
+            .ast
+            .iter()
+            .enumerate()
+            .take_while(|_| target != crate::mindmap::DOC_ROOT);
+        for (i, (id, b)) in blocks {
             if start.is_none() {
                 if *id == target && matches!(b, Block::Heading { .. }) {
                     start = Some(i);
