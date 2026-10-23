@@ -122,6 +122,7 @@ mod dispatch;
 mod full_mindmap;
 mod full_mindmap_state;
 mod full_mindmap_view;
+mod gestures;
 mod history;
 mod ipc_handler;
 mod lifecycle;
@@ -393,6 +394,8 @@ pub struct App {
     /// pinch stream; see [`crate::zoom_viewer`].
     pub image_zoom_request: crate::mindmap::ZoomRequest,
     pub image_zoom_pinch_log: f64,
+    /// Pinch and ⌘+scroll over the reader, collected into font steps.
+    pub(crate) reader_zoom: gestures::ZoomAccumulator,
     /// The sharper raster of the diagram open in the viewer, and the last
     /// request id given out; see `zoom_raster`.
     image_zoom_raster: Option<ZoomRaster>,
@@ -684,6 +687,7 @@ impl Default for App {
             full_mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
             image_zoom_request: crate::mindmap::ZoomRequest::default(),
             image_zoom_pinch_log: 0.0,
+            reader_zoom: gestures::ZoomAccumulator::default(),
             image_zoom_raster: None,
             image_zoom_raster_seq: 0,
             mindmap_layout: std::cell::RefCell::new(None),
@@ -859,6 +863,37 @@ impl App {
         self.prefs.font_scale = self.font_scale;
         self.save_prefs();
         self.typography.body_size
+    }
+
+    /// `steps` ⌘+ (positive) or ⌘− (negative) steps at once, each clamped
+    /// as [`Self::adjust_font_scale`] clamps it, with one typography rebuild
+    /// and one prefs write.
+    fn step_font_scale(&mut self, steps: i32) -> f32 {
+        let factor = if steps > 0 { 1.1 } else { 1.0 / 1.1 };
+        let mut scale = self.font_scale;
+        for _ in 0..steps.unsigned_abs() {
+            scale = crate::prefs::clamp_font_scale(scale * factor);
+        }
+        if scale != self.font_scale {
+            self.font_scale = scale;
+            self.rebuild_typography();
+            self.prefs.font_scale = self.font_scale;
+            self.save_prefs();
+        }
+        self.typography.body_size
+    }
+
+    /// After a font size change: drop the measured heights, rebuild the
+    /// reader window, and show `toast`.
+    fn font_size_changed(&mut self, toast: String) -> Task<Message> {
+        self.height_cache.clear();
+        self.rebuild_virt_here();
+        let preview_measure = self.refresh_full_mindmap_preview_heights();
+        Task::batch([
+            self.measure_window_heights(),
+            preview_measure,
+            self.show_toast(toast),
+        ])
     }
 
     /// Install a theme's palette. Every theme change goes through here so the
@@ -3878,7 +3913,7 @@ impl App {
                         background: select_all.then(|| pal.selection.into()),
                         ..Default::default()
                     });
-                let scroll: Element<'_, Message> = scrollable(
+                let scroll = scrollable(
                     container(column)
                         .padding(Padding {
                             top: reader_top_pad,
@@ -3893,8 +3928,10 @@ impl App {
                 .height(Length::Fill)
                 .on_scroll(Message::BodyScrolled)
                 .direction(slim_scroll_direction())
-                .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled))
-                .into();
+                .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
+                // ⌘+wheel changes the font size; the gate keeps it from
+                // also scrolling the reader.
+                let scroll: Element<'_, Message> = WheelGate::new(scroll, Gate::ReaderZoom).into();
                 if select_all {
                     stack![
                         scroll,

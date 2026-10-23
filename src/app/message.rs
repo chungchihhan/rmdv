@@ -223,6 +223,12 @@ pub enum Message {
     FontSizeUp,
     FontSizeDown,
     FontSizeReset,
+    /// Pinch or ⌘+scroll over the reader: this many font steps (a fraction
+    /// of a step adds up). The font changes on the next
+    /// [`Message::ReaderZoomFlush`].
+    ReaderZoomBy(f32),
+    /// Apply the whole font steps the reader zoom gesture collected.
+    ReaderZoomFlush,
     /// Settings → Line spacing.
     SetLineSpacing(crate::theme::LineSpacing),
     /// Settings → Toolbar: shown on hover or always.

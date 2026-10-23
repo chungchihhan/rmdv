@@ -1651,3 +1651,7 @@ mod mindmap;
 // --- P5: the image and diagram viewer ---------------------------------------
 
 mod viewer;
+
+// --- P5: reader and editor gestures -------------------------------------------
+
+mod gestures;

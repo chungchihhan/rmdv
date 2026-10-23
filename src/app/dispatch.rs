@@ -829,26 +829,14 @@ impl App {
             }
             Message::FontSizeUp => {
                 let size = self.adjust_font_scale(1.1);
-                self.height_cache.clear();
-                self.rebuild_virt_here();
-                let preview_measure = self.refresh_full_mindmap_preview_heights();
-                Task::batch([
-                    self.measure_window_heights(),
-                    preview_measure,
-                    self.show_toast(format!("Font {:.0} px", size)),
-                ])
+                self.font_size_changed(format!("Font {:.0} px", size))
             }
             Message::FontSizeDown => {
                 let size = self.adjust_font_scale(1.0 / 1.1);
-                self.height_cache.clear();
-                self.rebuild_virt_here();
-                let preview_measure = self.refresh_full_mindmap_preview_heights();
-                Task::batch([
-                    self.measure_window_heights(),
-                    preview_measure,
-                    self.show_toast(format!("Font {:.0} px", size)),
-                ])
+                self.font_size_changed(format!("Font {:.0} px", size))
             }
+            Message::ReaderZoomBy(steps) => self.reader_zoom_by(steps),
+            Message::ReaderZoomFlush => self.reader_zoom_flush(),
             Message::FontSizeReset => {
                 self.font_scale = 1.0;
                 self.rebuild_typography();
@@ -888,9 +876,9 @@ impl App {
             Message::WindowDrag | Message::WindowTitlebarDoubleClick => Task::none(),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a
-                // finite magnification delta while a graph or the image
-                // viewer owns the visible surface; search and the other
-                // overlays retain their normal input.
+                // finite magnification delta while a graph, the image
+                // viewer, or the reader owns the visible surface; search
+                // and the other overlays retain their normal input.
                 if delta.is_finite() && self.overlay == Overlay::ImageZoom {
                     self.image_zoom_pinch_log += f64::from(delta);
                 } else if delta.is_finite() && self.overlay == Overlay::None {
@@ -898,6 +886,9 @@ impl App {
                         self.full_mindmap_native_pinch_log += f64::from(delta);
                     } else if self.view_mode == ViewMode::Mindmap && !self.search_open {
                         self.mindmap_native_pinch_log += f64::from(delta);
+                    } else if self.reader_shows_document() {
+                        // The reader's font, by the ⌘+ and ⌘− steps.
+                        return self.reader_zoom_by(super::gestures::pinch_zoom_steps(delta));
                     }
                 }
                 Task::none()
