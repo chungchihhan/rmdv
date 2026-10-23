@@ -172,3 +172,29 @@ fn the_popover_closes_for_good_when_the_find_bar_takes_the_keys() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn a_press_on_the_popover_padding_stays_in_the_popover() {
+    let (mut app, dir) = unrevealed("slot-popover-padding");
+    let mut ui = PointerUi::new();
+    click_button(&mut app, &mut ui);
+    let popover = ui.id_bounds(&app, POPOVER).expect("the popover shows");
+    let padding = Point::new(popover.x + 2.0, popover.center_y());
+    let chip = ui.text_bounds(&app, "3").expect("slot 3's chip");
+    assert!(
+        padding.x < chip.x,
+        "{padding:?} is in the padding left of {chip:?}"
+    );
+    let messages = super::tree_menu::right_press(&mut app, &mut ui, padding);
+    assert!(
+        !has(&messages, |m| matches!(m, Message::ReaderContextMenu(_))),
+        "the reader behind the popover does not get the press: {messages:?}"
+    );
+    let left = ui.click(&app, padding);
+    assert!(
+        !has(&left, |m| matches!(m, Message::QuickSlotsPopover(false))),
+        "a press inside keeps it open: {left:?}"
+    );
+    apply(&mut app, left);
+    assert!(app.quick_slots_pinned);
+    let _ = std::fs::remove_dir_all(&dir);
+}

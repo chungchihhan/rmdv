@@ -770,22 +770,25 @@ pub(in crate::app) fn quick_slots_rail<'a>(
         controls = controls.push(slot_view);
     }
     // Pinned from the toolbar, the rail is a popover: a panel that closes
-    // on a press outside it. The ⌘ hold keeps the bare rail.
+    // on a press outside it and keeps a press on its padding or between its
+    // chips from the reader under it. The ⌘ hold keeps the bare rail.
     let rail: Element<'a, Message> = if app.quick_slots_pinned {
         PressOutside::new(
-            container(controls)
-                .id(iced::widget::Id::new(QUICK_SLOTS_POPOVER_ID))
-                .padding(6)
-                .style(move |_| container::Style {
-                    background: Some(pal.surface.into()),
-                    border: Border {
-                        color: pal.border(),
-                        width: 1.0,
-                        radius: theme::radius::MD.into(),
-                    },
-                    shadow: theme::shadow::MENU,
-                    ..Default::default()
-                }),
+            iced::widget::opaque(
+                container(controls)
+                    .id(iced::widget::Id::new(QUICK_SLOTS_POPOVER_ID))
+                    .padding(6)
+                    .style(move |_| container::Style {
+                        background: Some(pal.surface.into()),
+                        border: Border {
+                            color: pal.border(),
+                            width: 1.0,
+                            radius: theme::radius::MD.into(),
+                        },
+                        shadow: theme::shadow::MENU,
+                        ..Default::default()
+                    }),
+            ),
             Message::QuickSlotsPopover(false),
         )
         .into()
