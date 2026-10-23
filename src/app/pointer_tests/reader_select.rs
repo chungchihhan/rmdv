@@ -665,3 +665,24 @@ fn shift_click_on_a_copy_button_still_copies() {
     apply(&mut app, messages);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_word_drag_does_not_segment_its_line_again_on_every_move() {
+    use iced_selection::word::{next_end_of_word, previous_start_of_word};
+    // A long Chinese paragraph with punctuation between short runs: each
+    // run used to build its own system tokenizer, on every pointer move.
+    let line = "中文分詞測試，日本語の文章、そして漢字。".repeat(50);
+    let graphemes = line.chars().count();
+    let _ = next_end_of_word(&line, 0);
+    let started = std::time::Instant::now();
+    for i in 0..200 {
+        let at = (i * 7) % graphemes;
+        let _ = next_end_of_word(&line, at);
+        let _ = previous_start_of_word(&line, at);
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(100),
+        "200 drag moves over a {graphemes}-character line took {elapsed:?}"
+    );
+}

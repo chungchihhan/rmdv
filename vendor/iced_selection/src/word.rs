@@ -8,6 +8,14 @@
 //!
 //! Positions are grapheme indices into one line, as in
 //! [`SelectionEnd`](crate::selection::SelectionEnd).
+//!
+//! A word drag asks for the word around the pointer on every move, over the
+//! same line (often a whole paragraph). The last few lines' words are kept,
+//! and the system tokenizer is made once per thread, so a drag segments
+//! each line once.
+
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -43,8 +51,34 @@ fn all_cjk(s: &str) -> bool {
     !s.is_empty() && s.chars().all(is_cjk)
 }
 
+/// Lines whose words are kept (a drag across blocks touches a few).
+const KEPT_LINES: usize = 4;
+
+thread_local! {
+    /// The words of the lines segmented last, the latest first.
+    static KEPT: RefCell<Vec<(String, Rc<[Segment]>)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// [`segment`] for `text`, from the kept lines when it is one of them.
+fn segments(text: &str) -> Rc<[Segment]> {
+    KEPT.with(|kept| {
+        let mut kept = kept.borrow_mut();
+        if let Some(at) = kept.iter().position(|(line, _)| line == text) {
+            let hit = kept.remove(at);
+            let segments = Rc::clone(&hit.1);
+            kept.insert(0, hit);
+            return segments;
+        }
+        let segments: Rc<[Segment]> = segment(text).into();
+        kept.truncate(KEPT_LINES - 1);
+        kept.insert(0, (text.to_owned(), Rc::clone(&segments)));
+        segments
+    })
+}
+
 /// The words and space runs of `text`, in order, covering all of it.
-fn segments(text: &str) -> Vec<Segment> {
+fn segment(text: &str) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut at = 0;
     // A run of Chinese or Japanese words: its start in graphemes and bytes.
@@ -105,7 +139,7 @@ fn split_run(run: &str, start: usize, out: &mut Vec<Segment>) {
 #[allow(unsafe_code)]
 fn dictionary_bounds(run: &str) -> Option<Vec<usize>> {
     use objc2_core_foundation::{
-        CFIndex, CFRange, CFString, CFStringTokenizer,
+        CFIndex, CFRange, CFRetained, CFString, CFStringTokenizer,
         CFStringTokenizerTokenType, kCFStringTokenizerUnitWordBoundary,
     };
 
@@ -121,17 +155,36 @@ fn dictionary_bounds(run: &str) -> Option<Vec<usize>> {
         location: 0,
         length: CFIndex::try_from(total).ok()?,
     };
-    // SAFETY: `string` is a valid CFString and `range` lies inside it; a
-    // null allocator and locale select the defaults.
-    let tokenizer = unsafe {
-        CFStringTokenizer::new(
-            None,
-            Some(&string),
-            range,
-            kCFStringTokenizerUnitWordBoundary,
-            None,
-        )
-    }?;
+    thread_local! {
+        /// Making a tokenizer costs far more than tokenizing a short run,
+        /// so each thread makes one and points it at each run.
+        static TOKENIZER: RefCell<Option<CFRetained<CFStringTokenizer>>> =
+            const { RefCell::new(None) };
+    }
+    let tokenizer = TOKENIZER.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        match cell.as_ref() {
+            // SAFETY: `string` is a valid CFString and `range` lies
+            // inside it.
+            Some(tokenizer) => unsafe {
+                tokenizer.set_string(Some(&string), range)
+            },
+            None => {
+                // SAFETY: as above; a null allocator and locale select the
+                // defaults.
+                *cell = unsafe {
+                    CFStringTokenizer::new(
+                        None,
+                        Some(&string),
+                        range,
+                        kCFStringTokenizerUnitWordBoundary,
+                        None,
+                    )
+                };
+            }
+        }
+        cell.clone()
+    })?;
     let mut ends = Vec::new();
     while tokenizer.advance_to_next_token() != CFStringTokenizerTokenType::None
     {
