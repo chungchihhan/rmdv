@@ -624,8 +624,13 @@ impl App {
         }
         let palette_allowed =
             || matches!(key(Shortcut::cmd_shift('p')), Message::OpenCommandPalette);
-        // The editor's text, unless a search field has the keys.
-        let editor_keys = context.editing && !context.focused && !context.overlay_open;
+        // The editor's text, unless a search field has the keys or a page
+        // (the vault search, Settings) covers the editor.
+        let editor_keys = context.editing
+            && !context.focused
+            && !context.overlay_open
+            && !context.vault_open
+            && !context.settings_open;
         // The cursor, not the selected text: a whole-file selection would
         // be copied on every update.
         let editor_selected = editor_keys
@@ -1075,6 +1080,15 @@ mod tests {
         let _ = vault.update(Message::OpenVaultSearch);
         assert!(vault.vault_open);
         out.push(("vault", vault));
+        // The pages cover the Zen editor, which keeps its buffer.
+        let mut editing_vault = editing_app();
+        let _ = editing_vault.update(Message::OpenVaultSearch);
+        assert!(editing_vault.vault_open && editing_vault.editor.is_some());
+        out.push(("editing vault", editing_vault));
+        let mut editing_settings = editing_app();
+        let _ = editing_settings.update(Message::OpenSettings);
+        assert!(editing_settings.settings_open && editing_settings.editor.is_some());
+        out.push(("editing settings", editing_settings));
         let mut palette = reader_app();
         let _ = palette.update(Message::OpenCommandPalette);
         assert!(palette.overlay != Overlay::None);
@@ -1222,6 +1236,43 @@ mod tests {
         let _ = search.update(Message::ToggleSearch);
         for command in [C::Cut, C::Copy, C::Paste, C::SelectAll] {
             assert!(search.menu_message(command).is_none(), "{command:?}");
+        }
+    }
+
+    /// The vault page and Settings cover the Zen editor and own the keys:
+    /// the Edit items must not reach the hidden buffer, with or without a
+    /// selection in it.
+    #[test]
+    fn edit_items_never_reach_an_editor_under_a_page() {
+        use MenuCommand as C;
+        for (surface, mut app) in surfaces() {
+            if !matches!(surface, "editing vault" | "editing settings") {
+                continue;
+            }
+            let _ = app.update(Message::EditorAction(
+                iced::widget::text_editor::Action::SelectAll,
+            ));
+            for command in [C::Cut, C::Copy, C::Paste, C::SelectAll] {
+                let click = app.menu_message(command);
+                assert!(
+                    !matches!(
+                        click,
+                        Some(
+                            Message::EditorMenuCut
+                                | Message::EditorMenuCopy
+                                | Message::EditorMenuPaste
+                                | Message::EditorAction(_)
+                        )
+                    ),
+                    "{surface}: {command:?} reaches the hidden editor: {}",
+                    show(&click)
+                );
+            }
+            let source = app.source.clone();
+            let _ = app.update(Message::NativeMenu(C::Cut.tag()));
+            let _ = app.update(Message::NativeMenu(C::Paste.tag()));
+            assert_eq!(app.source, source, "{surface}: the buffer is unchanged");
+            assert!(!app.dirty, "{surface}: no edit");
         }
     }
 
