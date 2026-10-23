@@ -452,6 +452,7 @@ impl App {
             Message::QuickSlotClearAll => self.clear_all_quick_slots(),
             Message::QuickSlotUndo => self.undo_quick_slot_clear(),
             Message::QuickSlotAssignPath(path) => self.assign_quick_slot_path(path),
+            Message::QuickSlotContextMenu(index) => self.open_quick_slot_context_menu(index),
             Message::QuickSlotReplaceConfirm => self.confirm_quick_slot_replace(),
             Message::QuickSlotReplaceCancel => {
                 self.quick_slot_replace = None;

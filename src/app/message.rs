@@ -53,6 +53,9 @@ pub enum Message {
     /// Put this workspace file in the first free Quick Slot; with every slot
     /// full, ask to replace the last one.
     QuickSlotAssignPath(PathBuf),
+    /// A right press on the chip of Quick Slot `index`: open its context
+    /// menu.
+    QuickSlotContextMenu(usize),
     /// Replace the slot named by the open confirmation.
     QuickSlotReplaceConfirm,
     /// Close the replace confirmation and keep the slot.

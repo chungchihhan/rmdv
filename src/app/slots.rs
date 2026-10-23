@@ -566,6 +566,50 @@ impl App {
         self.show_toast(format!("Quick Slot {} assigned", index + 1))
     }
 
+    /// The context menu of slot `index`'s chip (MDV-048 P6). A slot in use
+    /// offers Open, Replace with Current File (the assign flow, with its
+    /// confirmation), and Clear; an empty slot offers Assign Current File.
+    /// Clear All is always there. Each item shows the chord that does the
+    /// same thing.
+    pub(super) fn open_quick_slot_context_menu(&mut self, index: usize) -> Task<Message> {
+        const OPEN: [&str; crate::quick_slots::SLOT_COUNT] =
+            ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"];
+        const ASSIGN: [&str; crate::quick_slots::SLOT_COUNT] = [
+            "⌥⌘1", "⌥⌘2", "⌥⌘3", "⌥⌘4", "⌥⌘5", "⌥⌘6", "⌥⌘7", "⌥⌘8", "⌥⌘9",
+        ];
+        if index >= crate::quick_slots::SLOT_COUNT {
+            return Task::none();
+        }
+        let current = self.current_quick_slot_context().map(|(path, _)| path);
+        let holds_current = match (self.quick_slots.occupied(index), current.as_ref()) {
+            (Some(slot), Some(current)) => self
+                .quick_slots_workspace_root()
+                .and_then(|root| crate::quick_slots::resolve_path(root, &slot.relative_path))
+                .is_some_and(|path| path == *current),
+            _ => false,
+        };
+        let assign =
+            (current.is_some() && !holds_current).then_some(Message::QuickSlotAssign(index));
+        let slot = if self.quick_slots.occupied(index).is_some() {
+            vec![
+                MenuEntry::item("Open", Message::QuickSlotActivate(index))
+                    .shortcut(Some(OPEN[index])),
+                menu_item("Replace with Current File", assign).shortcut(Some(ASSIGN[index])),
+                MenuEntry::item("Clear", Message::QuickSlotClear(index)),
+            ]
+        } else {
+            vec![menu_item("Assign Current File", assign).shortcut(Some(ASSIGN[index]))]
+        };
+        let any =
+            (0..crate::quick_slots::SLOT_COUNT).any(|i| self.quick_slots.occupied(i).is_some());
+        let all = vec![menu_item(
+            "Clear All",
+            any.then_some(Message::QuickSlotClearAll),
+        )];
+        self.open_context_menu(menu_sections(vec![slot, all]), None);
+        Task::none()
+    }
+
     pub(super) fn clear_quick_slot(&mut self, index: usize) -> Task<Message> {
         if self.dirty {
             return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());

@@ -1697,3 +1697,7 @@ mod mindmap_menu;
 // --- P6: outline, vault, and finder context menus -----------------------------
 
 mod list_menus;
+
+// --- P6: the Quick Slot context menu ----------------------------------------
+
+mod slot_menu;
