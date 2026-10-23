@@ -89,7 +89,7 @@ fn double_clicking_blank_toolbar_space_zooms_the_window() {
 
 #[test]
 fn revealed_hover_toolbar_moves_the_window() {
-    let mut app = long_doc_app();
+    let mut app = super::toolbar::on_hover(long_doc_app());
     let _ = app.update(Message::ToolbarHover(true));
     let mut ui = PointerUi::new();
     let at = blank_toolbar_point(&mut ui, &app);

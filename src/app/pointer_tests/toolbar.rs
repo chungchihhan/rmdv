@@ -20,26 +20,27 @@ fn toolbar_setting_switches_between_hover_and_always_and_persists() {
     let mut app = App::default();
     let isolated = app.quick_slots_persistence_path.clone().unwrap();
     let saved = |path: &Path| crate::prefs::load_from(path).toolbar;
-    assert_eq!(app.prefs.toolbar, ToolbarMode::OnHover);
+    // A new user sees the toolbar.
+    assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
 
     let _ = app.update(Message::OpenSettings);
     let _ = app.update(Message::SettingsCursor(settings_row_index(
         SettingsRow::Toolbar,
     )));
-    // → picks Always, ← picks On hover, Space flips.
-    let _ = app.update(Message::SettingsStep(1));
-    assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
-    assert_eq!(saved(&isolated), ToolbarMode::Always);
-    let _ = app.update(Message::SettingsStep(1));
-    assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
+    // ← picks On hover, → picks Always, Space flips.
     let _ = app.update(Message::SettingsStep(-1));
     assert_eq!(app.prefs.toolbar, ToolbarMode::OnHover);
     assert_eq!(saved(&isolated), ToolbarMode::OnHover);
-    let _ = app.update(Message::SettingsActivate);
+    let _ = app.update(Message::SettingsStep(-1));
+    assert_eq!(app.prefs.toolbar, ToolbarMode::OnHover);
+    let _ = app.update(Message::SettingsStep(1));
     assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
+    assert_eq!(saved(&isolated), ToolbarMode::Always);
     let _ = app.update(Message::SettingsActivate);
     assert_eq!(app.prefs.toolbar, ToolbarMode::OnHover);
-    assert_eq!(saved(&isolated), ToolbarMode::OnHover);
+    let _ = app.update(Message::SettingsActivate);
+    assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
+    assert_eq!(saved(&isolated), ToolbarMode::Always);
 }
 
 #[test]
@@ -48,26 +49,26 @@ fn toolbar_setting_row_has_a_clickable_segmented_control() {
     let _ = app.update(Message::OpenSettings);
     let mut ui = PointerUi::new();
     // Bring the row into view the way the keyboard does.
-    let mut at = ui.text_bounds(&app, "Always");
+    let mut at = ui.text_bounds(&app, "On hover");
     for _ in 0..20 {
         if at.is_some_and(|b| b.y > 40.0 && b.y + b.height < 760.0) {
             break;
         }
         let _ = ui.wheel(&app, Point::new(640.0, 400.0));
-        at = ui.text_bounds(&app, "Always");
+        at = ui.text_bounds(&app, "On hover");
     }
-    let always = at.expect("the Toolbar row shows an Always segment");
-    assert!(ui.text_bounds(&app, "On hover").is_some(), "and On hover");
-    let messages = ui.click(&app, center(always));
+    let on_hover = at.expect("the Toolbar row shows an On hover segment");
+    assert!(ui.text_bounds(&app, "Always").is_some(), "and Always");
+    let messages = ui.click(&app, center(on_hover));
     assert!(
         has(&messages, |m| matches!(
             m,
-            Message::SetToolbarMode(ToolbarMode::Always)
+            Message::SetToolbarMode(ToolbarMode::OnHover)
         )),
         "{messages:?}"
     );
     apply(&mut app, messages);
-    assert_eq!(app.prefs.toolbar, ToolbarMode::Always);
+    assert_eq!(app.prefs.toolbar, ToolbarMode::OnHover);
 }
 
 // --- 5. Window title marks unsaved edits -------------------------------------
@@ -95,6 +96,12 @@ fn window_title_shows_a_bullet_while_the_file_is_dirty() {
 
 fn always(mut app: App) -> App {
     let _ = app.update(Message::SetToolbarMode(ToolbarMode::Always));
+    app
+}
+
+/// The toolbar shows always by default; hover tests pick On hover.
+pub(super) fn on_hover(mut app: App) -> App {
+    let _ = app.update(Message::SetToolbarMode(ToolbarMode::OnHover));
     app
 }
 
@@ -233,7 +240,7 @@ fn toolbar_sidebar_toggle_shows_only_while_the_sidebar_is_hidden() {
 
 #[test]
 fn always_toolbar_reserves_its_height_without_moving_the_text() {
-    let hover = long_doc_app();
+    let hover = on_hover(long_doc_app());
     let mut ui = PointerUi::new();
     let before = ui
         .id_bounds(&hover, "reader-column")
@@ -285,7 +292,7 @@ fn wait_outputs(task: Task<Message>) -> Vec<Message> {
 
 #[test]
 fn hover_toolbar_appears_at_the_top_edge_and_hides_after_a_delay() {
-    let mut app = long_doc_app();
+    let mut app = on_hover(long_doc_app());
     let mut ui = PointerUi::new();
     let (messages, _) = ui.move_to(&app, Point::new(640.0, 400.0));
     assert_eq!(hover_count(&messages, true), 0);
@@ -330,7 +337,7 @@ fn hover_toolbar_appears_at_the_top_edge_and_hides_after_a_delay() {
 
 #[test]
 fn returning_to_the_band_cancels_the_pending_hide() {
-    let mut app = long_doc_app();
+    let mut app = on_hover(long_doc_app());
     let _ = app.update(Message::ToolbarHover(true));
     let _ = app.update(Message::ToolbarHover(false));
     let stale = app.toolbar_hover_generation;
@@ -345,7 +352,7 @@ fn returning_to_the_band_cancels_the_pending_hide() {
 
 #[test]
 fn hidden_band_leaves_the_content_its_pointer() {
-    let app = long_doc_app();
+    let app = on_hover(long_doc_app());
     let mut ui = PointerUi::new();
     // Scroll text under the band, then probe its height.
     for _ in 0..3 {
@@ -363,7 +370,7 @@ fn hidden_band_leaves_the_content_its_pointer() {
 
 #[test]
 fn revealed_toolbar_takes_presses_on_its_blank_space() {
-    let mut app = long_doc_app();
+    let mut app = on_hover(long_doc_app());
     let mut ui = PointerUi::new();
     // Text scrolled under the band shows the text cursor there.
     for _ in 0..3 {
@@ -463,7 +470,7 @@ fn hover_toolbar_leaves_edit_mode_and_saves() {
 
 #[test]
 fn document_mind_map_switches_back_and_toggles_its_panel_from_the_toolbar() {
-    let mut app = long_doc_app();
+    let mut app = on_hover(long_doc_app());
     let _ = app.update(Message::ToolbarView(ToolbarView::Mindmap));
     let _ = app.update(Message::ToolbarHover(true));
     let open = app.mindmap_panel_open;
@@ -487,7 +494,8 @@ fn document_mind_map_switches_back_and_toggles_its_panel_from_the_toolbar() {
 
 #[test]
 fn full_mindmap_segment_enters_and_read_leaves_it() {
-    let (mut app, dir) = full_mindmap_app("toolbar-fmm");
+    let (app, dir) = full_mindmap_app("toolbar-fmm");
+    let mut app = on_hover(app);
     let _ = app.update(Message::ToolbarHover(true));
     let mut ui = PointerUi::new();
     let back = ui.text_bounds(&app, "Back").expect("Back pill stays");
@@ -591,7 +599,7 @@ fn toolbar_screenshots() {
             WINDOW.height,
         );
         // On hover, revealed over edit mode.
-        let mut app = dirty_app();
+        let mut app = on_hover(dirty_app());
         let _ = app.update(Message::SetTheme(preset));
         let _ = app.update(Message::SetGlass(crate::macos_vibrancy::Glass::Off));
         let _ = app.update(Message::ToolbarHover(true));
@@ -622,7 +630,8 @@ fn toolbar_screenshots() {
 
 #[test]
 fn hover_band_leaves_the_vault_search_bar_its_controls() {
-    let (mut app, dir) = tree_fixture("toolbar-vault");
+    let (app, dir) = tree_fixture("toolbar-vault");
+    let mut app = on_hover(app);
     let _ = app.update(Message::OpenVaultSearch);
     assert!(app.vault_open);
     let mut ui = PointerUi::new();
@@ -721,7 +730,7 @@ fn always_mode_body_offset_matches_the_reader_padding() {
 /// toolbar revealed.
 fn revealed_in_band(tag: &str) -> (App, PathBuf, PointerUi) {
     let (app, dir) = tree_fixture(tag);
-    let mut app = app;
+    let mut app = on_hover(app);
     let _ = app.update(Message::FileLoaded(Ok((
         dir.join("alpha.md"),
         "# Alpha\n".into(),
