@@ -189,6 +189,9 @@ pub(in crate::app) fn sidebar_tab_button<'a>(
     .into()
 }
 
+/// Id of the file tree's inline rename field.
+pub(in crate::app) const TREE_RENAME_ID: &str = "tree-rename";
+
 pub(in crate::app) fn sidebar_files_body<'a>(
     app: &'a App,
     pal: Palette,
@@ -212,6 +215,7 @@ pub(in crate::app) fn sidebar_files_body<'a>(
             .context_menu
             .as_ref()
             .and_then(|menu| menu.tree_target.as_deref());
+        let rename = app.tree_rename.as_ref();
         for r in rows.iter() {
             let w = tree_row_width(r.node, r.depth);
             if w > content_w {
@@ -229,6 +233,9 @@ pub(in crate::app) fn sidebar_files_body<'a>(
                 current,
                 cursor == Some(i),
                 menu_target == Some(r.node.path()),
+                rename
+                    .filter(|rename| rename.path == r.node.path())
+                    .map(|rename| rename.value.as_str()),
                 pal,
             )
         });
@@ -553,6 +560,7 @@ pub(in crate::app) fn tree_row<'a>(
     current: Option<&'a PathBuf>,
     is_cursor: bool,
     menu_target: bool,
+    rename: Option<&'a str>,
     pal: Palette,
 ) -> Element<'a, Message> {
     let is_dir = node.is_dir();
@@ -592,11 +600,39 @@ pub(in crate::app) fn tree_row<'a>(
     };
     let mut label_font = iced::Font::with_name("Inter");
     label_font.weight = label_weight;
-    let label = text(node.name().into_owned())
-        .size(13)
-        .color(label_color)
-        .font(label_font)
-        .wrapping(text::Wrapping::None);
+    let label: Element<'a, Message> = match rename {
+        // Renamed in place: Enter commits, Esc or a press elsewhere cancels.
+        Some(value) => PressOutside::new(
+            iced::widget::text_input("", value)
+                .id(iced::widget::Id::new(TREE_RENAME_ID))
+                .on_input(Message::TreeRenameInput)
+                .on_submit(Message::TreeRenameCommit)
+                .size(13)
+                .font(label_font)
+                .padding(Padding::from([1, 4]))
+                .width(Length::Fill)
+                .style(move |_, _| iced::widget::text_input::Style {
+                    background: pal.field().into(),
+                    border: Border {
+                        color: pal.accent,
+                        width: 1.0,
+                        radius: theme::radius::XS.into(),
+                    },
+                    icon: pal.muted,
+                    placeholder: pal.subtle,
+                    value: pal.fg,
+                    selection: pal.selection,
+                }),
+            Message::TreeRenameCancel,
+        )
+        .into(),
+        None => text(node.name().into_owned())
+            .size(13)
+            .color(label_color)
+            .font(label_font)
+            .wrapping(text::Wrapping::None)
+            .into(),
+    };
 
     let leaf_icon: Element<'a, Message> = if is_dir {
         let open = expanded.contains(node_path);

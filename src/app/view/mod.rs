@@ -7,6 +7,7 @@ mod chrome;
 mod context_menu;
 mod edge_peek;
 mod overlays;
+mod press_outside;
 mod press_watch;
 mod settings;
 mod sidebar;
@@ -22,6 +23,7 @@ pub(super) use edge_peek::EdgePeek;
 #[cfg(test)]
 pub(super) use edge_peek::TEST_BUTTONS_DOWN;
 pub(super) use overlays::*;
+pub(super) use press_outside::PressOutside;
 pub(super) use press_watch::PressWatch;
 pub(super) use settings::*;
 pub(super) use sidebar::*;

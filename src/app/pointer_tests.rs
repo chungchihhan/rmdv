@@ -39,6 +39,15 @@ impl Operation for Find<'_> {
         }
     }
 
+    fn text_input(
+        &mut self,
+        id: Option<&Id>,
+        bounds: Rectangle,
+        _state: &mut dyn iced::advanced::widget::operation::TextInput,
+    ) {
+        self.container(id, bounds);
+    }
+
     fn text(&mut self, _id: Option<&Id>, bounds: Rectangle, text: &str) {
         if self.found.is_some() {
             return;
@@ -1664,3 +1673,7 @@ mod context_menu;
 // --- P6: the file tree context menu -----------------------------------------
 
 mod tree_menu;
+
+// --- P6: file operations from the file tree --------------------------------
+
+mod tree_ops;

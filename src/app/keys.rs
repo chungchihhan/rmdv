@@ -191,6 +191,16 @@ pub(super) fn context_menu_key_message(key: &iced::keyboard::Key) -> Message {
     }
 }
 
+/// Keys while a file tree row is renamed in place: the field takes typing
+/// and Enter; Esc cancels; every other key is swallowed.
+pub(super) fn tree_rename_key_message(key: &iced::keyboard::Key) -> Message {
+    use iced::keyboard::{key::Named, Key};
+    match key {
+        Key::Named(Named::Escape) => Message::TreeRenameCancel,
+        _ => Message::Noop,
+    }
+}
+
 /// Keys while the close confirmation is open: Esc cancels, Enter saves,
 /// ⌘D closes without saving, and every other key is swallowed.
 pub(super) fn close_confirm_key_message(

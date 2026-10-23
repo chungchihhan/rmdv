@@ -60,5 +60,34 @@ fn tree_item_menu(root: &Path, path: &Path, is_dir: bool, focused: bool) -> Vec<
             Message::QuickSlotAssignPath(path.to_path_buf()),
         ));
     }
+    // New items go inside a folder, or next to a file.
+    let folder = if is_dir {
+        path
+    } else {
+        path.parent().unwrap_or(root)
+    };
+    entries.push(MenuEntry::Separator);
+    entries.push(MenuEntry::item(
+        "New File",
+        Message::TreeNewFile(folder.to_path_buf()),
+    ));
+    entries.push(MenuEntry::item(
+        "New Folder",
+        Message::TreeNewFolder(folder.to_path_buf()),
+    ));
+    // The workspace root itself is not renamed or trashed from its tree.
+    if is_root {
+        entries.push(MenuEntry::disabled("Rename"));
+        entries.push(MenuEntry::disabled("Move to Trash"));
+    } else {
+        entries.push(MenuEntry::item(
+            "Rename",
+            Message::TreeRenameStart(path.to_path_buf()),
+        ));
+        entries.push(MenuEntry::item(
+            "Move to Trash",
+            Message::TreeTrash(path.to_path_buf()),
+        ));
+    }
     entries
 }

@@ -512,7 +512,7 @@ impl App {
         }
         let current = self
             .current_quick_slot_context()
-            .filter(|(path, _)| target.as_ref().is_none_or(|target| target == path));
+            .filter(|(path, _)| target.as_ref().map_or(true, |target| target == path));
         let (path, context, is_current) = match (current, target.clone()) {
             (Some((path, context)), _) => (path, context, true),
             (None, Some(path)) => (path, crate::quick_slots::SlotContext::default(), false),

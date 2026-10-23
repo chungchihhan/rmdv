@@ -141,6 +141,7 @@ mod sidebar_peek;
 mod slots;
 mod toolbar;
 mod tree_menu;
+mod tree_ops;
 mod types;
 mod view;
 mod zoom_raster;
@@ -164,6 +165,8 @@ pub use paths::{is_external_link, is_remote_url, line_for_fragment, resolve_imag
 use preview_worker::*;
 use scroll_tasks::*;
 use settings::*;
+#[cfg(test)]
+use tree_ops::take_trashed_for_tests;
 use types::*;
 pub use types::{
     HistoryDir, MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
@@ -254,6 +257,11 @@ pub struct App {
     list_pointer: ListPointer,
     /// The open context menu; at most one at a time.
     context_menu: Option<ContextMenu>,
+    /// The file tree row being renamed in place (MDV-048 P6).
+    tree_rename: Option<TreeRename>,
+    /// Folders made with New Folder. They stay in the tree while empty,
+    /// though the scan leaves empty folders out.
+    tree_new_folders: Vec<PathBuf>,
     /// Where the latest right press was, in window coordinates.
     right_press_at: Option<iced::Point>,
     /// Vault search results page (Zed-style) — full reader-area, not an overlay.
@@ -621,6 +629,8 @@ impl Default for App {
             overlay_selected: 0,
             list_pointer: ListPointer::default(),
             context_menu: None,
+            tree_rename: None,
+            tree_new_folders: Vec::new(),
             right_press_at: None,
             vault_open: false,
             vault_query: String::new(),
@@ -1324,6 +1334,7 @@ impl App {
         self.workspace_files_rev = self.workspace_files_rev.wrapping_add(1);
         self.workspace_sidebar_files = snapshot.sidebar_files;
         self.workspace_tree = Some(snapshot.root);
+        self.keep_new_folders_in_tree();
         self.workspace_snapshot_show_hidden = self.show_hidden;
         self.workspace_truncated = snapshot.listing_truncated;
         self.begin_workspace_epoch();
@@ -1392,6 +1403,7 @@ impl App {
         if !tree::graft_folder(root, &folder, snapshot.root) {
             return Task::none();
         }
+        self.keep_new_folders_in_tree();
         self.workspace_sidebar_files
             .replace_subtree(&folder, snapshot.sidebar_files);
         if !snapshot.files.is_empty() {
@@ -3101,6 +3113,7 @@ impl App {
         let slot_replace_open = self.quick_slot_replace.is_some();
         let close_confirm_open = self.close_confirm.is_some();
         let menu_open = self.context_menu.is_some();
+        let renaming = self.tree_rename.is_some();
         let keys = iced::event::listen_with(|ev, status, _id| {
             let is_keyboard = matches!(
                 &ev,
@@ -3145,6 +3158,7 @@ impl App {
                 close_confirm_open,
                 image_zoom_open,
                 menu_open,
+                renaming,
             ),
         ))
         .map(
@@ -3164,7 +3178,14 @@ impl App {
                         quick_slots_allowed,
                         settings_open,
                     ),
-                    (slot_replace_open, select_all, close_confirm_open, image_zoom_open, menu_open),
+                    (
+                        slot_replace_open,
+                        select_all,
+                        close_confirm_open,
+                        image_zoom_open,
+                        menu_open,
+                        renaming,
+                    ),
                 ),
                 (ev, reader_copied),
             )| {
@@ -3202,6 +3223,16 @@ impl App {
                         Message::Noop
                     } else {
                         context_menu_key_message(&key)
+                    };
+                }
+                // The inline rename field takes typing, editing keys, and
+                // Enter itself; no shortcut acts on the tree or the reader
+                // underneath it.
+                if renaming {
+                    return if released {
+                        Message::Noop
+                    } else {
+                        tree_rename_key_message(&key)
                     };
                 }
                 // The replace-slot confirmation owns the keyboard: nothing

@@ -18,6 +18,10 @@ impl App {
         if menu_scope.is_some_and(|scope| scope != self.menu_scope()) {
             self.context_menu = None;
         }
+        // An inline rename ends with the file tree that shows it.
+        if self.tree_rename.is_some() && !self.file_tree_shown() {
+            self.tree_rename = None;
+        }
         // Every way out of the viewer (Esc, a click beside the image, an
         // open from Finder or the CLI, Zen) frees what it holds: the sharper
         // raster alone can be 64 MB.
@@ -3255,6 +3259,7 @@ impl App {
                                 self.workspace_files_rev = self.workspace_files_rev.wrapping_add(1);
                                 self.workspace_sidebar_files = snapshot.sidebar_files;
                                 self.workspace_tree = Some(snapshot.root);
+                                self.keep_new_folders_in_tree();
                                 self.workspace_snapshot_show_hidden = self.show_hidden;
                                 self.workspace_truncated = snapshot.listing_truncated;
                                 self.begin_workspace_epoch();
@@ -3419,6 +3424,21 @@ impl App {
                 Task::batch([iced::clipboard::write::<Message>(path), toast])
             }
             Message::TreeContextMenu(target) => self.open_tree_context_menu(target),
+            Message::TreeNewFile(folder) => self.create_tree_item(folder, false),
+            Message::TreeNewFolder(folder) => self.create_tree_item(folder, true),
+            Message::TreeRenameStart(path) => self.begin_tree_rename(path),
+            Message::TreeRenameInput(value) => {
+                if let Some(rename) = self.tree_rename.as_mut() {
+                    rename.value = value;
+                }
+                Task::none()
+            }
+            Message::TreeRenameCommit => self.commit_tree_rename(),
+            Message::TreeRenameCancel => {
+                self.tree_rename = None;
+                Task::none()
+            }
+            Message::TreeTrash(path) => self.trash_tree_item(path),
             Message::CopyPath(path) => {
                 let toast = self.show_toast("Path copied".into());
                 Task::batch([iced::clipboard::write::<Message>(path), toast])

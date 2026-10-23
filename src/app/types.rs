@@ -123,6 +123,15 @@ pub(super) struct CloseAfterSave {
     pub(super) text: String,
 }
 
+/// A file tree row whose name is being edited in place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct TreeRename {
+    /// The file or folder being renamed.
+    pub(super) path: PathBuf,
+    /// The name typed so far.
+    pub(super) value: String,
+}
+
 /// An assignment that waits for the user to confirm replacing an occupied slot.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct QuickSlotReplace {

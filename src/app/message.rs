@@ -195,6 +195,22 @@ pub enum Message {
     TreeContextMenu(Option<(PathBuf, bool)>),
     /// Copy this text (a path) to the clipboard.
     CopyPath(String),
+    /// Create "Untitled.md" (or the next free "Untitled N.md") in this
+    /// folder, then rename it in place.
+    TreeNewFile(PathBuf),
+    /// Create "Untitled Folder" (or the next free one) in this folder, then
+    /// rename it in place.
+    TreeNewFolder(PathBuf),
+    /// Start renaming this file tree row in place.
+    TreeRenameStart(PathBuf),
+    /// The name typed in the rename field.
+    TreeRenameInput(String),
+    /// Enter in the rename field: rename the file or folder.
+    TreeRenameCommit,
+    /// Esc, or a press outside the rename field: keep the old name.
+    TreeRenameCancel,
+    /// Move this file or folder to the system Trash.
+    TreeTrash(PathBuf),
     ScrollBy(f32),
     ScrollToTop,
     ScrollToBottom,
