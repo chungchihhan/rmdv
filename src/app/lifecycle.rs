@@ -167,6 +167,33 @@ impl App {
         })
     }
 
+    /// The window opened on a monitor of this size: shrink it to fit when
+    /// it is larger (see [`crate::window_frame::fit_on_monitor`]).
+    pub(super) fn fit_window_on_monitor(
+        &mut self,
+        id: iced::window::Id,
+        monitor: Option<iced::Size>,
+    ) -> Task<Message> {
+        let (Some(monitor), Some(size)) = (monitor, self.window_size) else {
+            return Task::none();
+        };
+        let Some(fit) = crate::window_frame::fit_on_monitor(
+            (size.width, size.height),
+            self.window_position.map(|p| (p.x, p.y)),
+            (monitor.width, monitor.height),
+            (WINDOW_MIN_SIZE.width, WINDOW_MIN_SIZE.height),
+        ) else {
+            return Task::none();
+        };
+        let resize = iced::window::resize(id, iced::Size::new(fit.width, fit.height));
+        match fit.position {
+            Some((x, y)) => {
+                Task::batch([resize, iced::window::move_to(id, iced::Point::new(x, y))])
+            }
+            None => resize,
+        }
+    }
+
     /// Save the window's current frame when it changed, unless it is full
     /// screen.
     pub(super) fn save_window_frame(&mut self, fullscreen: bool, maximized: bool) {

@@ -291,3 +291,42 @@ fn a_minimized_window_keeps_the_saved_frame() {
     assert_eq!(saved(&path), Some(normal), "a close while minimized");
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn a_window_larger_than_its_monitor_is_shrunk_once_it_opens() {
+    // Off macOS the saved size opens centered with no screen check; the
+    // monitor's size, asked once the window is open, shrinks it.
+    let (mut app, path) = fresh_app();
+    let id = Id::unique();
+    let _ = app.update(Message::WindowOpened(
+        id,
+        Size::new(3000.0, 1800.0),
+        Some(Point::new(-540.0, -360.0)),
+    ));
+    let fit = app.update(Message::WindowMonitorSize(
+        id,
+        Some(Size::new(1920.0, 1080.0)),
+    ));
+    assert_eq!(fit.units(), 2, "a resize and a move");
+    // A window that fits, or an unknown monitor, is left alone.
+    let none = app.update(Message::WindowMonitorSize(id, None));
+    assert_eq!(none.units(), 0);
+    let _ = app.update(Message::WindowResized(id, Size::new(1000.0, 700.0)));
+    let fits = app.update(Message::WindowMonitorSize(
+        id,
+        Some(Size::new(1920.0, 1080.0)),
+    ));
+    assert_eq!(fits.units(), 0);
+    // Without a position, only the size changes.
+    let (mut app, _) = fresh_app();
+    let _ = app.update(Message::WindowOpened(id, Size::new(3000.0, 1800.0), None));
+    let fit = app.update(Message::WindowMonitorSize(
+        id,
+        Some(Size::new(1920.0, 1080.0)),
+    ));
+    assert_eq!(fit.units(), 1, "a resize");
+    assert!(
+        !path.exists(),
+        "fitting saves nothing until the frame settles"
+    );
+}

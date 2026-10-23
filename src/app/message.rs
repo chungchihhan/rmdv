@@ -499,6 +499,9 @@ pub enum Message {
         fullscreen: bool,
         maximized: bool,
     },
+    /// The logical size of the monitor the window opened on (asked off
+    /// macOS only, where no screen list exists before the window opens).
+    WindowMonitorSize(iced::window::Id, Option<iced::Size>),
     /// Files are dragged over the window (true) or left it (false).
     DropHover(bool),
     /// A file or folder was dropped on the window.

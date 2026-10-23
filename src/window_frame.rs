@@ -184,6 +184,48 @@ pub fn restore(saved: &WindowFrame, screens: Option<&[ScreenRect]>, min: (f32, f
     }
 }
 
+/// Room the monitor keeps around a window's inner size: the window frame
+/// and title bar, and a taskbar or panel.
+pub const MONITOR_CHROME: (f32, f32) = (16.0, 80.0);
+
+/// A window shrunk to fit its monitor: its new inner size and, when its
+/// position is known, its new top-left corner.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MonitorFit {
+    pub width: f32,
+    pub height: f32,
+    pub position: Option<(f32, f32)>,
+}
+
+/// Where no screen list exists before the window opens (Windows, Linux),
+/// the window opens at its saved size, centered, and can be larger than
+/// its monitor, with its title bar off the top. Once it is open, this
+/// shrinks an inner `size` larger than `monitor` (less [`MONITOR_CHROME`],
+/// never below `min`) and moves the window by half the shrink, so a
+/// centered window stays centered with its title bar on the monitor.
+/// `None`: the window fits.
+pub fn fit_on_monitor(
+    size: (f32, f32),
+    position: Option<(f32, f32)>,
+    monitor: (f32, f32),
+    min: (f32, f32),
+) -> Option<MonitorFit> {
+    let usable = |v: f32| v.is_finite() && v > 0.0;
+    if !(usable(monitor.0) && usable(monitor.1)) {
+        return None;
+    }
+    let width = size.0.min((monitor.0 - MONITOR_CHROME.0).max(min.0));
+    let height = size.1.min((monitor.1 - MONITOR_CHROME.1).max(min.1));
+    if width >= size.0 && height >= size.1 {
+        return None;
+    }
+    Some(MonitorFit {
+        width,
+        height,
+        position: position.map(|(x, y)| (x + (size.0 - width) / 2.0, y + (size.1 - height) / 2.0)),
+    })
+}
+
 /// The visible area of every screen, the main screen first, read from
 /// AppKit. `None` off the main thread. AppKit answers before the
 /// application object exists, so this works before the window opens.
@@ -401,6 +443,55 @@ mod tests {
         };
         assert!(restore(&saved, Some(&[laptop()]), MIN).maximized);
         assert!(restore(&saved, None, MIN).maximized);
+    }
+
+    #[test]
+    fn a_window_larger_than_its_monitor_shrinks_and_stays_centered() {
+        // A 3000×1800 frame saved on a large display, opened centered on a
+        // 1920×1080 laptop at about (-540, -360).
+        let fit = fit_on_monitor(
+            (3000.0, 1800.0),
+            Some((-540.0, -360.0)),
+            (1920.0, 1080.0),
+            MIN,
+        )
+        .expect("the window is shrunk");
+        assert_eq!((fit.width, fit.height), (1904.0, 1000.0));
+        assert_eq!(fit.position, Some((-540.0 + 548.0, -360.0 + 400.0)));
+        // Without a known position (Wayland), only the size changes.
+        let fit = fit_on_monitor((3000.0, 1800.0), None, (1920.0, 1080.0), MIN)
+            .expect("the window is shrunk");
+        assert_eq!((fit.width, fit.height), (1904.0, 1000.0));
+        assert_eq!(fit.position, None);
+        // Too wide only: the height stays.
+        let fit = fit_on_monitor((2500.0, 700.0), Some((0.0, 0.0)), (1920.0, 1080.0), MIN)
+            .expect("the window is shrunk");
+        assert_eq!((fit.width, fit.height), (1904.0, 700.0));
+        assert_eq!(fit.position, Some((298.0, 0.0)));
+    }
+
+    #[test]
+    fn a_window_that_fits_its_monitor_is_left_alone() {
+        assert_eq!(
+            fit_on_monitor((1000.0, 700.0), Some((10.0, 20.0)), (1920.0, 1080.0), MIN),
+            None
+        );
+        assert_eq!(
+            fit_on_monitor((1904.0, 1000.0), None, (1920.0, 1080.0), MIN),
+            None
+        );
+        // A tiny or unknown monitor never shrinks below the minimum.
+        let fit = fit_on_monitor((900.0, 600.0), None, (500.0, 400.0), MIN)
+            .expect("shrunk to the minimum");
+        assert_eq!((fit.width, fit.height), MIN);
+        assert_eq!(
+            fit_on_monitor((640.0, 420.0), None, (500.0, 400.0), MIN),
+            None
+        );
+        assert_eq!(
+            fit_on_monitor((900.0, 600.0), None, (0.0, f32::NAN), MIN),
+            None
+        );
     }
 
     #[test]

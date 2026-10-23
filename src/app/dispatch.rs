@@ -2348,6 +2348,7 @@ impl App {
                 self.save_window_frame(fullscreen, maximized);
                 Task::none()
             }
+            Message::WindowMonitorSize(id, monitor) => self.fit_window_on_monitor(id, monitor),
             Message::WindowUnfocused(id) => {
                 self.context_menu = None;
                 // A selection drag's release can go to another app; the
@@ -2383,7 +2384,15 @@ impl App {
                 if let Some(position) = position {
                     self.window_position.get_or_insert(position);
                 }
-                self.dispatch_message(Message::RefreshWindowMode(id))
+                let mode = self.dispatch_message(Message::RefreshWindowMode(id));
+                // macOS fitted the frame to a screen before the window
+                // opened; elsewhere the monitor is known only now.
+                if cfg!(target_os = "macos") {
+                    return mode;
+                }
+                let monitor = iced::window::monitor_size(id)
+                    .map(move |monitor| Message::WindowMonitorSize(id, monitor));
+                Task::batch([mode, monitor])
             }
             Message::RefreshWindowModeSettled(id) => self.window_mode_settle_fired(id),
             Message::WindowModeChanged(mode) => {

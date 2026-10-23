@@ -134,7 +134,9 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   from AppKit before the window opens (it answers before `NSApplication`
   exists) and puts the window fully on the screen it overlaps most, or the
   nearest one, at least 640×420. Other platforms have no screen list
-  before the window opens, so they restore the size and center the window.
+  before the window opens, so they restore the size and center the window;
+  once it is open, a window larger than its monitor (less 16×80 for the
+  frame, title bar and taskbar) shrinks to fit and stays centered.
   A close cannot ask the window, so a zoom or unzoom in the last 500 ms
   before a close is saved with the previous zoom state.
 
