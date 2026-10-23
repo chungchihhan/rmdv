@@ -143,6 +143,12 @@ impl App {
         directions
     }
 
+    /// The reader's wheel gate looks for a swipe start under the pointer
+    /// only where a swipe can start: on macOS, while one is armed.
+    pub(super) fn reader_swipe_probe(&self) -> bool {
+        crate::native_swipe::SUPPORTED && self.swipe_directions() != 0
+    }
+
     /// A completed swipe from the macOS bridge goes Back or Forward, as the
     /// mouse side buttons do, while the reader still allows it.
     pub(super) fn native_swipe(&mut self, dir: HistoryDir) -> Task<Message> {

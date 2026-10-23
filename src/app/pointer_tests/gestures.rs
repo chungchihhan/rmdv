@@ -390,6 +390,17 @@ fn a_swipe_is_armed_only_on_the_reader_toward_a_stop() {
 }
 
 #[test]
+fn the_reader_probes_for_a_swipe_only_where_one_can_start() {
+    let (app, _) = swipe_fixture("probe");
+    assert_eq!(
+        app.reader_swipe_probe(),
+        cfg!(target_os = "macos"),
+        "only macOS has the swipe monitor"
+    );
+    assert!(!long_doc_app().reader_swipe_probe(), "no stop either way");
+}
+
+#[test]
 fn a_swipe_goes_back_like_the_back_button() {
     let (mut app, earlier) = swipe_fixture("go");
     let _ = app.update(Message::NativeSwipe(HistoryDir::Forward));

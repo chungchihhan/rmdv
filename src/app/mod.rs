@@ -3951,7 +3951,10 @@ impl App {
                 .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
                 // ⌘+wheel changes the font size; the gate keeps it from
                 // also scrolling the reader. It also arms a swipe (macOS).
-                let scroll: Element<'_, Message> = WheelGate::new(scroll, Gate::Reader).into();
+                let gate = Gate::Reader {
+                    swipe: self.reader_swipe_probe(),
+                };
+                let scroll: Element<'_, Message> = WheelGate::new(scroll, gate).into();
                 if select_all {
                     stack![
                         scroll,

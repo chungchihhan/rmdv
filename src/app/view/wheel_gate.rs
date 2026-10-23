@@ -23,9 +23,10 @@ use iced::{Element, Event, Length, Point, Rectangle, Size, Vector};
 /// What the gate does with the wheel events it takes.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(in crate::app) enum Gate {
-    /// ⌘+wheel publishes [`Message::ReaderZoomBy`]; the pointer position
-    /// arms a two-finger swipe.
-    Reader,
+    /// ⌘+wheel publishes [`Message::ReaderZoomBy`]. With `swipe` (macOS,
+    /// a swipe armed), the pointer position tells the swipe bridge whether
+    /// a two-finger swipe may start there.
+    Reader { swipe: bool },
     /// Pixel scrolls publish the editor's scroll action; `line_height` is
     /// the editor's line height in logical pixels.
     EditorScroll { line_height: f32 },
@@ -50,7 +51,7 @@ impl WheelGate<'_> {
     /// the message to publish if there is one.
     fn take_wheel(&self, state: &mut State, delta: mouse::ScrollDelta) -> Option<Option<Message>> {
         match self.gate {
-            Gate::Reader => {
+            Gate::Reader { .. } => {
                 if !state.modifiers.command() {
                     return None;
                 }
@@ -80,8 +81,8 @@ impl WheelGate<'_> {
 
 impl WheelGate<'_> {
     /// Tell the swipe bridge whether a swipe may start at the pointer: over
-    /// the reader and over no horizontal scroller. Only while a swipe is
-    /// armed, so other platforms and other states pay nothing.
+    /// the reader and over no horizontal scroller. Only with `swipe` (see
+    /// [`Gate::Reader`]), so other platforms and other states pay nothing.
     fn sync_swipe_pointer(
         &mut self,
         tree: &mut Tree,
@@ -98,7 +99,7 @@ impl WheelGate<'_> {
                     | mouse::Event::CursorLeft
             )
         );
-        if !moved || crate::native_swipe::armed() == 0 {
+        if !moved {
             return;
         }
         let ok = match cursor.position_over(layout.bounds()) {
@@ -271,7 +272,7 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for WheelGate<'a> {
         shell: &mut Shell<'_, Message>,
         viewport: &Rectangle,
     ) {
-        if self.gate == Gate::Reader {
+        if self.gate == (Gate::Reader { swipe: true }) {
             self.sync_swipe_pointer(tree, event, layout, cursor, renderer);
         }
         let state = tree.state.downcast_mut::<State>();

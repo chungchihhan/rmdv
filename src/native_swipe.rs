@@ -44,6 +44,10 @@ pub enum Decision {
     Track(Swipe),
 }
 
+/// Only macOS has the swipe monitor; elsewhere nothing arms a swipe or
+/// probes the reader for one.
+pub const SUPPORTED: bool = cfg!(target_os = "macos");
+
 static ARMED: AtomicU8 = AtomicU8::new(0);
 static POINTER_OK: AtomicBool = AtomicBool::new(false);
 
