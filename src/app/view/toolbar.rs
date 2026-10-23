@@ -86,39 +86,42 @@ pub(in crate::app) fn toolbar<'a>(
         ));
     }
 
-    // Middle: the file name and, while it has unsaved edits, a dot.
-    let mut name = irow![].spacing(6).align_y(iced::Alignment::Center);
-    if let Some(file) = app.file.as_deref() {
-        let label = file
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("?")
-            .to_string();
-        name = name.push(
-            text(label)
-                .size(12.5)
-                .color(pal.muted)
-                .wrapping(iced::widget::text::Wrapping::None),
-        );
-        if app.dirty {
-            name = name.push(
-                container(Space::new().width(6.0).height(6.0))
-                    .id(iced::widget::Id::new("toolbar-dirty-dot"))
-                    .style(move |_| container::Style {
-                        background: Some(pal.accent.into()),
-                        border: Border {
-                            radius: theme::radius::PILL.into(),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    }),
-            );
+    // Middle: the file name, centered on the window, and while it has
+    // unsaved edits a dot after it. A long name is cut where the controls
+    // begin.
+    let name: Element<'a, Message> = match app.file.as_deref() {
+        Some(file) => {
+            let label = file
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string();
+            container(
+                text(label)
+                    .size(12.5)
+                    .color(pal.muted)
+                    .wrapping(iced::widget::text::Wrapping::None),
+            )
+            .clip(true)
+            .into()
         }
-    }
-    let middle = container(name)
-        .width(Length::Fill)
-        .center_x(Length::Fill)
-        .clip(true);
+        None => Space::new().into(),
+    };
+    let dot: Element<'a, Message> = if app.file.is_some() && app.dirty {
+        container(Space::new().width(6.0).height(6.0))
+            .id(iced::widget::Id::new("toolbar-dirty-dot"))
+            .style(move |_| container::Style {
+                background: Some(pal.accent.into()),
+                border: Border {
+                    radius: theme::radius::PILL.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into()
+    } else {
+        Space::new().into()
+    };
 
     // Right: the view switch, the document mind map's panel toggle, then
     // Save, Find, Command Palette, and Settings.
@@ -275,17 +278,19 @@ pub(in crate::app) fn toolbar<'a>(
 
     let fill = look.fill;
     let radius = look.corner_radius;
+    const RIGHT_PAD: f32 = 10.0;
     let bar = container(
-        irow![left, middle, right]
-            .spacing(8)
-            .align_y(iced::Alignment::Center),
+        TitleRow::new(left, name, dot, right)
+            .gap(8.0)
+            .padding(look.left_inset, RIGHT_PAD)
+            .window_width(app.window_size.map(|size| size.width)),
     )
     .id(iced::widget::Id::new("toolbar"))
     .width(Length::Fill)
     .height(Length::Fixed(TOOLBAR_H))
     .padding(Padding {
         top: 0.0,
-        right: 10.0,
+        right: RIGHT_PAD,
         bottom: 0.0,
         left: look.left_inset,
     })

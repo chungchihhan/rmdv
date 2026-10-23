@@ -2010,6 +2010,11 @@ impl App {
                 }
                 self.refresh_window_mode_after_native_transition(id)
             }
+            Message::WindowOpened(id, size) => {
+                // A resize may already have reported a newer size.
+                self.window_size.get_or_insert(size);
+                self.update(Message::RefreshWindowMode(id))
+            }
             Message::RefreshWindowModeSettled(id) => self.window_mode_settle_fired(id),
             Message::WindowModeChanged(mode) => {
                 self.window_fullscreen = matches!(mode, iced::window::Mode::Fullscreen);

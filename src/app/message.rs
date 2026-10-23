@@ -375,6 +375,9 @@ pub enum Message {
     CloseConfirmCancel,
     WindowUnfocused(iced::window::Id),
     RefreshWindowMode(iced::window::Id),
+    /// The window opened at this inner size (the toolbar centers the file
+    /// name on it before any resize).
+    WindowOpened(iced::window::Id, iced::Size),
     RefreshWindowModeSettled(iced::window::Id),
     WindowModeChanged(iced::window::Mode),
     /// Palette command: capture the window to a timestamped PNG on the Desktop.

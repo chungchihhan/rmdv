@@ -799,7 +799,7 @@ fn hover_toolbar_follows_its_band_when_the_find_bar_moves_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// --- Polish (MDV-048): icon view switch -----------------------------------
+// --- Polish (MDV-048): icon view switch, window-centered file name ----------
 
 const VIEW_SEGMENTS: [&str; 4] = [
     "view-read",
@@ -849,4 +849,102 @@ fn view_switch_segments_are_equal_width_icons() {
     for (i, a) in codes.iter().enumerate() {
         assert!(!codes[i + 1..].contains(a));
     }
+}
+
+fn app_with_file(name: &str) -> App {
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        PathBuf::from(format!("/tmp/{name}")),
+        "# Title\n\nBody.\n".into(),
+    ))));
+    always(app)
+}
+
+#[test]
+fn file_name_sits_at_the_window_center() {
+    let app = app_with_file("centered.md");
+    let mut ui = PointerUi::sized(Size::new(1000.0, 700.0));
+    let name = ui.text_bounds(&app, "centered.md").expect("file name");
+    assert!(
+        (name.center_x() - 500.0).abs() <= 1.0,
+        "centered on the window: {name:?}"
+    );
+}
+
+#[test]
+fn file_name_follows_the_window_center_beside_the_sidebar() {
+    let (app, dir) = tree_fixture("toolbar-center");
+    let mut app = always(app);
+    // A name the sidebar's tree does not show too.
+    let _ = app.update(Message::FileLoaded(Ok((
+        PathBuf::from("/tmp/centered-beside.md"),
+        "# Beside\n".into(),
+    ))));
+    app.window_size = Some(Size::new(1000.0, 700.0));
+    assert!(app.sidebar_open);
+    let mut ui = PointerUi::sized(Size::new(1000.0, 700.0));
+    let name = ui
+        .text_bounds(&app, "centered-beside.md")
+        .expect("file name");
+    let bar = ui.id_bounds(&app, "toolbar").expect("toolbar");
+    assert!(
+        bar.x > 100.0,
+        "the toolbar starts right of the sidebar: {bar:?}"
+    );
+    assert!(
+        (name.center_x() - 500.0).abs() <= 1.0,
+        "centered on the window, not on the toolbar: {name:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn long_file_name_never_covers_the_toolbar_controls() {
+    let long = format!("{}.md", "n".repeat(57));
+    assert_eq!(long.chars().count(), 60);
+    for dirty in [false, true] {
+        let mut app = app_with_file(&long);
+        if dirty {
+            app.dirty = true;
+        }
+        let mut ui = PointerUi::sized(Size::new(640.0, 600.0));
+        let name = ui.text_bounds(&app, &long).expect("file name");
+        let mut controls: Vec<(String, Rectangle)> = VIEW_SEGMENTS
+            .iter()
+            .map(|id| (id.to_string(), ui.id_bounds(&app, id).expect("segment")))
+            .collect();
+        for code in [ic::CHEVRON_LEFT, ic::CHEVRON_RIGHT] {
+            let b = glyph_at(&mut ui, &app, code).expect("chevron");
+            // The chevron's button is wider than its glyph.
+            controls.push((format!("{code:?}"), b.expand(8.0)));
+        }
+        let mut shown = vec![("name".to_string(), name)];
+        if dirty {
+            shown.push((
+                "dot".into(),
+                ui.id_bounds(&app, "toolbar-dirty-dot").expect("dirty dot"),
+            ));
+        }
+        for (what, b) in &shown {
+            assert!(b.width > 0.0, "{what} shows: {b:?}");
+            for (control, c) in &controls {
+                assert!(
+                    b.intersection(c).is_none(),
+                    "dirty={dirty}: {what} {b:?} covers {control} {c:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn window_size_is_known_from_the_moment_the_window_opens() {
+    // The name is centered on the window before any resize.
+    let mut app = App::default();
+    assert_eq!(app.window_size, None);
+    let _ = app.update(Message::WindowOpened(
+        iced::window::Id::unique(),
+        Size::new(900.0, 600.0),
+    ));
+    assert_eq!(app.window_size, Some(Size::new(900.0, 600.0)));
 }

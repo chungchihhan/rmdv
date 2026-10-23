@@ -3458,8 +3458,8 @@ impl App {
         let close_requests = iced::window::close_requests().map(Message::WindowCloseRequested);
         let window_events = iced::window::events().filter_map(|(id, event)| match event {
             iced::window::Event::Unfocused => Some(Message::WindowUnfocused(id)),
-            iced::window::Event::Opened { .. }
-            | iced::window::Event::Focused
+            iced::window::Event::Opened { size, .. } => Some(Message::WindowOpened(id, size)),
+            iced::window::Event::Focused
             | iced::window::Event::Moved(_)
             | iced::window::Event::Rescaled(_) => Some(Message::RefreshWindowMode(id)),
             iced::window::Event::Resized(size) => Some(Message::WindowResized(id, size)),
