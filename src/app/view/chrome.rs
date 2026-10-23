@@ -995,6 +995,10 @@ pub(in crate::app) fn zoom_controls_island<'a>(
             shadow: theme::shadow::HINT,
             ..Default::default()
         });
+    // The pill takes a press beside its buttons (the gaps and the padding),
+    // so a near miss does not reach the viewer or the canvas below. The
+    // full-window container around it lets every other press through.
+    let island = mouse_area(island).on_press(Message::Noop);
 
     container(island)
         .width(Length::Fill)

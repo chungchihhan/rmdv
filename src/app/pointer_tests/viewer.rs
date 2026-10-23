@@ -281,6 +281,27 @@ fn zoom_buttons_and_keys_drive_the_viewer() {
 }
 
 #[test]
+fn a_click_on_the_zoom_island_beside_its_buttons_keeps_the_viewer_open() {
+    let app = diagram_viewer_app();
+    let mut ui = PointerUi::new();
+    let label = ui.text_bounds(&app, "100%").expect("the 100% button");
+    // The 2 px gap left of the 100% button (its padding is 8 px), and the
+    // island's bottom padding under it (the island ends 16 px above the
+    // window's bottom edge). Both are below the drawn image (y 92…708).
+    let gap = Point::new(label.x - 9.0, label.center_y());
+    let padding = Point::new(label.center_x(), WINDOW.height - 16.0 - 2.0);
+    assert!(padding.y > label.y + label.height + 4.0);
+    for at in [gap, padding] {
+        let messages = ui.click(&app, at);
+        assert!(
+            !has(&messages, |m| matches!(m, Message::ImageZoomCommand(_))),
+            "{at:?} is beside the buttons: {messages:?}"
+        );
+        assert!(!closes(&messages), "a near miss at {at:?}: {messages:?}");
+    }
+}
+
+#[test]
 fn a_native_pinch_zooms_the_open_viewer() {
     let mut app = diagram_viewer_app();
     let mut ui = PointerUi::new();
