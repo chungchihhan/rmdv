@@ -214,6 +214,36 @@ fn a_double_click_toggles_fit_and_actual_size() {
 }
 
 #[test]
+fn a_third_quick_click_after_a_double_click_keeps_the_viewer_open() {
+    let app = diagram_viewer_app();
+    let mut ui = PointerUi::new();
+    // Near the left edge of the image at Fit (x 24…1256). The double-click
+    // shrinks it to 200×100, so the third click lands beside it.
+    let at = Point::new(60.0, 400.0);
+    let mut messages = ui.move_to(&app, at).0;
+    let press = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
+    let release = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
+    messages.extend(
+        ui.send(
+            &app,
+            at,
+            vec![
+                press.clone(),
+                release.clone(),
+                press.clone(),
+                release.clone(),
+                press,
+                release,
+            ],
+        )
+        .0,
+    );
+    assert!(!closes(&messages), "a triple-click: {messages:?}");
+    let (_, scale, _) = viewer(&mut ui, &app);
+    assert!(near(scale, 1.0), "only the double-click toggles: {scale}");
+}
+
+#[test]
 fn zoom_buttons_and_keys_drive_the_viewer() {
     use iced::keyboard::{Key, Modifiers};
     let key = |c: &str| Key::Character(c.into());

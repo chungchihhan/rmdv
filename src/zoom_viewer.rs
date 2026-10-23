@@ -61,7 +61,8 @@ struct Press {
     moved: bool,
     /// The press began outside the drawn image.
     outside: bool,
-    /// The press was the second click of a double-click.
+    /// The press was a later click of a double-click (the second or a
+    /// third quick one); its release never closes the viewer.
     toggled: bool,
 }
 
@@ -410,8 +411,12 @@ impl<Message: Clone> Widget<Message, iced::Theme, iced::Renderer> for ZoomViewer
                 state.last_click = Some(click);
                 let (scale, pan) = state.resolved(content, bounds.size());
                 let outside = !image_rect(bounds, content, scale, pan).contains(at);
-                let toggled = click.kind() == iced::advanced::mouse::click::Kind::Double;
-                if toggled {
+                // A double-click toggles. A third quick click (`Triple`) is
+                // still part of it: the image may have just shrunk away
+                // from the pointer, and that click must not close.
+                let kind = click.kind();
+                let toggled = kind != iced::advanced::mouse::click::Kind::Single;
+                if kind == iced::advanced::mouse::click::Kind::Double {
                     toggle_fit(state, content, bounds, at);
                     shell.request_redraw();
                 }
