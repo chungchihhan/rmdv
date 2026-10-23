@@ -356,6 +356,30 @@ fn double_click_char(app: &mut App, ui: &mut PointerUi, n: usize) -> Option<Stri
 fn double_click_on_chinese_selects_a_dictionary_word() {
     let mut app = cjk_app();
     let mut ui = PointerUi::new();
+    if !cfg!(target_os = "macos") {
+        // UAX #29 elsewhere: one ideograph per word. A CI machine may have no
+        // CJK font, so a Han glyph is not one em wide: scan the line instead.
+        let text = mixed_paragraph(&mut ui, &app);
+        let em = app.typography.body_size;
+        let mut han = Vec::new();
+        for step in 0..30 {
+            let at = Point::new(text.x + 1.0 + step as f32 * 4.0, text.y + em * 0.6);
+            let messages = ui.double_click(&app, at);
+            apply(&mut app, messages);
+            let after = Point::new(text.x + 4.0, text.y + text.height + 30.0);
+            if let Some(word) = selected(&mut app, &mut ui, after) {
+                if word.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)) {
+                    han.push(word);
+                }
+            }
+        }
+        assert!(han.iter().any(|word| word == "中"), "{han:?}");
+        assert!(
+            han.iter().all(|word| word.chars().count() == 1),
+            "one ideograph per word: {han:?}"
+        );
+        return;
+    }
     let first = double_click_char(&mut app, &mut ui, 0);
     let fifth = double_click_char(&mut app, &mut ui, 4);
     // The right half of a character is still that character's word.
@@ -366,16 +390,9 @@ fn double_click_on_chinese_selects_a_dictionary_word() {
     apply(&mut app, messages);
     let after = Point::new(text.x + 4.0, text.y + text.height + 30.0);
     let second_right_half = selected(&mut app, &mut ui, after);
-    if cfg!(target_os = "macos") {
-        assert_eq!(first.as_deref(), Some("中文"));
-        assert_eq!(fifth.as_deref(), Some("測試"));
-        assert_eq!(second_right_half.as_deref(), Some("中文"));
-    } else {
-        // UAX #29 elsewhere: one ideograph per word.
-        assert_eq!(first.as_deref(), Some("中"));
-        assert_eq!(fifth.as_deref(), Some("測"));
-        assert_eq!(second_right_half.as_deref(), Some("文"));
-    }
+    assert_eq!(first.as_deref(), Some("中文"));
+    assert_eq!(fifth.as_deref(), Some("測試"));
+    assert_eq!(second_right_half.as_deref(), Some("中文"));
 }
 
 #[test]
