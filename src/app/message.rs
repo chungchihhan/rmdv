@@ -319,6 +319,12 @@ pub enum Message {
         request: PendingFullMindmapOpen,
         result: Result<(PathBuf, String), String>,
     },
+    /// A link clicked in the Full Mindmap preview. `base` is the previewed
+    /// file, which a relative link resolves from.
+    FullMindmapPreviewLink {
+        base: std::path::PathBuf,
+        url: String,
+    },
     FullMindmapPreviewSettle {
         request: PendingFullMindmapPreviewSettle,
     },

@@ -1091,6 +1091,44 @@ impl App {
                 };
                 Task::batch([select, self.update(Message::FullMindmapActivate)])
             }
+            Message::FullMindmapPreviewLink { base, url } => {
+                // A link in the preview goes where it would from the
+                // previewed file: in-app files open as Enter on a file
+                // node does, the rest as reader links do.
+                let (target, fragment) = match url.split_once('#') {
+                    Some((t, f)) => (t, Some(f)),
+                    None => (url.as_str(), None),
+                };
+                if !target.is_empty() && is_external_link(target) {
+                    let background = cfg!(target_os = "macos") && self.quick_slots_modifier_held;
+                    self.open_externally(url, background);
+                    return Task::none();
+                }
+                let path = if target.is_empty() {
+                    Some(base.clone())
+                } else {
+                    resolve_image_path(target, Some(base.as_path()))
+                };
+                let Some(path) = path else {
+                    return Task::none();
+                };
+                if !path.exists() {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| target.to_string());
+                    return self.show_toast(format!("File not found: {name}"));
+                }
+                if link_opens_in_app(&path) && path.is_file() {
+                    self.pending_nav = fragment.map(|f| PendingNav {
+                        fragment: Some(f.to_string()),
+                        ..Default::default()
+                    });
+                    return self.update(Message::OpenFileFinderPath(path));
+                }
+                self.open_externally(path.to_string_lossy().into_owned(), false);
+                Task::none()
+            }
             Message::FullMindmapDeselect => {
                 let checkpoint = self.checkpoint_active_quick_slot();
                 self.invalidate_pending_quick_slot_restore();

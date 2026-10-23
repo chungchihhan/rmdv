@@ -221,10 +221,7 @@ impl App {
                             recently_scrolled,
                             crate::render::ReadingWidth::Fill,
                         )
-                        .map(|message| match message {
-                            Message::TableScrolled => Message::TableScrolled,
-                            _ => Message::Noop,
-                        });
+                        .map(|message| Self::full_mindmap_preview_message(message, path, blocks));
                         let mut preview = Column::new().push(rendered);
                         if *truncated {
                             preview = preview.push(
@@ -373,5 +370,38 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+
+    /// What a message from the Full Mindmap preview does. The preview is a
+    /// read-only look at another file: its links resolve from that file,
+    /// Copy and zoom work as in the reader, and folding stays a reader
+    /// action.
+    pub(super) fn full_mindmap_preview_message(
+        message: Message,
+        path: &Path,
+        blocks: &[(BlockId, Block)],
+    ) -> Message {
+        match message {
+            Message::TableScrolled
+            | Message::CopyCode(_)
+            | Message::DiagramZoom(_)
+            | Message::OpenImageZoom(_) => message,
+            Message::OpenLink(url) => Message::FullMindmapPreviewLink {
+                base: path.to_path_buf(),
+                url,
+            },
+            // The app looks a diagram's source up in the open document;
+            // the preview holds its own blocks.
+            Message::CopyDiagramSource(hash) => blocks
+                .iter()
+                .find_map(|(_, block)| match block {
+                    Block::Diagram {
+                        hash: h, source, ..
+                    } if *h == hash => Some(Message::CopyCode(source.clone())),
+                    _ => None,
+                })
+                .unwrap_or(Message::Noop),
+            _ => Message::Noop,
+        }
     }
 }

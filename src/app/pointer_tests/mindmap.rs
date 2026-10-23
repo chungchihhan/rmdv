@@ -285,3 +285,165 @@ fn the_panel_close_button_hides_each_mind_map_panel() {
     assert_eq!(full.selected.as_ref(), Some(&file));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Full Mindmap with `alpha.md` (rewritten to `source`) selected by the
+/// pointer and its preview parsed into the panel.
+fn full_mindmap_preview_app(tag: &str, source: &str) -> (App, PathBuf) {
+    let (mut app, dir) = full_mindmap_app(tag);
+    let file = dir.join("alpha.md");
+    std::fs::write(&file, source).expect("alpha.md");
+    // Show the root's files.
+    loop {
+        let requests: Vec<_> = app
+            .full_mindmap
+            .as_ref()
+            .map(|full| full.pending_folder_loads.values().cloned().collect())
+            .unwrap_or_default();
+        if requests.is_empty() {
+            break;
+        }
+        for request in requests {
+            let snapshot =
+                tree::load_expanded_folder(&request.folder, request.show_hidden).unwrap();
+            let _ = app.update(Message::FullMindmapFolderLoaded {
+                request: request.clone(),
+                result: Ok((request.folder.clone(), snapshot)),
+            });
+        }
+    }
+    let _ = app.update(Message::FullMindmapPointerSelect(WorkspaceNodeId::File(
+        file.clone(),
+    )));
+    let settle = app
+        .full_mindmap
+        .as_ref()
+        .and_then(|full| full.pending_preview_settle.clone())
+        .expect("a preview settle");
+    let _ = app.update(Message::FullMindmapPreviewSettle { request: settle });
+    let request = app
+        .full_mindmap
+        .as_ref()
+        .and_then(|full| full.pending_preview.clone())
+        .expect("a preview read");
+    let _ = app.update(Message::FullMindmapPreviewLoaded {
+        request: request.clone(),
+        result: Ok((file.clone(), source.to_string())),
+    });
+    let parsed = parse_full_mindmap_preview_blocking(file.clone(), source.to_string());
+    let _ = app.update(Message::FullMindmapPreviewParsed {
+        request,
+        result: Ok(parsed),
+    });
+    assert!(matches!(
+        app.full_mindmap.as_ref().unwrap().preview,
+        FullMindmapPreview::Document { .. }
+    ));
+    (app, dir)
+}
+
+#[test]
+fn a_full_mindmap_preview_copy_button_copies() {
+    let (app, dir) =
+        full_mindmap_preview_app("p4-preview-copy", "# Alpha\n\n```rust\nlet x = 1;\n```\n");
+    let mut ui = PointerUi::new();
+    let copy = ui
+        .text_bounds(&app, &ic::COPY.to_string())
+        .expect("the code block's copy button");
+    let messages = ui.click(&app, center(copy));
+    assert!(
+        has(
+            &messages,
+            |m| matches!(m, Message::CopyCode(code) if code.contains("let x = 1;"))
+        ),
+        "{messages:?}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn full_mindmap_preview_messages_keep_their_action() {
+    let base = PathBuf::from("/notes/alpha.md");
+    let (blocks, _) = crate::parser::parse("```mermaid\ngraph TD; A-->B\n```\n");
+    let hash = blocks
+        .iter()
+        .find_map(|(_, block)| match block {
+            crate::ast::Block::Diagram { hash, .. } => Some(*hash),
+            _ => None,
+        })
+        .expect("a diagram block");
+    let map = |message| App::full_mindmap_preview_message(message, &base, &blocks);
+
+    assert!(matches!(
+        map(Message::OpenLink("beta.md#part".into())),
+        Message::FullMindmapPreviewLink { base: b, url } if b == base && url == "beta.md#part"
+    ));
+    assert!(matches!(map(Message::CopyCode("x".into())), Message::CopyCode(s) if s == "x"));
+    // The preview's own diagram source, not the open document's.
+    assert!(matches!(
+        map(Message::CopyDiagramSource(hash)),
+        Message::CopyCode(s) if s.contains("A-->B")
+    ));
+    assert!(matches!(map(Message::DiagramZoom(hash)), Message::DiagramZoom(h) if h == hash));
+    assert!(matches!(
+        map(Message::OpenImageZoom("/notes/a.png".into())),
+        Message::OpenImageZoom(u) if u == "/notes/a.png"
+    ));
+    assert!(matches!(
+        map(Message::TableScrolled),
+        Message::TableScrolled
+    ));
+    // Folding stays a reader action.
+    assert!(matches!(
+        map(Message::ToggleFold(crate::ast::BlockId(1))),
+        Message::Noop
+    ));
+}
+
+#[test]
+fn a_full_mindmap_preview_link_resolves_from_the_previewed_file() {
+    let (mut app, dir) = full_mindmap_app("p4-preview-link");
+    let base = dir.join("alpha.md");
+    let _ = app.update(Message::FullMindmapPreviewLink {
+        base: base.clone(),
+        url: "sub/gamma.md#gamma".into(),
+    });
+    assert_eq!(
+        app.full_mindmap
+            .as_ref()
+            .and_then(|full| full.pending_open.as_ref())
+            .map(|open| open.path.clone()),
+        Some(dir.join("sub").join("gamma.md")),
+        "the link opens relative to the previewed file"
+    );
+    assert_eq!(
+        app.pending_nav
+            .as_ref()
+            .and_then(|nav| nav.fragment.clone()),
+        Some("gamma".into())
+    );
+
+    let (mut app, dir2) = full_mindmap_app("p4-preview-link-missing");
+    let _ = app.update(Message::FullMindmapPreviewLink {
+        base: dir2.join("alpha.md"),
+        url: "nope.md".into(),
+    });
+    assert!(app
+        .toast
+        .as_ref()
+        .is_some_and(|toast| toast.text.contains("nope.md")));
+    assert!(app
+        .full_mindmap
+        .as_ref()
+        .is_some_and(|full| full.pending_open.is_none()));
+    let _ = app.update(Message::FullMindmapPreviewLink {
+        base: dir2.join("alpha.md"),
+        url: "https://example.com/doc".into(),
+    });
+    assert_eq!(
+        app.external_opens.last().map(|(url, _)| url.as_str()),
+        Some("https://example.com/doc"),
+        "a web link goes to the browser"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&dir2);
+}
