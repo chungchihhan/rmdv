@@ -900,3 +900,32 @@ fn a_data_mindmap_double_click_stays_in_the_mind_map() {
     assert_eq!(app.view_mode, ViewMode::Mindmap);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_document_mindmap_double_click_drops_a_pending_scroll_restore() {
+    // A Quick Slot or Back restore still waits for the Reader to report a
+    // scrollable viewport. The heading jump replaces it: the first report
+    // of the new Reader must not scroll back to the saved position.
+    for target in ["Child", "root"] {
+        let (mut app, dir) = document_mindmap_app("p4-doc-activate-restore");
+        let (nodes, _, _) = app.mindmap_layout();
+        let id = if target == "root" {
+            DOC_ROOT
+        } else {
+            nodes
+                .iter()
+                .find(|node| node.label == target)
+                .and_then(|node| node.id)
+                .expect("the Child heading")
+        };
+        app.quick_slot_body_restore = Some(0.7);
+        app.history.arriving = Some(0.7);
+        app.quick_slot_preview_restore = Some(0.4);
+        let _ = app.update(Message::MindmapActivateNode(id));
+        assert_eq!(app.view_mode, ViewMode::Rendered, "{target}");
+        assert_eq!(app.quick_slot_body_restore, None, "{target}");
+        assert_eq!(app.history.arriving, None, "{target}");
+        assert_eq!(app.quick_slot_preview_restore, None, "{target}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

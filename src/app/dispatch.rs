@@ -1991,6 +1991,12 @@ impl App {
                 // Leaving the mind map is a stop: Back returns to it, as
                 // after a jump to a #fragment.
                 self.record_history();
+                // The jump replaces any scroll restore still waiting for the
+                // Reader's first viewport report (a Quick Slot or a Back
+                // stop); otherwise that report would scroll away from it.
+                self.quick_slot_body_restore = None;
+                self.quick_slot_preview_restore = None;
+                self.history.arriving = None;
                 let jump = match line {
                     Some(line) => self.scroll_to_line_top(line),
                     None => {
