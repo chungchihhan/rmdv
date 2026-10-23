@@ -2310,6 +2310,9 @@ impl App {
             }
             Message::WindowUnfocused(id) => {
                 self.context_menu = None;
+                // A selection drag's release can go to another app; the
+                // reader must not go on scrolling in the background.
+                self.reader_autoscroll = None;
                 self.quick_slots_pinned = false;
                 self.quick_slots_modifier_held = false;
                 self.quick_slots_rail_revealed = false;

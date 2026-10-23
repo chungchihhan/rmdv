@@ -609,3 +609,37 @@ fn shift_click_extends_from_the_caret_a_margin_press_left() {
     let got = selected(&mut app, &mut ui, at).expect("Shift+click selected");
     assert!(got.ends_with("e ffff") && !got.contains("dddd"), "{got:?}");
 }
+
+// --- Review fixes (MDV-048 P7) -------------------------------------------------
+
+#[test]
+fn losing_window_focus_stops_the_auto_scroll() {
+    // The release can go to another app (⌘Tab mid-drag); the tick must not
+    // go on scrolling in the background.
+    let mut app = long_doc_app();
+    let _ = app.update(Message::ReaderAutoScroll(Some(12.0)));
+    let _ = app.update(Message::WindowUnfocused(iced::window::Id::unique()));
+    assert_eq!(app.reader_autoscroll, None, "unfocus stops the tick");
+
+    // The reader drops its held press too: the next move does not start
+    // the scroll again.
+    let mut ui = PointerUi::new();
+    let text = long_paragraph(&mut ui, &app, 2).expect("paragraph 2 is on screen");
+    let start = Point::new(text.x + 1.0, text.y + 8.0);
+    let below = Point::new(text.x + 80.0, WINDOW.height + 60.0);
+    let _ = press(&mut ui, &app, start);
+    assert!(matches!(
+        autoscroll(&ui.move_to(&app, below).0).as_slice(),
+        [Some(_)]
+    ));
+    let unfocused = ui
+        .send(
+            &app,
+            below,
+            vec![Event::Window(iced::window::Event::Unfocused)],
+        )
+        .0;
+    assert_eq!(autoscroll(&unfocused), [None], "{unfocused:?}");
+    let later = autoscroll(&ui.move_to(&app, Point::new(below.x, below.y + 120.0)).0);
+    assert!(later.is_empty(), "no stale drag restarts it: {later:?}");
+}

@@ -693,7 +693,11 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                     }
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            // The window losing focus ends a drag too: its release may go
+            // to another app, and a held press would start the scroll
+            // again on the next move.
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Window(window::Event::Unfocused) => {
                 state.press = None;
                 state.crossing = false;
                 if state.autoscroll.take().is_some() {
