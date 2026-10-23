@@ -250,7 +250,9 @@ impl State {
 
 use std::sync::Mutex;
 
-/// What the app pushed last, read by AppKit on the main thread.
+/// What the app pushed last, read by AppKit on the main thread. Other
+/// platforms have no menu bar to read it.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 struct Shared {
     state: State,
     titles: Vec<(u32, String)>,
