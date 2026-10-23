@@ -498,6 +498,16 @@ pub enum Message {
     EditorAction(iced::widget::text_editor::Action),
     /// Focus the Zen editor (a click in the margin beside it).
     FocusEditor,
+    /// A right press in the Zen editor: open its context menu.
+    EditorContextMenu,
+    /// The editor menu's Cut: copy the selection, then delete it.
+    EditorMenuCut,
+    /// The editor menu's Copy: copy the selection.
+    EditorMenuCopy,
+    /// The editor menu's Paste: read the clipboard.
+    EditorMenuPaste,
+    /// The clipboard text for the editor menu's Paste.
+    EditorPasted(Option<String>),
     SaveFile,
     FileSaved {
         result: Result<(), String>,

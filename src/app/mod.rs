@@ -122,6 +122,7 @@ fn editor_font() -> iced::Font {
 
 mod context_menu;
 mod dispatch;
+mod editor_menu;
 mod full_mindmap;
 mod full_mindmap_state;
 mod full_mindmap_view;
@@ -3916,6 +3917,9 @@ impl App {
                         .center_x(Length::Fill),
                     )
                     .on_press(Message::FocusEditor)
+                    // The editor ignores right presses: they open its menu
+                    // and leave its focus and selection alone.
+                    .on_right_press(Message::EditorContextMenu)
                     .into()
                 } else {
                     let fallback = text(self.source.as_str())

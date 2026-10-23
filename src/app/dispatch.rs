@@ -63,9 +63,12 @@ impl App {
     }
 
     fn dispatch_message(&mut self, msg: Message) -> Task<Message> {
-        // A clean Zen editor can keep focus under the replace confirmation;
-        // its Enter must not type into the buffer.
-        if (self.quick_slot_replace.is_some() || self.close_confirm.is_some())
+        // A clean Zen editor can keep focus under the replace confirmation
+        // or a context menu; its Enter must not type into the buffer. The
+        // menu's items run after it closes.
+        if (self.quick_slot_replace.is_some()
+            || self.close_confirm.is_some()
+            || self.context_menu.is_some())
             && matches!(msg, Message::EditorAction(_))
         {
             return Task::none();
@@ -2448,6 +2451,11 @@ impl App {
                 Task::none()
             }
             Message::FocusEditor => iced::widget::operation::focus(Self::editor_id()),
+            Message::EditorContextMenu => self.open_editor_context_menu(),
+            Message::EditorMenuCut => self.editor_menu_cut(),
+            Message::EditorMenuCopy => self.editor_menu_copy(),
+            Message::EditorMenuPaste => iced::clipboard::read().map(Message::EditorPasted),
+            Message::EditorPasted(text) => self.editor_pasted(text),
             Message::EditorUndo => {
                 let mut changed = false;
                 if let Some(ed) = self.editor.as_mut() {

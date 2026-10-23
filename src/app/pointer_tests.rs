@@ -1685,3 +1685,7 @@ mod tree_double_click;
 // --- P6: the reader's context menu -------------------------------------------
 
 mod reader_menu;
+
+// --- P6: the Zen editor's context menu -----------------------------------------
+
+mod editor_menu;
