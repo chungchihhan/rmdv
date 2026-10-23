@@ -263,6 +263,13 @@ pub enum Message {
     MindmapZoom(crate::mindmap::ZoomCommand),
     /// An image viewer zoom button or key: Fit, −, 100%, or +.
     ImageZoomCommand(crate::mindmap::ZoomCommand),
+    /// The viewer wants this many raster pixels per inline-raster pixel
+    /// for the diagram it shows.
+    ImageZoomDetail(u32),
+    /// The debounce of sharper-raster request `id` ended.
+    ImageZoomRasterDue(u64),
+    /// Sharper raster request `id` finished.
+    ImageZoomRasterReady(u64, Result<iced::widget::image::Handle, String>),
     MindmapToggleNode(crate::ast::BlockId),
     MindmapSelectLeaf(crate::ast::BlockId),
     /// A double click on a document mind map node: read that heading in

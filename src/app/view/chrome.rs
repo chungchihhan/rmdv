@@ -255,6 +255,9 @@ pub(in crate::app) fn full_mindmap_progress_overlay<'a>(
 pub(in crate::app) struct ImageZoomInput {
     pub request: crate::mindmap::ZoomRequest,
     pub pinch_log: f64,
+    /// A diagram's 100% size (its inline raster's), which a sharper raster
+    /// keeps. Set only for diagrams, which also report the detail they want.
+    pub content: Option<iced::Size>,
 }
 
 pub(in crate::app) fn image_zoom_overlay<'a>(
@@ -265,11 +268,17 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
     pal: Palette,
 ) -> Element<'a, Message> {
     let mk_viewer = |h: iced::widget::image::Handle| -> Element<'a, Message> {
-        crate::zoom_viewer::ZoomViewer::new(h)
+        let viewer = crate::zoom_viewer::ZoomViewer::new(h)
             .request(input.request)
             .pinch_log(input.pinch_log)
-            .on_close(Message::CloseOverlay)
-            .into()
+            .on_close(Message::CloseOverlay);
+        match input.content {
+            Some(size) => viewer
+                .content_size(size)
+                .on_detail(ZOOM_RASTER_DENSITY, Message::ImageZoomDetail)
+                .into(),
+            None => viewer.into(),
+        }
     };
     // Diagram overrides image source when set — DiagramZoom clears zoom_url.
     let mut ready = true;

@@ -3,6 +3,7 @@
 //! native pinch. The zoom math is tested in `crate::zoom_viewer`; these
 //! tests drive the viewer through `App::view` in the headless UI.
 
+use super::super::zoom_raster;
 use super::group3::{assert_tips, tips};
 use super::*;
 use crate::mindmap::ZoomCommand;
@@ -322,4 +323,125 @@ fn a_native_pinch_zooms_the_open_viewer() {
     let _ = app.update(Message::CloseOverlay);
     let _ = app.update(Message::MindmapNativePinch(0.5));
     assert_eq!(app.image_zoom_pinch_log, 0.25);
+}
+
+// --- 4. A sharper raster for a zoomed diagram ------------------------------
+
+fn tiny_handle(w: u32, h: u32) -> iced::widget::image::Handle {
+    iced::widget::image::Handle::from_rgba(w, h, vec![0; (w * h * 4) as usize])
+}
+
+fn pending(app: &App) -> Option<zoom_raster::PendingZoomRaster> {
+    app.image_zoom_raster.as_ref().and_then(|r| r.pending)
+}
+
+#[test]
+fn the_viewer_reports_the_detail_it_wants_once_per_change() {
+    let app = diagram_viewer_app();
+    let mut ui = PointerUi::new();
+    let at = Point::new(640.0, 400.0);
+    let first = redraw(&mut ui, &app, at);
+    // Fit is 6.16 at a density of 2: 12.3 raster pixels per base pixel.
+    let tiers: Vec<u32> = first
+        .iter()
+        .filter_map(|m| match m {
+            Message::ImageZoomDetail(t) => Some(*t),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(tiers, vec![16], "{first:?}");
+    // The next frame wants the same: no message, so no redraw loop.
+    let again = redraw(&mut ui, &app, at);
+    assert!(!has(&again, |m| matches!(m, Message::ImageZoomDetail(_))));
+
+    // A plain image does not ask for detail.
+    let mut app = long_doc_app();
+    let url = "/tmp/rmdv-viewer-plain.png".to_string();
+    app.image_cache
+        .insert(url.clone(), ImageState::Loaded(tiny_handle(40, 30)));
+    let _ = app.update(Message::OpenImageZoom(url));
+    let messages = redraw(&mut PointerUi::new(), &app, at);
+    assert!(!has(&messages, |m| matches!(
+        m,
+        Message::ImageZoomDetail(_)
+    )));
+}
+
+#[test]
+fn a_sharper_raster_is_debounced_identified_and_dropped_when_stale() {
+    let mut app = diagram_viewer_app();
+    // Tier 1 is the inline raster: nothing to make.
+    let _ = app.update(Message::ImageZoomDetail(1));
+    assert_eq!(pending(&app), None);
+
+    let _ = app.update(Message::ImageZoomDetail(4));
+    let first = pending(&app).expect("a request after tier 4");
+    assert_eq!(first.size, (800, 400));
+    assert!(!first.dispatched);
+    // The same tier again keeps the running debounce.
+    let _ = app.update(Message::ImageZoomDetail(4));
+    assert_eq!(pending(&app), Some(first));
+
+    let _ = app.update(Message::ImageZoomDetail(8));
+    let second = pending(&app).expect("a request after tier 8");
+    assert_ne!(second.id, first.id);
+    assert_eq!(second.size, (1600, 800));
+
+    // The first debounce ends late: it makes nothing.
+    let _ = app.update(Message::ImageZoomRasterDue(first.id));
+    assert!(!pending(&app).unwrap().dispatched);
+    // The second ends: its raster is being made, once.
+    let _ = app.update(Message::ImageZoomRasterDue(second.id));
+    assert!(pending(&app).unwrap().dispatched);
+
+    // A stale result is dropped; the latest one is shown.
+    let _ = app.update(Message::ImageZoomRasterReady(
+        first.id,
+        Ok(tiny_handle(800, 400)),
+    ));
+    assert!(app.image_zoom_raster.as_ref().unwrap().sharp.is_none());
+    let _ = app.update(Message::ImageZoomRasterReady(
+        second.id,
+        Ok(tiny_handle(1600, 800)),
+    ));
+    let raster = app.image_zoom_raster.as_ref().unwrap();
+    assert_eq!(raster.sharp.as_ref().map(|(w, _)| *w), Some(1600));
+    assert_eq!(raster.pending, None);
+
+    // The sharper raster draws at the inline raster's size: the zoom keeps.
+    let mut ui = PointerUi::new();
+    let (_, scale, _) = viewer(&mut ui, &app);
+    assert!(near(scale, FIT), "{scale}");
+
+    // A lower tier never asks for a smaller raster.
+    let _ = app.update(Message::ImageZoomDetail(4));
+    assert_eq!(pending(&app), None);
+
+    // Closing drops the raster; a late result for a new request is ignored.
+    let _ = app.update(Message::ImageZoomDetail(16));
+    let late = pending(&app).unwrap();
+    let _ = app.update(Message::CloseOverlay);
+    assert!(app.image_zoom_raster.is_none());
+    let _ = app.update(Message::ImageZoomRasterDue(late.id));
+    let _ = app.update(Message::ImageZoomRasterReady(
+        late.id,
+        Ok(tiny_handle(8, 8)),
+    ));
+    assert!(app.image_zoom_raster.is_none());
+    assert!(app.zoom_diagram.is_none());
+}
+
+#[test]
+fn a_failed_raster_clears_the_request_and_keeps_the_inline_one() {
+    let mut app = diagram_viewer_app();
+    let _ = app.update(Message::ImageZoomDetail(2));
+    let request = pending(&app).unwrap();
+    let _ = app.update(Message::ImageZoomRasterDue(request.id));
+    let _ = app.update(Message::ImageZoomRasterReady(
+        request.id,
+        Err("boom".into()),
+    ));
+    let raster = app.image_zoom_raster.as_ref().unwrap();
+    assert_eq!(raster.pending, None);
+    assert!(raster.sharp.is_none());
 }

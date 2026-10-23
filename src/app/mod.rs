@@ -138,6 +138,7 @@ mod slots;
 mod toolbar;
 mod types;
 mod view;
+mod zoom_raster;
 use full_mindmap_state::*;
 
 pub use full_mindmap_state::{
@@ -165,6 +166,7 @@ pub use types::{
 };
 use view::*;
 pub(crate) use view::{reader_tip, sleek_scrollable_style};
+use zoom_raster::*;
 
 fn quick_slots_rail_left_offset(sidebar_open: bool, sidebar_width: f32, full_mindmap: bool) -> f32 {
     if sidebar_open && !full_mindmap {
@@ -391,6 +393,10 @@ pub struct App {
     /// pinch stream; see [`crate::zoom_viewer`].
     pub image_zoom_request: crate::mindmap::ZoomRequest,
     pub image_zoom_pinch_log: f64,
+    /// The sharper raster of the diagram open in the viewer, and the last
+    /// request id given out; see `zoom_raster`.
+    image_zoom_raster: Option<ZoomRaster>,
+    image_zoom_raster_seq: u64,
     /// Cached mindmap layout, lazily rebuilt from (ast, file, mindmap_collapsed).
     /// Every mutation of those inputs must invalidate it or atomically replace
     /// it with a layout built from the new state.
@@ -678,6 +684,8 @@ impl Default for App {
             full_mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
             image_zoom_request: crate::mindmap::ZoomRequest::default(),
             image_zoom_pinch_log: 0.0,
+            image_zoom_raster: None,
+            image_zoom_raster_seq: 0,
             mindmap_layout: std::cell::RefCell::new(None),
             mindmap_layout_generation: std::cell::Cell::new(0),
             mindmap_data_panel: std::cell::RefCell::new(None),
@@ -4075,16 +4083,25 @@ impl App {
                 )
             }
             Overlay::Shortcuts => shortcuts_overlay(pal),
-            Overlay::ImageZoom => image_zoom_overlay(
-                self.zoom_url.as_deref(),
-                self.zoom_diagram.as_ref(),
-                &self.image_cache,
-                ImageZoomInput {
-                    request: self.image_zoom_request,
-                    pinch_log: self.image_zoom_pinch_log,
-                },
-                pal,
-            ),
+            Overlay::ImageZoom => {
+                // A sharper raster, once made, draws at the inline raster's
+                // size, so the zoom does not jump when it arrives.
+                let raster = self.image_zoom_raster.as_ref();
+                let diagram = raster
+                    .and_then(|r| r.sharp.as_ref().map(|(_, handle)| handle))
+                    .or(self.zoom_diagram.as_ref());
+                image_zoom_overlay(
+                    self.zoom_url.as_deref(),
+                    diagram,
+                    &self.image_cache,
+                    ImageZoomInput {
+                        request: self.image_zoom_request,
+                        pinch_log: self.image_zoom_pinch_log,
+                        content: raster.map(|r| iced::Size::new(r.base.0 as f32, r.base.1 as f32)),
+                    },
+                    pal,
+                )
+            }
         };
         // Status footer floats over the reader (content scrolls behind it),
         // pinned bottom-right. Shown for any open document except mindmap.

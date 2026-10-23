@@ -516,6 +516,7 @@ impl App {
                 self.picker = None;
                 self.zoom_url = None;
                 self.zoom_diagram = None;
+                self.image_zoom_raster = None;
                 if was_zoom {
                     self.restore_body_scroll()
                 } else {
@@ -2027,6 +2028,56 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ImageZoomDetail(tier) => {
+                let budget = crate::diagram::DEFAULT_CACHE_BYTE_BUDGET
+                    .saturating_sub(self.diagram_cache.cost_bytes())
+                    .min(crate::diagram::ZOOM_RASTER_MAX_BYTES);
+                let next = self.image_zoom_raster_seq.wrapping_add(1);
+                let requested = match self.image_zoom_raster.as_mut() {
+                    Some(raster) if self.overlay == Overlay::ImageZoom => {
+                        raster.want(tier, budget, next)
+                    }
+                    _ => None,
+                };
+                match requested {
+                    Some(id) => {
+                        self.image_zoom_raster_seq = id;
+                        Task::perform(
+                            async move { tokio::time::sleep(ZOOM_RASTER_DEBOUNCE).await },
+                            move |()| Message::ImageZoomRasterDue(id),
+                        )
+                    }
+                    None => Task::none(),
+                }
+            }
+            Message::ImageZoomRasterDue(id) => {
+                let Some(raster) = self.image_zoom_raster.as_mut() else {
+                    return Task::none();
+                };
+                let Some((width, _)) = raster.due(id) else {
+                    return Task::none();
+                };
+                let svg = match self.diagram_cache.peek(&raster.key) {
+                    Some(crate::diagram::DiagramState::Ready { source_bytes, .. }) => {
+                        source_bytes.clone()
+                    }
+                    _ => {
+                        // The diagram left the cache (a theme change or an
+                        // eviction); keep the raster on screen.
+                        raster.pending = None;
+                        return Task::none();
+                    }
+                };
+                Task::perform(crate::diagram::rasterize_zoom(svg, width), move |result| {
+                    Message::ImageZoomRasterReady(id, result)
+                })
+            }
+            Message::ImageZoomRasterReady(id, result) => {
+                if let Some(raster) = self.image_zoom_raster.as_mut() {
+                    raster.ready(id, result);
+                }
+                Task::none()
+            }
             Message::MindmapDeselect => {
                 // A click on empty canvas clears the selection; the panel
                 // stays open until its X or ⌘⌥B hides it.
@@ -2512,6 +2563,7 @@ impl App {
                 };
                 self.zoom_url = Some(url);
                 self.zoom_diagram = None;
+                self.image_zoom_raster = None;
                 self.overlay = Overlay::ImageZoom;
                 let restore = self.restore_body_scroll();
                 match raster_task {
@@ -3613,6 +3665,7 @@ impl App {
                     _ => None,
                 };
                 if let Some(h) = handle {
+                    self.image_zoom_raster = rgba_size(&h).map(|base| ZoomRaster::new(key, base));
                     self.zoom_diagram = Some(h);
                     self.zoom_url = None;
                     self.overlay = Overlay::ImageZoom;

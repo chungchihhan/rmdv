@@ -234,7 +234,7 @@ pub struct ZoomViewer<Message> {
     request: ZoomRequest,
     pinch_log: f64,
     on_close: Option<Message>,
-    on_detail: Option<fn(u32) -> Message>,
+    on_detail: Option<(f32, fn(u32) -> Message)>,
 }
 
 impl<Message> ZoomViewer<Message> {
@@ -272,9 +272,10 @@ impl<Message> ZoomViewer<Message> {
         self
     }
 
-    /// Published when the wanted raster detail tier changes.
-    pub fn on_detail(mut self, f: fn(u32) -> Message) -> Self {
-        self.on_detail = Some(f);
+    /// Published when the wanted raster detail tier changes: the tier of
+    /// the scale times `density` (raster pixels per logical pixel).
+    pub fn on_detail(mut self, density: f32, f: fn(u32) -> Message) -> Self {
+        self.on_detail = Some((density, f));
         self
     }
 
@@ -370,9 +371,9 @@ impl<Message: Clone> Widget<Message, iced::Theme, iced::Renderer> for ZoomViewer
         match event {
             Event::Window(window::Event::RedrawRequested(_)) => {
                 self.sync(state, content, bounds, cursor);
-                if let Some(on_detail) = self.on_detail {
+                if let Some((density, on_detail)) = self.on_detail {
                     let (scale, _) = state.resolved(content, bounds.size());
-                    let tier = detail_tier(scale);
+                    let tier = detail_tier(scale * density);
                     if state.detail_sent != Some(tier) {
                         state.detail_sent = Some(tier);
                         shell.publish(on_detail(tier));
