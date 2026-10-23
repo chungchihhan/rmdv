@@ -18,6 +18,7 @@ pub mod macos_quit;
 pub mod macos_vibrancy;
 pub mod md_highlight;
 pub mod mindmap;
+pub mod native_menu;
 pub mod native_pinch;
 pub mod native_swipe;
 pub mod parser;

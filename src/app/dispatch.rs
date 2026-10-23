@@ -2343,6 +2343,9 @@ impl App {
                 // visible window on current macOS releases.
                 crate::native_pinch::install();
                 crate::native_swipe::install();
+                // The menu bar replaces winit's app menu once the app has
+                // finished launching.
+                self.install_native_menu();
                 if self.glass_capable && self.glass_window.is_none() {
                     // `update` pushes the glass state to this window next.
                     self.glass_window = Some(id);
