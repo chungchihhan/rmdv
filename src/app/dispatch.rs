@@ -13,6 +13,7 @@ impl App {
         // Only while a context menu is open.
         let menu_scope = self.context_menu.is_some().then(|| self.menu_scope());
         let outline_was_shown = self.outline_shown();
+        let menu_inert = msg.leaves_menu_unchanged();
         let mut task = self.dispatch_message(msg);
         // A menu closes when what is under it changes: an overlay, a view,
         // a modal, the sidebar.
@@ -41,10 +42,7 @@ impl App {
         }
         // ⌘Q reads this from AppKit, outside the update loop.
         crate::macos_quit::set_unsaved(self.dirty);
-        // The menu bar reads its item state from AppKit too; it is pushed
-        // only when it changed.
-        self.sync_native_menu();
-        // So does the two-finger swipe bridge.
+        // The two-finger swipe bridge reads its state from AppKit too.
         crate::native_swipe::set_armed(self.swipe_directions());
         self.sync_toolbar_band();
         self.sync_sidebar_peek();
@@ -53,6 +51,12 @@ impl App {
         // so it does not pop back later.
         if self.quick_slots_pinned && !self.quick_slots_rail_allowed() {
             self.quick_slots_pinned = false;
+        }
+        // So does the menu bar, after the state above settled. It is pushed
+        // only when it changed; pointer and scroll reports cannot change it
+        // and skip the computation.
+        if !menu_inert || !self.menu_pushed.synced() {
+            self.sync_native_menu();
         }
         if let Some(scroll) = self.sync_outline_shown(outline_was_shown) {
             task = Task::batch([task, scroll]);
@@ -2332,7 +2336,8 @@ impl App {
             Message::WindowMoved(id, position) => {
                 self.window_position = Some(position);
                 // A move can precede a full screen transition, as before.
-                let mode = self.update(Message::RefreshWindowMode(id));
+                // The outer `update` runs the epilogue once, after this.
+                let mode = self.dispatch_message(Message::RefreshWindowMode(id));
                 Task::batch([mode, self.note_window_frame_change(id)])
             }
             Message::WindowFrameSettled(id) => self.window_frame_settle_fired(id),
@@ -2378,7 +2383,7 @@ impl App {
                 if let Some(position) = position {
                     self.window_position.get_or_insert(position);
                 }
-                self.update(Message::RefreshWindowMode(id))
+                self.dispatch_message(Message::RefreshWindowMode(id))
             }
             Message::RefreshWindowModeSettled(id) => self.window_mode_settle_fired(id),
             Message::WindowModeChanged(mode) => {

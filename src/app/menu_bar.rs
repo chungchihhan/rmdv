@@ -41,6 +41,47 @@ pub(super) struct MenuPushed {
     recent: Option<Vec<PathBuf>>,
     /// Pushes of the state, the titles, and the recent list, for tests.
     pub(super) pushes: [u32; 3],
+    /// Times the menu was computed to compare with the last push, for
+    /// tests.
+    pub(super) computes: u32,
+}
+
+impl MenuPushed {
+    /// Whether the menu has had its first push.
+    pub(super) fn synced(&self) -> bool {
+        self.state.is_some()
+    }
+}
+
+impl Message {
+    /// Pointer hover and scroll reports, which arrive at pointer or frame
+    /// rate and change nothing the menu bar shows (its enabled and checked
+    /// items, slot titles, and recent list): `update` skips the menu
+    /// computation for them.
+    pub(super) fn leaves_menu_unchanged(&self) -> bool {
+        matches!(
+            self,
+            Message::ListPointerMoved(_)
+                | Message::VaultHover(_)
+                | Message::OverlayHover(_)
+                | Message::LinkHovered(..)
+                | Message::OutlineHovered(_)
+                | Message::ReaderScrollbarHover(_)
+                | Message::HeadingHoverEnter(_)
+                | Message::HeadingHoverExit(_)
+                | Message::ScrollerTick
+                | Message::ReaderAutoScrollTick
+                | Message::TreeScrolled(_)
+                | Message::OutlineScrolled(_)
+                | Message::OverlayScrolled(_)
+                | Message::VaultScrolled(_)
+                | Message::BodyScrolled(_)
+                | Message::TableScrolled
+                | Message::MindmapPanelDragMove(_)
+                | Message::FullMindmapPanelDragMove(_)
+                | Message::WindowMoved(..)
+        )
+    }
 }
 
 /// A menu bar command; [`MenuCommand::tag`] is its item's tag.
@@ -772,6 +813,7 @@ impl App {
         if !cfg!(test) && !native_menu::installed() {
             return;
         }
+        self.menu_pushed.computes += 1;
         let state = self.menu_state();
         if self.menu_pushed.state != Some(state) {
             native_menu::set_state(state);
@@ -1492,6 +1534,52 @@ mod tests {
         assert_eq!(app.menu_pushed.pushes[2], 2, "the recent list changed");
         let _ = app.update(Message::Noop);
         assert_eq!(app.menu_pushed.pushes[2], 2);
+    }
+
+    /// Pointer hover and scroll reports arrive at pointer or frame rate and
+    /// cannot change the menu: they skip its computation, and indeed leave
+    /// it as it was.
+    #[test]
+    fn pointer_and_scroll_messages_skip_the_menu() {
+        use iced::Point;
+        let window = iced::window::Id::unique();
+        let inert = || {
+            vec![
+                Message::ListPointerMoved(Point::new(3.0, 4.0)),
+                Message::VaultHover(0),
+                Message::OverlayHover(0),
+                Message::LinkHovered("https://example.com/".into(), 0),
+                Message::OutlineHovered(true),
+                Message::ReaderScrollbarHover(true),
+                Message::ScrollerTick,
+                Message::ReaderAutoScrollTick,
+                Message::TableScrolled,
+                Message::MindmapPanelDragMove(300.0),
+                Message::FullMindmapPanelDragMove(300.0),
+                Message::WindowMoved(window, Point::new(5.0, 6.0)),
+            ]
+        };
+        for (surface, mut app) in surfaces() {
+            app.sync_native_menu();
+            let computes = app.menu_pushed.computes;
+            let before = (app.menu_state(), app.menu_titles(), app.menu_recent());
+            for message in inert() {
+                let shown = format!("{message:?}");
+                let _ = app.update(message);
+                assert_eq!(
+                    app.menu_pushed.computes, computes,
+                    "{surface}: {shown} recomputed the menu"
+                );
+            }
+            let after = (app.menu_state(), app.menu_titles(), app.menu_recent());
+            assert_eq!(before, after, "{surface}: an inert message changed the menu");
+            let _ = app.update(Message::Noop);
+            assert_eq!(
+                app.menu_pushed.computes,
+                computes + 1,
+                "{surface}: other messages still sync"
+            );
+        }
     }
 
     #[test]
