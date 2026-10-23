@@ -179,3 +179,82 @@ fn wheel_up(app: &mut App, ui: &mut PointerUi, steps: usize) {
     }
     settle(app, ui);
 }
+
+/// The marked row lies inside the outline list's viewport.
+fn marked_row_in_view(app: &App) -> bool {
+    let Some(viewport) = app.outline_viewport.as_ref() else {
+        return false;
+    };
+    let row_top = app.outline_cursor as f32 * SIDEBAR_ROW_H;
+    let top = viewport.absolute_offset().y;
+    row_top >= top - 1.0 && row_top + SIDEBAR_ROW_H <= top + viewport.bounds().height + 1.0
+}
+
+#[test]
+fn the_outline_shown_again_scrolls_to_the_marked_section() {
+    let (mut app, dir) = fixture("shown-again", 80);
+    let mut ui = PointerUi::new();
+    // The reader scrolls while the Files tab is up.
+    send(&mut app, &mut ui, Message::SetSidebarTab(SidebarTab::Files));
+    wheel_reader(&mut app, &mut ui, 400);
+    assert!(app.outline_cursor > 40, "section {}", app.outline_cursor);
+    send(&mut app, &mut ui, Message::SetSidebarTab(SidebarTab::Outline));
+    settle(&mut app, &mut ui);
+    assert!(
+        marked_row_in_view(&app),
+        "the Outline tab opens on row {} ({:?})",
+        app.outline_cursor,
+        app.outline_viewport.as_ref().map(|v| v.absolute_offset())
+    );
+
+    // The same after the sidebar was hidden while the reader scrolled.
+    send(&mut app, &mut ui, Message::ToggleSidebar);
+    wheel_up(&mut app, &mut ui, 200);
+    send(&mut app, &mut ui, Message::ToggleSidebar);
+    settle(&mut app, &mut ui);
+    assert!(
+        marked_row_in_view(&app),
+        "the sidebar opens on row {} ({:?})",
+        app.outline_cursor,
+        app.outline_viewport.as_ref().map(|v| v.absolute_offset())
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn an_outline_removed_under_the_pointer_does_not_stay_hovered() {
+    let (mut app, dir) = fixture("unhover", 12);
+    let mut ui = PointerUi::new();
+    let hover = |app: &mut App, ui: &mut PointerUi| {
+        let row = ui.text_bounds(app, "Section 3").expect("outline row");
+        let (messages, _) = ui.move_to(app, center(row));
+        apply(app, messages);
+        assert!(app.outline_hovered);
+    };
+    // Zen hides the sidebar with the pointer over the outline.
+    hover(&mut app, &mut ui);
+    send(&mut app, &mut ui, Message::ToggleViewMode);
+    assert!(!app.outline_hovered, "Zen took the outline away");
+    send(&mut app, &mut ui, Message::ToggleViewMode);
+    // Full Mindmap does too.
+    hover(&mut app, &mut ui);
+    send(&mut app, &mut ui, Message::ToggleFullMindmap);
+    assert!(app.full_mindmap.is_some());
+    assert!(!app.outline_hovered, "Full Mindmap took the outline away");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_scrollbar_strip_removed_under_the_pointer_does_not_stay_hovered() {
+    let (mut app, dir) = fixture("strip", 12);
+    let mut ui = PointerUi::new();
+    send(&mut app, &mut ui, Message::ReaderScrollbarHover(true));
+    assert!(app.reader_scroller.hovered);
+    send(&mut app, &mut ui, Message::ToggleMindmap);
+    assert_eq!(app.view_mode, ViewMode::Mindmap);
+    assert!(
+        !app.reader_scroller.hovered,
+        "the mind map took the strip away"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

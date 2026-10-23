@@ -2036,14 +2036,37 @@ impl App {
             return Task::none();
         }
         self.outline_cursor = mark;
-        let outline_shown = (self.sidebar_open || self.sidebar_peek)
-            && self.sidebar_tab == SidebarTab::Outline
-            && self.full_mindmap.is_none();
-        if outline_shown && !self.outline_hovered {
+        if self.outline_shown() && !self.outline_hovered {
             self.scroll_outline_to_cursor()
         } else {
             Task::none()
         }
+    }
+
+    /// The outline list is on screen: the sidebar, open or peeking, shows
+    /// its Outline tab.
+    fn outline_shown(&self) -> bool {
+        (self.sidebar_open || self.sidebar_peek)
+            && self.workspace.is_some()
+            && self.sidebar_tab == SidebarTab::Outline
+            && self.full_mindmap.is_none()
+    }
+
+    /// Runs after every update. A list that left the screen (the sidebar
+    /// hidden, another tab, Zen, Full Mindmap) reports no pointer exit, so
+    /// it is no longer hovered. A list shown again is a new scrollable whose
+    /// last viewport is stale, so it scrolls to the marked section, which
+    /// the spy kept moving while it was hidden.
+    pub(super) fn sync_outline_shown(&mut self, was_shown: bool) -> Option<Task<Message>> {
+        if !self.outline_shown() {
+            self.outline_hovered = false;
+            return None;
+        }
+        if was_shown {
+            return None;
+        }
+        self.outline_viewport = None;
+        Some(self.scroll_outline_to_cursor())
     }
 
     /// True when outline section `index`'s heading lies inside the reader's

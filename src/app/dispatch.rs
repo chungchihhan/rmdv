@@ -12,6 +12,7 @@ impl App {
         let link_page = self.hovered_link.is_some().then(|| self.link_page());
         // Only while a context menu is open.
         let menu_scope = self.context_menu.is_some().then(|| self.menu_scope());
+        let outline_was_shown = self.outline_shown();
         let mut task = self.dispatch_message(msg);
         // A menu closes when what is under it changes: an overlay, a view,
         // a modal, the sidebar.
@@ -44,6 +45,15 @@ impl App {
         crate::native_swipe::set_armed(self.swipe_directions());
         self.sync_toolbar_band();
         self.sync_sidebar_peek();
+        if let Some(scroll) = self.sync_outline_shown(outline_was_shown) {
+            task = Task::batch([task, scroll]);
+        }
+        // The scrollbar strip goes with the document view; a strip removed
+        // under the pointer reports no exit.
+        if !self.reader_shows_document() {
+            self.reader_scroller
+                .set_hovered(false, std::time::Instant::now());
+        }
         // A folder click's double-click ends with the picker (Esc, an open,
         // another overlay). `Closed` stays for the one press it swallows.
         if self.overlay != Overlay::FolderPicker
@@ -3325,13 +3335,10 @@ impl App {
             }
             Message::ToggleSidebar => {
                 self.sidebar_open = !self.sidebar_open;
-                // A hidden outline reports no pointer exit.
-                self.outline_hovered = false;
                 self.restore_body_scroll()
             }
             Message::SetSidebarTab(tab) => {
                 self.sidebar_tab = tab;
-                self.outline_hovered = false;
                 // ← on the Files tab gives the arrow keys back to the tree.
                 self.reader_keys = false;
                 Task::none()
@@ -4017,7 +4024,6 @@ impl App {
                     }
                     self.sidebar_open = false;
                     self.sidebar_width = start;
-                    self.outline_hovered = false;
                     return self.restore_body_scroll();
                 }
                 self.sidebar_width = x.clamp(SIDEBAR_MIN, SIDEBAR_MAX);

@@ -61,7 +61,6 @@ impl App {
     pub(super) fn sidebar_peek_hide_after(&mut self, generation: u64) {
         if generation == self.sidebar_peek_generation && !self.sidebar_peek_hovered {
             self.sidebar_peek = false;
-            self.outline_hovered = false;
         }
     }
 
