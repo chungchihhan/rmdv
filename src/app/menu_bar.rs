@@ -517,11 +517,9 @@ impl App {
                 item(C::PickTheme),
                 item(C::CommandPalette),
                 Entry::Separator,
-                native(
-                    "Enter Full Screen",
-                    Some(Shortcut::cmd_control('f')),
-                    Native::ToggleFullScreen,
-                ),
+                // No ⌃⌘F: a native key is permanent, and ⌃⌘F is Find in
+                // Document (Control reads as Command).
+                native("Enter Full Screen", None, Native::ToggleFullScreen),
             ],
         );
         let slots = (0..crate::quick_slots::SLOT_COUNT as u8)
@@ -1037,13 +1035,45 @@ mod tests {
         assert_eq!(item(view, "Mind Map").0, &Some(Shortcut::cmd('m')));
         assert_eq!(
             item(view, "Enter Full Screen"),
-            (
-                &Some(Shortcut::cmd_control('f')),
-                &Action::Native(Native::ToggleFullScreen)
-            )
+            (&None, &Action::Native(Native::ToggleFullScreen))
         );
         assert_eq!(find_menu(&menus, "Help").role, Role::Help);
         assert_eq!(find_menu(&menus, "Quick Slots").entries.len(), 9);
+    }
+
+    /// A native item's key equivalent is permanent: AppKit takes the key
+    /// before the window sees it. Only the keys winit's menu already took
+    /// (Hide, Hide Others, Quit) may stay; no other native item may take a
+    /// key the app's key map binds, such as ⌃⌘F (Find in Document through
+    /// the Control-as-Command alias).
+    #[test]
+    fn native_items_take_no_key_the_app_binds() {
+        let reader = reader_app();
+        let editing = editing_app();
+        for (title, shortcut, action) in items(&reader.menu_bar()) {
+            let (Some(shortcut), Action::Native(native)) = (shortcut, action) else {
+                continue;
+            };
+            if matches!(native, Native::Hide | Native::HideOthers | Native::Quit) {
+                continue;
+            }
+            for app in [&reader, &editing] {
+                let key = key_message(app.key_context(), shortcut_event(shortcut), false);
+                assert!(
+                    matches!(key, Message::Noop),
+                    "{title} takes {:?}, which runs {key:?}",
+                    shortcut.glyphs()
+                );
+            }
+        }
+        // ⌃⌘F still finds in the document.
+        let find = Shortcut::cmd_control('f');
+        for app in [&reader, &editing] {
+            assert!(matches!(
+                key_message(app.key_context(), shortcut_event(find), false),
+                Message::ToggleSearch
+            ));
+        }
     }
 
     #[test]

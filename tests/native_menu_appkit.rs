@@ -142,7 +142,9 @@ mod appkit {
         assert!(native_menu::drain_for_tests().is_empty());
     }
 
-    /// A native item that owns its key still takes it.
+    /// A native item that owns its key still takes it. The app's Enter
+    /// Full Screen has no key (⌃⌘F is Find in Document); this spec gives it
+    /// one because, with no window, the key has no effect.
     fn native_items_keep_their_keys(mtm: MainThreadMarker) {
         let main = native_menu::build(mtm, &spec());
         let flags = NSEventModifierFlags::Command | NSEventModifierFlags::Control;

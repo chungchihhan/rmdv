@@ -21,8 +21,8 @@
 //! A delegate that answers `menuHasKeyEquivalent:forEvent:target:action:`
 //! with NO does not do this: AppKit still finds the item, and it takes the
 //! key even when the item is disabled. Only the native items winit's menu
-//! already had (Hide ⌘H, Hide Others ⌥⌘H, Quit ⌘Q) and Enter Full Screen
-//! (⌃⌘F) keep their keys at all times.
+//! already had (Hide ⌘H, Hide Others ⌥⌘H, Quit ⌘Q) keep their keys at all
+//! times. Enter Full Screen has no key: ⌃⌘F stays Find in Document.
 
 /// A key a menu item shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

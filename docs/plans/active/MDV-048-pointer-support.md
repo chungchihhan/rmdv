@@ -113,11 +113,14 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   behavior. An `NSMenuDelegate` that answers
   `menuHasKeyEquivalent:forEvent:target:action:` with NO did not stop
   AppKit: it still found the item and took the key, even for a disabled
-  item (AppKit test, 2026-10-24). Only Hide ⌘H, Hide Others ⌥⌘H, Quit ⌘Q
-  and Enter Full Screen ⌃⌘F take their keys from the menu.
-- P8: ⌃⌘F now enters full screen (the macOS standard); before, the
-  Ctrl-as-Command alias made it Find in Document. ⌘M stays Mind Map (no
-  Minimize key) and ⌘W stays Close Slot.
+  item (AppKit test, 2026-10-24). Only Hide ⌘H, Hide Others ⌥⌘H and
+  Quit ⌘Q (the keys winit's menu already took) take their keys from the
+  menu.
+- P8: Enter Full Screen has no key equivalent: a native key is permanent,
+  and ⌃⌘F stays Find in Document through the Control-as-Command alias
+  (no existing shortcut changes). Full screen stays on the green button
+  and the menu click. Making ⌃⌘F the macOS full-screen key needs an owner
+  decision. ⌘M stays Mind Map (no Minimize key) and ⌘W stays Close Slot.
 - P8: a menu click runs what the item's shortcut runs on the surface that
   has the keys now, and the item is disabled where the key does
   something else. Edit > Copy copies the editor's selection or a
