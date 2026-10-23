@@ -591,6 +591,39 @@ fn has_chevron<Id>(node: &MNode<Id>) -> bool {
     node.id.is_some() && (!node.children.is_empty() || node.has_hidden_children)
 }
 
+/// How a chevron is inked; chevrons of one ink share one stroked path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChevronInk {
+    /// A folded branch: "›".
+    Folded,
+    /// An open branch: "⌄".
+    Open,
+    /// Either glyph on the accent-filled root, in the root label's color.
+    OnRoot,
+}
+
+impl ChevronInk {
+    const ALL: [ChevronInk; 3] = [ChevronInk::Folded, ChevronInk::Open, ChevronInk::OnRoot];
+
+    fn of<Id>(node: &MNode<Id>) -> Self {
+        if node.level == 0 {
+            ChevronInk::OnRoot
+        } else if node.has_hidden_children {
+            ChevronInk::Folded
+        } else {
+            ChevronInk::Open
+        }
+    }
+
+    fn color(self, palette: &Palette) -> Color {
+        match self {
+            ChevronInk::Folded => palette.accent,
+            ChevronInk::Open => palette.muted,
+            ChevronInk::OnRoot => palette.bg,
+        }
+    }
+}
+
 fn canvas_center(bounds: Rectangle) -> Point {
     Point::new(bounds.width / 2.0, bounds.height / 2.0)
 }
@@ -1596,9 +1629,8 @@ where
         let mut surface_bg_b = path::Builder::new();
         let mut accent_border_b = path::Builder::new();
         let mut subtle_border_b = path::Builder::new();
-        // Folded branches show "›" in the accent color; open ones a muted "⌄".
-        let mut folded_chevrons_b = path::Builder::new();
-        let mut open_chevrons_b = path::Builder::new();
+        // Folded branches show "›", open ones "⌄"; one path per ink.
+        let mut chevrons_b = ChevronInk::ALL.map(|_| path::Builder::new());
         for (i, n) in self.nodes.iter().enumerate() {
             let (nx, ny) = positions[i];
             let sx = proj_x(nx);
@@ -1610,14 +1642,16 @@ where
                 let cx = sx + s_w - chevron_inset;
                 let cy = sy + s_h / 2.0;
                 let h = chevron_half;
+                let ink = ChevronInk::of(n);
+                let b = &mut chevrons_b[ink as usize];
                 if n.has_hidden_children {
-                    folded_chevrons_b.move_to(Point::new(cx - h / 2.0, cy - h));
-                    folded_chevrons_b.line_to(Point::new(cx + h / 2.0, cy));
-                    folded_chevrons_b.line_to(Point::new(cx - h / 2.0, cy + h));
+                    b.move_to(Point::new(cx - h / 2.0, cy - h));
+                    b.line_to(Point::new(cx + h / 2.0, cy));
+                    b.line_to(Point::new(cx - h / 2.0, cy + h));
                 } else {
-                    open_chevrons_b.move_to(Point::new(cx - h, cy - h / 2.0));
-                    open_chevrons_b.line_to(Point::new(cx, cy + h / 2.0));
-                    open_chevrons_b.line_to(Point::new(cx + h, cy - h / 2.0));
+                    b.move_to(Point::new(cx - h, cy - h / 2.0));
+                    b.line_to(Point::new(cx, cy + h / 2.0));
+                    b.line_to(Point::new(cx + h, cy - h / 2.0));
                 }
             }
             if n.level == 0 {
@@ -1635,8 +1669,7 @@ where
         let surface_backgrounds = surface_bg_b.build();
         let accent_borders = accent_border_b.build();
         let subtle_borders = subtle_border_b.build();
-        let folded_chevrons = folded_chevrons_b.build();
-        let open_chevrons = open_chevrons_b.build();
+        let chevrons = chevrons_b.map(path::Builder::build);
 
         // Nodes.
         frame.fill(&surface_backgrounds, surface_fill);
@@ -1718,8 +1751,9 @@ where
                 .with_line_cap(canvas::LineCap::Round)
                 .with_line_join(canvas::LineJoin::Round)
         };
-        frame.stroke(&folded_chevrons, chevron_stroke(self.palette.accent));
-        frame.stroke(&open_chevrons, chevron_stroke(self.palette.muted));
+        for (ink, chevrons) in ChevronInk::ALL.into_iter().zip(&chevrons) {
+            frame.stroke(chevrons, chevron_stroke(ink.color(&self.palette)));
+        }
 
         // Tooltip: the navigator's hover text, or a truncated label in full.
         let tooltip = state
@@ -1855,6 +1889,27 @@ mod tests {
         let empty = build_tree(&[], "Document", &HashSet::from([DOC_ROOT]));
         assert!(!empty[0].has_hidden_children);
         assert!(!has_chevron(&empty[0]));
+    }
+
+    #[test]
+    fn the_root_chevron_contrasts_with_the_root_fill() {
+        let ast = vec![heading(1, 1, "Top"), heading(2, 2, "Child")];
+        let open = build_tree(&ast, "Document", &HashSet::new());
+        let folded = build_tree(&ast, "Document", &HashSet::from([DOC_ROOT]));
+        for palette in [Palette::ONE_DARK, Palette::ONE_LIGHT] {
+            for root in [&open[0], &folded[0]] {
+                // The root is filled with the accent, so its chevron takes
+                // the root label's color.
+                assert_eq!(ChevronInk::of(root).color(&palette), palette.bg);
+            }
+            // Other branches keep accent when folded and muted when open.
+            assert_eq!(ChevronInk::of(&open[1]).color(&palette), palette.muted);
+            let folded_child = build_tree(&ast, "Document", &HashSet::from([BlockId(1)]));
+            assert_eq!(
+                ChevronInk::of(&folded_child[1]).color(&palette),
+                palette.accent
+            );
+        }
     }
 
     #[test]
