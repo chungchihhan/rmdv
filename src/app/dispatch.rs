@@ -429,6 +429,7 @@ impl App {
             Message::QuickSlotClear(index) => self.clear_quick_slot(index),
             Message::QuickSlotClearAll => self.clear_all_quick_slots(),
             Message::QuickSlotUndo => self.undo_quick_slot_clear(),
+            Message::QuickSlotAssignPath(path) => self.assign_quick_slot_path(path),
             Message::QuickSlotReplaceConfirm => self.confirm_quick_slot_replace(),
             Message::QuickSlotReplaceCancel => {
                 self.quick_slot_replace = None;
@@ -3414,6 +3415,11 @@ impl App {
                     return Task::none();
                 };
                 let path = r.node.path().display().to_string();
+                let toast = self.show_toast("Path copied".into());
+                Task::batch([iced::clipboard::write::<Message>(path), toast])
+            }
+            Message::TreeContextMenu(target) => self.open_tree_context_menu(target),
+            Message::CopyPath(path) => {
                 let toast = self.show_toast("Path copied".into());
                 Task::batch([iced::clipboard::write::<Message>(path), toast])
             }

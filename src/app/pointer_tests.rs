@@ -408,6 +408,7 @@ fn clicking_quick_slot_confirm_card_keeps_it_open() {
         index: 0,
         current: "a.md".into(),
         incoming: "b.md".into(),
+        path: None,
     });
     let mut ui = PointerUi::new();
     let title = ui
@@ -1164,7 +1165,7 @@ mod group3 {
         (app, dir)
     }
 
-    fn tree_index(app: &App, path: &Path) -> usize {
+    pub(super) fn tree_index(app: &App, path: &Path) -> usize {
         let rows = tree::flatten_with_files(
             app.workspace_tree.as_ref().unwrap(),
             &app.workspace_sidebar_files,
@@ -1659,3 +1660,7 @@ mod gestures;
 // --- P6: the shared context menu --------------------------------------------
 
 mod context_menu;
+
+// --- P6: the file tree context menu -----------------------------------------
+
+mod tree_menu;

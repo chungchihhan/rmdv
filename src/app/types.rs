@@ -131,6 +131,9 @@ pub(super) struct QuickSlotReplace {
     pub(super) current: String,
     /// Workspace-relative path that replaces it.
     pub(super) incoming: String,
+    /// The file to assign, when it is not the current reading context (the
+    /// file tree's Add to Quick Slot).
+    pub(super) path: Option<PathBuf>,
 }
 
 /// Tells real pointer motion over a list from the row hovers that scrolling

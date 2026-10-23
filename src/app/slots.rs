@@ -449,7 +449,7 @@ impl App {
     }
 
     pub(super) fn assign_quick_slot(&mut self, index: usize) -> Task<Message> {
-        self.assign_quick_slot_checked(index, false)
+        self.assign_quick_slot_checked(index, None, false)
     }
 
     /// Apply the assignment the open confirmation asked about. Every guard
@@ -458,12 +458,50 @@ impl App {
         let Some(pending) = self.quick_slot_replace.take() else {
             return Task::none();
         };
-        self.assign_quick_slot_checked(pending.index, true)
+        self.assign_quick_slot_checked(pending.index, pending.path, true)
     }
 
+    /// Put workspace file `path` (from the file tree's context menu) in the
+    /// first free slot. With every slot full, ask to replace the last one,
+    /// as assigning to an occupied slot does. A file already in a slot stays
+    /// where it is.
+    pub(super) fn assign_quick_slot_path(&mut self, path: PathBuf) -> Task<Message> {
+        let Some(root) = self.quick_slots_workspace_root() else {
+            return self.show_toast("Open a workspace before assigning Quick Slots".into());
+        };
+        let Some(relative_path) = crate::quick_slots::relative_path(root, &path) else {
+            return self
+                .show_toast("Quick Slots only store files inside the active workspace".into());
+        };
+        let holds = |slot: &crate::quick_slots::QuickSlot| {
+            crate::quick_slots::normalize_relative_path(&slot.relative_path)
+                .is_some_and(|slot_path| slot_path == relative_path)
+        };
+        let slots = 0..crate::quick_slots::SLOT_COUNT;
+        if let Some(index) = slots
+            .clone()
+            .find(|&i| self.quick_slots.occupied(i).is_some_and(holds))
+        {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or(relative_path);
+            return self.show_toast(format!("{name} is already in Quick Slot {}", index + 1));
+        }
+        let index = slots
+            .clone()
+            .find(|&i| self.quick_slots.occupied(i).is_none())
+            .unwrap_or(crate::quick_slots::SLOT_COUNT - 1);
+        self.assign_quick_slot_checked(index, Some(path), false)
+    }
+
+    /// Assign slot `index`: the current reading context, or `target` when
+    /// given. A target that is not the open document gets the default
+    /// context (read from the top) and does not become the active slot.
     fn assign_quick_slot_checked(
         &mut self,
         index: usize,
+        target: Option<PathBuf>,
         replace_confirmed: bool,
     ) -> Task<Message> {
         if index >= crate::quick_slots::SLOT_COUNT {
@@ -472,12 +510,23 @@ impl App {
         if self.full_mindmap.is_none() && self.workspace.is_none() {
             return self.show_toast("Open a workspace before assigning Quick Slots".into());
         }
-        if self.dirty {
+        let current = self
+            .current_quick_slot_context()
+            .filter(|(path, _)| target.as_ref().is_none_or(|target| target == path));
+        let (path, context, is_current) = match (current, target.clone()) {
+            (Some((path, context)), _) => (path, context, true),
+            (None, Some(path)) => (path, crate::quick_slots::SlotContext::default(), false),
+            (None, None) => {
+                if self.dirty {
+                    return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
+                }
+                return self.show_toast("Open a file before assigning a Quick Slot".into());
+            }
+        };
+        // The open document's context includes unsaved edits' positions.
+        if is_current && self.dirty {
             return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
-        let Some((path, context)) = self.current_quick_slot_context() else {
-            return self.show_toast("Open a file before assigning a Quick Slot".into());
-        };
         let Some(root) = self.quick_slots_workspace_root() else {
             return self.show_toast("Open a workspace before assigning Quick Slots".into());
         };
@@ -494,6 +543,7 @@ impl App {
                         index,
                         current: current.relative_path.clone(),
                         incoming: relative_path,
+                        path: target,
                     });
                     return Task::none();
                 }
@@ -505,7 +555,12 @@ impl App {
         };
         self.invalidate_pending_quick_slot_restore();
         self.quick_slots.set(index, slot);
-        self.quick_slots.active = Some(index);
+        if is_current {
+            self.quick_slots.active = Some(index);
+        } else if self.quick_slots.active == Some(index) {
+            // The active slot no longer holds the open document.
+            self.quick_slots.active = None;
+        }
         self.quick_slots_undo = None;
         self.persist_quick_slots_now();
         self.show_toast(format!("Quick Slot {} assigned", index + 1))

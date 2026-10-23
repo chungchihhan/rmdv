@@ -50,6 +50,9 @@ pub enum Message {
     /// Assign the current reading context to the slot. A slot that holds a
     /// different file asks for confirmation first.
     QuickSlotAssign(usize),
+    /// Put this workspace file in the first free Quick Slot; with every slot
+    /// full, ask to replace the last one.
+    QuickSlotAssignPath(PathBuf),
     /// Replace the slot named by the open confirmation.
     QuickSlotReplaceConfirm,
     /// Close the replace confirmation and keep the slot.
@@ -187,6 +190,11 @@ pub enum Message {
     ScrollToLine(u32),
     TreeToggleAtCursor,
     CopyTreePath,
+    /// The file tree's context menu: a right press on a row (`Some((path,
+    /// is_dir))`) or on the empty tree space, the workspace root (`None`).
+    TreeContextMenu(Option<(PathBuf, bool)>),
+    /// Copy this text (a path) to the clipboard.
+    CopyPath(String),
     ScrollBy(f32),
     ScrollToTop,
     ScrollToBottom,

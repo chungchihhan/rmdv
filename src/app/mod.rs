@@ -140,6 +140,7 @@ mod settings;
 mod sidebar_peek;
 mod slots;
 mod toolbar;
+mod tree_menu;
 mod types;
 mod view;
 mod zoom_raster;
