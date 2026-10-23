@@ -731,3 +731,37 @@ fn a_preview_link_fragment_applies_only_to_its_own_accepted_open() {
     assert!(!has_goto(&outputs), "superseded: {outputs:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_narrow_mind_map_keeps_its_zoom_buttons_whole() {
+    let (mut app, dir) = document_mindmap_app("p4-narrow-zoom-buttons");
+    // The canvas then starts at the window's left edge.
+    app.sidebar_open = false;
+    // Wide: the hints and the buttons both show.
+    let mut wide = PointerUi::sized(Size::new(1600.0, 700.0));
+    assert!(wide.text_bounds(&app, "move").is_some(), "hints show");
+    assert!(wide.text_bounds(&app, &ic::PLUS.to_string()).is_some());
+    let mut ui = PointerUi::sized(Size::new(1000.0, 700.0));
+    // Narrow the canvas to 300 px with the panel.
+    let divider = ui
+        .id_bounds(&app, "mindmap-panel-divider")
+        .expect("panel divider");
+    app.mindmap_panel_width += divider.x - 300.0;
+    let divider = ui
+        .id_bounds(&app, "mindmap-panel-divider")
+        .expect("panel divider");
+    assert!(divider.x < 340.0, "a narrow canvas: {divider:?}");
+    for code in [ic::SCAN, ic::MINUS, ic::PLUS] {
+        let glyph = ui
+            .text_bounds(&app, &code.to_string())
+            .expect("zoom button");
+        assert!(
+            glyph.width > 0.0 && glyph.x + glyph.width <= divider.x,
+            "{code:?} is whole inside the canvas: {glyph:?}, canvas ends at {}",
+            divider.x
+        );
+    }
+    let reset = ui.text_bounds(&app, "100%").expect("100% button");
+    assert!(reset.width > 0.0 && reset.x + reset.width <= divider.x);
+    let _ = std::fs::remove_dir_all(&dir);
+}

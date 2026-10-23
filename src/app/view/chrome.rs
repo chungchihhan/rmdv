@@ -848,13 +848,45 @@ pub(in crate::app) fn floating_mindmap_hint<'a>(
         .into()
 }
 
+/// About how wide the mind map island is with its hints: four zoom
+/// buttons with the divider and padding, then each hint pill's key and
+/// label at 11 px. Generous, so the hints go before the buttons clip.
+fn mindmap_controls_width(items: &[(&str, &str)]) -> f32 {
+    const BUTTONS: f32 = 190.0;
+    const CHAR: f32 = 7.5;
+    // Key padding, the gap to the label, and the gap to the next pill.
+    const PILL: f32 = 12.0 + 6.0 + 12.0;
+    let pills: f32 = items
+        .iter()
+        .map(|(key, label)| (key.chars().count() + label.chars().count()) as f32 * CHAR + PILL)
+        .sum();
+    BUTTONS + 20.0 + pills
+}
+
 /// The mind map's floating island: its keyboard hints, then Zoom to Fit,
 /// Zoom Out, 100%, and Zoom In. Only the buttons take pointer input; the
-/// hints and the rest of the layer leave the canvas its events.
+/// hints and the rest of the layer leave the canvas its events. A canvas
+/// too narrow for the hints shows the buttons alone, so they never clip.
 pub(in crate::app) fn floating_mindmap_controls<'a>(
     items: &[(&'a str, &'a str)],
     pal: Palette,
 ) -> Element<'a, Message> {
+    let items = items.to_vec();
+    let full_width = mindmap_controls_width(&items);
+    iced::widget::responsive(move |size| {
+        mindmap_controls_island(
+            if size.width >= full_width {
+                &items
+            } else {
+                &[]
+            },
+            pal,
+        )
+    })
+    .into()
+}
+
+fn mindmap_controls_island<'a>(items: &[(&'a str, &'a str)], pal: Palette) -> Element<'a, Message> {
     use crate::mindmap::ZoomCommand;
     let zoom = |content: Element<'a, Message>, command: ZoomCommand| {
         button(content)
@@ -914,27 +946,25 @@ pub(in crate::app) fn floating_mindmap_controls<'a>(
         background: Some(pal.border().into()),
         ..Default::default()
     });
-    let island = container(
-        irow![
-            container(hint_pills(items, pal)).padding(Padding::from([0, 10])),
-            divider,
-            buttons,
-        ]
-        .spacing(6)
-        .align_y(iced::Alignment::Center),
-    )
-    .padding(Padding::from([4, 6]))
-    .clip(true)
-    .style(move |_| container::Style {
-        background: Some(pal.popover().into()),
-        border: Border {
-            color: pal.border(),
-            width: 1.0,
-            radius: theme::radius::MD.into(),
-        },
-        shadow: theme::shadow::HINT,
-        ..Default::default()
-    });
+    let mut content = irow![].spacing(6).align_y(iced::Alignment::Center);
+    if !items.is_empty() {
+        content = content
+            .push(container(hint_pills(items, pal)).padding(Padding::from([0, 10])))
+            .push(divider);
+    }
+    let island = container(content.push(buttons))
+        .padding(Padding::from([4, 6]))
+        .clip(true)
+        .style(move |_| container::Style {
+            background: Some(pal.popover().into()),
+            border: Border {
+                color: pal.border(),
+                width: 1.0,
+                radius: theme::radius::MD.into(),
+            },
+            shadow: theme::shadow::HINT,
+            ..Default::default()
+        });
 
     container(island)
         .width(Length::Fill)
