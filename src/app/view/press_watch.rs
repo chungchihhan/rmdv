@@ -19,7 +19,7 @@ const DOUBLE_CLICK_SLOP: f32 = 4.0;
 
 /// The platform's double-click interval.
 #[cfg(all(not(test), target_os = "macos"))]
-fn double_click_interval() -> Duration {
+pub(in crate::app) fn double_click_interval() -> Duration {
     let seconds = objc2_app_kit::NSEvent::doubleClickInterval();
     if seconds.is_finite() && seconds > 0.0 {
         Duration::from_secs_f64(seconds.min(5.0))
@@ -30,14 +30,14 @@ fn double_click_interval() -> Duration {
 
 /// The common default (Windows uses 500 ms; most Linux desktops 400 ms).
 #[cfg(all(not(test), not(target_os = "macos")))]
-fn double_click_interval() -> Duration {
+pub(in crate::app) fn double_click_interval() -> Duration {
     Duration::from_millis(500)
 }
 
 /// Tests rebuild the view between the two clicks; a long interval keeps a
 /// slow runner from splitting a double-click into two clicks.
 #[cfg(test)]
-fn double_click_interval() -> Duration {
+pub(in crate::app) fn double_click_interval() -> Duration {
     Duration::from_secs(5)
 }
 

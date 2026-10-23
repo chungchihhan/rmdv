@@ -234,6 +234,8 @@ pub enum Message {
     SidebarDragStart,
     SidebarDragMove(f32),
     SidebarDragEnd,
+    /// A double click on the sidebar divider: back to the default width.
+    SidebarResetWidth,
     /// Deferred body scroll restore. Emitted after a toggle that reinitialises
     /// the body scrollable. `RestoreBodySnap(y)` uses relative offset [0..1];
     /// `RestoreBodyScroll(y)` uses absolute px offset.

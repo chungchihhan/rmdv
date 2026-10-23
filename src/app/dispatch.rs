@@ -18,9 +18,11 @@ impl App {
         if menu_scope.is_some_and(|scope| scope != self.menu_scope()) {
             self.context_menu = None;
         }
-        // An inline rename ends with the file tree that shows it.
-        if self.tree_rename.is_some() && !self.file_tree_shown() {
+        // An inline rename ends with the file tree that shows it; a tree
+        // shown again has the keys again.
+        if !self.file_tree_shown() {
             self.tree_rename = None;
+            self.reader_keys = false;
         }
         // Every way out of the viewer (Esc, a click beside the image, an
         // open from Finder or the CLI, Zen) frees what it holds: the sharper
@@ -3233,6 +3235,8 @@ impl App {
             }
             Message::SetSidebarTab(tab) => {
                 self.sidebar_tab = tab;
+                // ← on the Files tab gives the arrow keys back to the tree.
+                self.reader_keys = false;
                 Task::none()
             }
             Message::ToggleHidden => {
@@ -3329,6 +3333,21 @@ impl App {
                 self.scroll_tree_to_cursor_with_len(len)
             }
             Message::TreeRowClicked { path, is_dir } => {
+                // The second click of a double click: the first already
+                // opened the file or toggled the folder. A file's double
+                // click also gives the arrow keys to the reader.
+                let now = std::time::Instant::now();
+                let double = self.tree_last_click.as_ref().is_some_and(|(last, at)| {
+                    *last == path && now.duration_since(*at) <= double_click_interval()
+                });
+                self.tree_last_click = (!double).then(|| (path.clone(), now));
+                if double {
+                    if !is_dir {
+                        self.reader_keys = true;
+                    }
+                    return Task::none();
+                }
+                self.reader_keys = false;
                 if let Some(root) = &self.workspace_tree {
                     let rows = tree::flatten_with_files(
                         root,
@@ -3869,6 +3888,13 @@ impl App {
                 Task::none()
             }
             Message::SidebarDragEnd => {
+                self.sidebar_drag = None;
+                Task::none()
+            }
+            Message::SidebarResetWidth => {
+                self.sidebar_width = SIDEBAR_WIDTH;
+                // The double click's own press started a drag; end it before
+                // jitter drags the width back.
                 self.sidebar_drag = None;
                 Task::none()
             }

@@ -1677,3 +1677,7 @@ mod tree_menu;
 // --- P6: file operations from the file tree --------------------------------
 
 mod tree_ops;
+
+// --- P6: double clicks in the sidebar -----------------------------------------
+
+mod tree_double_click;

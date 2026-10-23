@@ -24,7 +24,7 @@ pub(super) use edge_peek::EdgePeek;
 pub(super) use edge_peek::TEST_BUTTONS_DOWN;
 pub(super) use overlays::*;
 pub(super) use press_outside::PressOutside;
-pub(super) use press_watch::PressWatch;
+pub(super) use press_watch::{double_click_interval, PressWatch};
 pub(super) use settings::*;
 pub(super) use sidebar::*;
 pub(super) use title_row::TitleRow;

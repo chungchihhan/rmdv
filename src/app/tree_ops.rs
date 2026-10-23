@@ -169,6 +169,11 @@ impl App {
         }
     }
 
+    /// The arrow keys, Space, and Enter move and open in the file tree.
+    pub(super) fn tree_keys_active(&self) -> bool {
+        self.file_tree_shown() && !self.reader_keys
+    }
+
     /// The Files sidebar is on screen.
     pub(super) fn file_tree_shown(&self) -> bool {
         self.sidebar_open

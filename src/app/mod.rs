@@ -262,6 +262,11 @@ pub struct App {
     /// Folders made with New Folder. They stay in the tree while empty,
     /// though the scan leaves empty folders out.
     tree_new_folders: Vec<PathBuf>,
+    /// The last file tree row click, for telling a double click.
+    tree_last_click: Option<(PathBuf, std::time::Instant)>,
+    /// A double click on a file row gave the arrow keys, Space, and Enter
+    /// to the reader instead of the file tree, until the tree is used again.
+    reader_keys: bool,
     /// Where the latest right press was, in window coordinates.
     right_press_at: Option<iced::Point>,
     /// Vault search results page (Zed-style) — full reader-area, not an overlay.
@@ -631,6 +636,8 @@ impl Default for App {
             context_menu: None,
             tree_rename: None,
             tree_new_folders: Vec::new(),
+            tree_last_click: None,
+            reader_keys: false,
             right_press_at: None,
             vault_open: false,
             vault_query: String::new(),
@@ -3099,10 +3106,7 @@ impl App {
         let sidebar_open = self.sidebar_open && !full_mindmap;
         let outline_active =
             self.sidebar_open && self.sidebar_tab == SidebarTab::Outline && !full_mindmap;
-        let tree_active = self.sidebar_open
-            && self.workspace.is_some()
-            && self.sidebar_tab == SidebarTab::Files
-            && !full_mindmap;
+        let tree_active = self.tree_keys_active();
         let editing = self.view_mode == ViewMode::Raw && self.editor.is_some() && !full_mindmap;
         let fold_chord = self.fold_chord_pending && !full_mindmap;
         let mindmap = self.view_mode == ViewMode::Mindmap && !full_mindmap;
