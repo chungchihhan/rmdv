@@ -49,15 +49,31 @@ fn rename(app: &mut App, from: &Path, to: &str) {
     let _ = app.update(Message::TreeRenameCommit);
 }
 
-/// Items this test moved to the Trash are deleted from it again.
-fn empty_test_trash() {
-    for trashed in take_trashed_for_tests() {
-        let removed = if trashed.is_dir() {
-            std::fs::remove_dir_all(&trashed)
-        } else {
-            std::fs::remove_file(&trashed)
-        };
-        removed.unwrap_or_else(|error| panic!("empty {trashed:?} from the Trash: {error}"));
+/// Deletes the items this test moved to the Trash when it drops, also when
+/// an assertion fails, so a failing run leaves nothing in the user's Trash.
+#[derive(Default)]
+struct TrashCleanup(Vec<std::path::PathBuf>);
+
+impl TrashCleanup {
+    /// The items moved to the Trash since the last call; they are deleted
+    /// again on drop.
+    fn take(&mut self) -> Vec<std::path::PathBuf> {
+        let trashed = take_trashed_for_tests();
+        self.0.extend(trashed.iter().cloned());
+        trashed
+    }
+}
+
+impl Drop for TrashCleanup {
+    fn drop(&mut self) {
+        self.take();
+        for trashed in self.0.drain(..) {
+            let _ = if trashed.is_dir() {
+                std::fs::remove_dir_all(&trashed)
+            } else {
+                std::fs::remove_file(&trashed)
+            };
+        }
     }
 }
 
@@ -405,27 +421,25 @@ fn the_workspace_root_is_not_renamed() {
 #[cfg(target_os = "macos")]
 #[test]
 fn move_to_trash_moves_the_file_and_says_so() {
+    let mut cleanup = TrashCleanup::default();
     let (mut app, dir) = tree_fixture("ops-trash-file");
     let beta = dir.join("beta.md");
 
     let _ = app.update(Message::TreeTrash(beta.clone()));
-    let trashed = take_trashed_for_tests();
+    let trashed = cleanup.take();
 
     assert!(!beta.exists());
     assert_eq!(trashed.len(), 1, "the system Trash received it");
     assert!(trashed[0].exists(), "{trashed:?}");
     assert_eq!(toast(&app), Some("Moved beta.md to Trash"));
     assert!(!has_row(&app, &beta));
-    for item in trashed {
-        std::fs::remove_file(&item)
-            .unwrap_or_else(|error| panic!("empty {item:?} from the Trash: {error}"));
-    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[cfg(target_os = "macos")]
 #[test]
 fn trashing_the_open_document_shows_the_welcome_page() {
+    let _cleanup = TrashCleanup::default();
     let (mut app, dir) = tree_fixture("ops-trash-open");
     let sub = dir.join("sub");
     let gamma = sub.join("gamma.md");
@@ -442,7 +456,6 @@ fn trashing_the_open_document_shows_the_welcome_page() {
         ui.text_containing(&app, "native markdown viewer").is_some(),
         "the welcome page shows"
     );
-    empty_test_trash();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -459,6 +472,7 @@ fn move_to_trash_says_it_is_not_supported_here() {
 
 #[test]
 fn move_to_trash_refuses_unsaved_edits_and_the_root() {
+    let mut cleanup = TrashCleanup::default();
     let (mut app, dir) = tree_fixture("ops-trash-dirty");
     let sub = dir.join("sub");
     let gamma = sub.join("gamma.md");
@@ -479,7 +493,7 @@ fn move_to_trash_refuses_unsaved_edits_and_the_root() {
 
     let _ = app.update(Message::TreeTrash(dir.clone()));
     assert!(dir.is_dir(), "the workspace root is never trashed");
-    assert!(take_trashed_for_tests().is_empty());
+    assert!(cleanup.take().is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -601,11 +615,9 @@ fn operations_refuse_paths_through_a_symlinked_folder() {
     std::os::unix::fs::symlink(&outside, &link).unwrap();
     let x = link.join("x.md");
 
+    let mut cleanup = TrashCleanup::default();
     let _ = app.update(Message::TreeTrash(x.clone()));
-    let trashed = take_trashed_for_tests();
-    for item in &trashed {
-        let _ = std::fs::remove_file(item);
-    }
+    let trashed = cleanup.take();
     assert!(trashed.is_empty(), "nothing goes to the Trash: {trashed:?}");
     assert!(
         toast(&app)
