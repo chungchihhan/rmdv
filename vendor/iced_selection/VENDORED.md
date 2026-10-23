@@ -29,6 +29,10 @@ later commits add only what rmdv needs to select across reader blocks:
   `objc2-core-foundation`, a macOS-only dependency already in rmdv's
   tree). Other text and other platforms keep UAX #29. Keyboard word moves
   (Shift+Option+Arrow) keep upstream's `Value` boundaries.
+- `text::rich::State::dragging`, `selection_ends`, and `snap` let rmdv's
+  reader keep a double-click (word) or triple-click (line) drag whole
+  when it crosses into another block, and extend a widget's selection
+  from its anchor on Shift+click.
 - A double-click selects the word of the grapheme under the pointer (the
   hit's affinity tells which side of the caret it is), not the words on
   both sides of the caret.

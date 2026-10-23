@@ -22,7 +22,7 @@ use iced::advanced::widget::{tree, Operation, Tree, Widget};
 use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout, Shell};
 use iced::{keyboard, window, Element, Event, Length, Point, Rectangle, Size, Vector};
 use iced_selection::selection::SelectionEnd;
-use iced_selection::text::RichState;
+use iced_selection::text::{Dragging, RichState};
 use std::any::Any;
 use std::collections::HashSet;
 
@@ -104,6 +104,17 @@ struct State {
     /// The scroll speed last published while the drag is past the
     /// viewport's top or bottom edge.
     autoscroll: Option<f32>,
+    /// How the held drag selects: by word or line after a double or
+    /// triple click; `None` by grapheme.
+    unit: Option<Dragging>,
+    /// The word or line the drag started on, as (start, end); both ends
+    /// are the press for a grapheme drag.
+    span: Option<(Pos, Pos)>,
+    /// Shift is held: a press extends the selection.
+    shift: bool,
+    /// Where the last plain press put the caret; Shift+click extends from
+    /// it when nothing is selected.
+    caret: Option<Pos>,
 }
 
 impl State {
@@ -202,6 +213,82 @@ fn locate(
         },
     );
     best.map(|(d, pos)| (pos, d == (0.0, 0.0)))
+}
+
+/// `at` moved out to the edge of its word or line in its widget (to the
+/// end when `forward`), for a word or line drag.
+fn snap(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    at: Pos,
+    unit: Dragging,
+    forward: bool,
+) -> Pos {
+    if unit == Dragging::Grapheme {
+        return at;
+    }
+    let mut out = at;
+    visit(content, tree, layout, renderer, |block, sub, _, text| {
+        if (block, sub) == at.widget() {
+            let end = text.snap(at.end(), unit, forward);
+            out = Pos {
+                line: end.line,
+                index: end.index,
+                ..at
+            };
+        }
+    });
+    out
+}
+
+/// The held drag of the text widget `widget` (by grapheme, word, or line)
+/// and its own selection as (anchor, focus).
+fn widget_drag(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    widget: (usize, usize),
+) -> (Option<Dragging>, Option<(Pos, Pos)>) {
+    let mut out = (None, None);
+    visit(content, tree, layout, renderer, |block, sub, _, text| {
+        if (block, sub) == widget {
+            let pos = |end: SelectionEnd| Pos {
+                block,
+                sub,
+                line: end.line,
+                index: end.index,
+            };
+            out = (
+                text.dragging(),
+                text.selection_ends().map(|(a, f)| (pos(a), pos(f))),
+            );
+        }
+    });
+    out
+}
+
+/// The anchor of the first mounted text widget's own selection.
+fn own_anchor(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+) -> Option<Pos> {
+    let mut out = None;
+    visit(content, tree, layout, renderer, |block, sub, _, text| {
+        if out.is_none() {
+            out = text.selection_ends().map(|(a, _)| Pos {
+                block,
+                sub,
+                line: a.line,
+                index: a.index,
+            });
+        }
+    });
+    out
 }
 
 /// Shows `range` in every mounted text widget, or clears it.
@@ -481,11 +568,10 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         let mut forward = true;
         let mut right_press = None;
         let mut beside_text = None;
+        let mut on_text = None;
 
         match event_seen {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                state.range = None;
-                state.crossing = false;
                 // Anywhere in the reader's viewport: on text, the text
                 // widget selects; beside it (a margin, a gap between
                 // blocks, below the end), the scope does, unless the
@@ -494,8 +580,49 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                     .position()
                     .filter(|p| viewport.contains(*p))
                     .and_then(|p| locate(&mut self.content, child_tree, child, renderer, p));
-                state.press = located.and_then(|(pos, inside)| inside.then_some(pos));
-                beside_text = located.and_then(|(pos, inside)| (!inside).then_some(pos));
+                // Shift+click extends the selection (the scope's, else a
+                // text widget's, else from the caret) to the press. Inside
+                // the one widget that holds it, that widget extends its own.
+                let extended = match located {
+                    Some((focus, _)) if state.shift => state
+                        .range
+                        .map(|(anchor, _)| anchor)
+                        .or_else(|| own_anchor(&mut self.content, child_tree, child, renderer))
+                        .or(state.caret)
+                        .filter(|anchor| state.range.is_some() || anchor.widget() != focus.widget())
+                        .map(|anchor| (anchor, focus)),
+                    _ => None,
+                };
+                if let Some((anchor, focus)) = extended {
+                    visit(
+                        &mut self.content,
+                        child_tree,
+                        child,
+                        renderer,
+                        |_, _, _, t| {
+                            t.clear_selection();
+                        },
+                    );
+                    state.press = Some(anchor);
+                    state.unit = None;
+                    state.span = Some((anchor, anchor));
+                    state.crossing = true;
+                    state.range = Some((anchor, focus));
+                    forward = false;
+                    shell.capture_event();
+                    shell.request_redraw();
+                } else {
+                    state.range = None;
+                    state.crossing = false;
+                    state.unit = None;
+                    state.press = located.and_then(|(pos, inside)| inside.then_some(pos));
+                    state.span = state.press.map(|pos| (pos, pos));
+                    on_text = state.press;
+                    beside_text = located.and_then(|(pos, inside)| (!inside).then_some(pos));
+                }
+            }
+            Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.shift = modifiers.shift();
             }
             // While the drag is past the viewport edge, the reader scrolls
             // under a still pointer: each frame moves the selection end too.
@@ -533,8 +660,31 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                                 },
                             );
                         }
-                        if state.crossing && state.range != Some((anchor, focus)) {
-                            state.range = Some((anchor, focus));
+                        // A word or line drag keeps whole words or lines:
+                        // the start's word or line stays selected, and the
+                        // end moves out to the edge of its own.
+                        let range = state.crossing.then(|| {
+                            let (lo, hi) = state.span.unwrap_or((anchor, anchor));
+                            let unit = state.unit.unwrap_or(Dragging::Grapheme);
+                            let mut snap_to = |forward| {
+                                snap(
+                                    &mut self.content,
+                                    child_tree,
+                                    child,
+                                    renderer,
+                                    focus,
+                                    unit,
+                                    forward,
+                                )
+                            };
+                            if focus < lo {
+                                (hi, snap_to(false))
+                            } else {
+                                (lo, snap_to(true).max(hi))
+                            }
+                        });
+                        if range.is_some() && state.range != range {
+                            state.range = range;
                             shell.request_redraw();
                         }
                         if state.crossing && moved {
@@ -601,8 +751,31 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         if let Some(pos) = beside_text {
             if !shell.is_event_captured() {
                 state.press = Some(pos);
+                state.span = Some((pos, pos));
                 state.crossing = true;
                 state.range = Some((pos, pos));
+                state.caret = Some(pos);
+            }
+        }
+        // A press on text: the widget there has chosen how its drag
+        // selects (a double click selects a word, a triple click a line)
+        // and what it selected first; a drag across blocks keeps both.
+        if let Some(at) = on_text {
+            state.caret = Some(at);
+            let (unit, ends) =
+                widget_drag(&mut self.content, child_tree, child, renderer, at.widget());
+            state.unit = unit;
+            match (unit, ends) {
+                (Some(Dragging::Word | Dragging::Line), Some((a, f))) => {
+                    state.span = Some((a.min(f), a.max(f)));
+                }
+                // Shift+click inside the widget that holds the selection:
+                // the drag goes on from that selection's anchor.
+                (_, Some((anchor, _))) => {
+                    state.press = Some(anchor);
+                    state.span = Some((anchor, anchor));
+                }
+                _ => {}
             }
         }
 

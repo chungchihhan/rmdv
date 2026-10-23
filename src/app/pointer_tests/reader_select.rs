@@ -444,3 +444,168 @@ fn word_bounds_split_chinese_by_dictionary_and_latin_by_uax29() {
     assert_eq!(previous_start_of_word("", 0), 0);
     assert_eq!(next_end_of_word("", 0), 0);
 }
+
+// --- Word, line, and Shift+click selections across blocks ---------------------
+
+/// Three one-line paragraphs of same-width words.
+fn words_app() -> App {
+    let mut app = App::default();
+    let _ = app.update(Message::FileLoaded(Ok((
+        std::path::PathBuf::from("/tmp/pointer-words.md"),
+        "# Words\n\naaaa bbbb cccc\n\ndddd eeee ffff\n\ngggg hhhh iiii\n\nThe end.\n".into(),
+    ))));
+    app
+}
+
+/// The paragraph that starts with `first` and the middle of its `n`th
+/// four-letter word (0-based; words are evenly wide).
+fn word_point(ui: &mut PointerUi, app: &App, first: &str, n: usize) -> Point {
+    let text = block_bounds(ui, app, |b| {
+        crate::plain_text::block_text(b).is_some_and(|t| t.starts_with(first))
+    });
+    // 14 characters: "xxxx xxxx xxxx"; word n spans 5n..5n+4.
+    let x = text.x + text.width * (5.0 * n as f32 + 2.0) / 14.0;
+    Point::new(x, text.y + text.height / 2.0)
+}
+
+fn probe(ui: &mut PointerUi, app: &App) -> Point {
+    let end = block_bounds(ui, app, |b| {
+        crate::plain_text::block_text(b).is_some_and(|t| t.starts_with("The end"))
+    });
+    Point::new(end.x + 4.0, end.y + 8.0)
+}
+
+/// `clicks` presses at `from` (the last one held), a drag to `to`, and a
+/// release, all at once so the clicks count as one double or triple click.
+fn multi_click_drag(app: &mut App, ui: &mut PointerUi, clicks: usize, from: Point, to: Point) {
+    let press = Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left));
+    let release = Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left));
+    let mut events = Vec::new();
+    for i in 0..clicks {
+        if i > 0 {
+            events.push(release.clone());
+        }
+        events.push(press.clone());
+    }
+    let mut messages = ui.move_to(app, from).0;
+    messages.extend(ui.send(app, from, events).0);
+    messages.extend(ui.move_to(app, to).0);
+    messages.extend(ui.send(app, to, vec![release]).0);
+    apply(app, messages);
+}
+
+fn shift(ui: &mut PointerUi, app: &App, held: bool) {
+    let modifiers = if held {
+        iced::keyboard::Modifiers::SHIFT
+    } else {
+        iced::keyboard::Modifiers::empty()
+    };
+    let _ = ui.send(
+        app,
+        Point::new(1.0, 1.0),
+        vec![Event::Keyboard(iced::keyboard::Event::ModifiersChanged(
+            modifiers,
+        ))],
+    );
+}
+
+#[test]
+fn a_double_click_drag_across_blocks_selects_whole_words() {
+    let mut app = words_app();
+    let mut ui = PointerUi::new();
+    let from = word_point(&mut ui, &app, "aaaa", 1);
+    let to = word_point(&mut ui, &app, "dddd", 1);
+    multi_click_drag(&mut app, &mut ui, 2, from, to);
+    let at = probe(&mut ui, &app);
+    assert_eq!(
+        selected(&mut app, &mut ui, at).as_deref(),
+        Some("bbbb cccc\n\ndddd eeee")
+    );
+
+    // Backward: from "hhhh" up to "eeee".
+    let from = word_point(&mut ui, &app, "gggg", 1);
+    let to = word_point(&mut ui, &app, "dddd", 1);
+    multi_click_drag(&mut app, &mut ui, 2, from, to);
+    assert_eq!(
+        selected(&mut app, &mut ui, at).as_deref(),
+        Some("eeee ffff\n\ngggg hhhh")
+    );
+}
+
+#[test]
+fn a_triple_click_drag_across_blocks_selects_whole_lines() {
+    let mut app = words_app();
+    let mut ui = PointerUi::new();
+    let from = word_point(&mut ui, &app, "aaaa", 1);
+    let to = word_point(&mut ui, &app, "dddd", 1);
+    multi_click_drag(&mut app, &mut ui, 3, from, to);
+    let at = probe(&mut ui, &app);
+    assert_eq!(
+        selected(&mut app, &mut ui, at).as_deref(),
+        Some("aaaa bbbb cccc\n\ndddd eeee ffff")
+    );
+}
+
+#[test]
+fn shift_click_extends_the_selection_within_and_across_blocks() {
+    let mut app = words_app();
+    let mut ui = PointerUi::new();
+    let at = probe(&mut ui, &app);
+
+    // A caret in "bbbb", then Shift+click in "eeee": from the caret.
+    let caret = word_point(&mut ui, &app, "aaaa", 1);
+    let _ = ui.click(&app, caret);
+    shift(&mut ui, &app, true);
+    let target = word_point(&mut ui, &app, "dddd", 1);
+    let messages = ui.click(&app, target);
+    apply(&mut app, messages);
+    shift(&mut ui, &app, false);
+    let got = selected(&mut app, &mut ui, at).expect("Shift+click selected");
+    assert!(
+        got.starts_with("bb") && got.contains("cccc\n\ndddd e") && !got.contains("ffff"),
+        "{got:?}"
+    );
+
+    // Shift+click again, in the third block: the same start, a new end.
+    shift(&mut ui, &app, true);
+    let target = word_point(&mut ui, &app, "gggg", 1);
+    let messages = ui.click(&app, target);
+    apply(&mut app, messages);
+    shift(&mut ui, &app, false);
+    let longer = selected(&mut app, &mut ui, at).expect("still selected");
+    assert!(
+        longer.starts_with(&got[..4]) && longer.contains("ffff\n\ngggg h"),
+        "{longer:?}"
+    );
+
+    // Back in the first block, Shift+click there moves the end back.
+    shift(&mut ui, &app, true);
+    let target = word_point(&mut ui, &app, "aaaa", 2);
+    let messages = ui.click(&app, target);
+    apply(&mut app, messages);
+    shift(&mut ui, &app, false);
+    let inside = selected(&mut app, &mut ui, at).expect("still selected");
+    assert!(
+        inside.starts_with("bb") && inside.contains(" c") && !inside.contains('\n'),
+        "{inside:?}"
+    );
+}
+
+#[test]
+fn shift_click_extends_from_the_caret_a_margin_press_left() {
+    let mut app = words_app();
+    let mut ui = PointerUi::new();
+    let at = probe(&mut ui, &app);
+    let word = word_point(&mut ui, &app, "dddd", 1);
+    let line = block_bounds(&mut ui, &app, |b| {
+        crate::plain_text::block_text(b).is_some_and(|t| t.starts_with("dddd"))
+    });
+    // Right of "dddd eeee ffff": the caret goes to the end of that line.
+    let _ = ui.click(&app, Point::new(line.x + line.width + 80.0, word.y));
+    shift(&mut ui, &app, true);
+    let messages = ui.click(&app, word);
+    apply(&mut app, messages);
+    shift(&mut ui, &app, false);
+    let got = selected(&mut app, &mut ui, at).expect("Shift+click selected");
+    assert!(got.ends_with("e ffff") && !got.contains("dddd"), "{got:?}");
+}
