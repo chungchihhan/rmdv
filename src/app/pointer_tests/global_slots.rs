@@ -508,3 +508,29 @@ fn with_no_workspace_open_the_toolbar_popover_opens_a_slot() {
     cleanup(&app, &a);
 }
 
+#[test]
+fn the_replace_confirmation_names_the_workspace_of_the_old_slot() {
+    let (mut app, a, b) = two_workspaces("replace-names");
+    assign(&mut app, &a.join("same.md"), 2);
+    let _ = app.update(Message::OpenWorkspace(b.clone()));
+    open(&mut app, &b.join("same.md"));
+
+    let _ = app.update(Message::QuickSlotAssign(2));
+
+    assert!(app.quick_slot_replace.is_some(), "another workspace's file");
+    let mut ui = PointerUi::new();
+    let body = format!(
+        "Slot 3 holds same.md — {}. Replace it with same.md?",
+        folder_name(&a)
+    );
+    assert!(ui.text_bounds(&app, &body).is_some(), "{body:?}");
+    let _ = app.update(Message::QuickSlotReplaceCancel);
+
+    // A slot of this workspace keeps the plain text.
+    assign(&mut app, &b.join("b.md"), 3);
+    open(&mut app, &b.join("same.md"));
+    let _ = app.update(Message::QuickSlotAssign(3));
+    let body = "Slot 4 holds b.md. Replace it with same.md?";
+    assert!(ui.text_bounds(&app, body).is_some(), "{body:?}");
+    cleanup(&app, &a);
+}

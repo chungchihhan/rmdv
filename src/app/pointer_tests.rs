@@ -442,6 +442,7 @@ fn clicking_quick_slot_confirm_card_keeps_it_open() {
     app.quick_slot_replace = Some(QuickSlotReplace {
         index: 0,
         current: "a.md".into(),
+        current_workspace: None,
         incoming: "b.md".into(),
         path: None,
     });

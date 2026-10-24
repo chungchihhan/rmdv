@@ -167,6 +167,9 @@ pub(super) struct QuickSlotReplace {
     pub(super) index: usize,
     /// Workspace-relative path the slot holds now.
     pub(super) current: String,
+    /// The folder name of the workspace the slot holds a file of, when it
+    /// is not the open one ("todo.md — work").
+    pub(super) current_workspace: Option<String>,
     /// Workspace-relative path that replaces it.
     pub(super) incoming: String,
     /// The file to assign, when it is not the current reading context (the

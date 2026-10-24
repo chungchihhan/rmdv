@@ -636,6 +636,8 @@ impl App {
                     self.quick_slot_replace = Some(QuickSlotReplace {
                         index,
                         current: current.relative_path.clone(),
+                        current_workspace: (!current.in_workspace(root))
+                            .then(|| current.workspace_name()),
                         incoming: relative_path,
                         path: target,
                     });
