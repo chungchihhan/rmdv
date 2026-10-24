@@ -233,3 +233,4 @@ See the two decision sections above.
 ## Final evidence
 
 Pending.
+- 2026-10-24: P8 trial build: Release dry run 40040570298, all four platforms built, macOS aarch64 notarized (PR #78). P8b verified by the orchestrator: lib 1013 passed, integration all passed, release build, Linux title bar simulation 365 passed with the 1 expected macOS-only failure; the real prefs file was not written by the tests.
