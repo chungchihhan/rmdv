@@ -1,7 +1,9 @@
-//! Long-lived official Mermaid.js worker. Chromium preserves HTML labels and
+//! Shared official Mermaid.js worker. System WebKit on macOS preserves HTML labels and
 //! browser font shaping; resvg cannot rasterize Mermaid's foreignObject labels.
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+#[cfg(not(target_os = "macos"))]
+use std::process::Command;
+use std::process::{Child, ChildStdin, Stdio};
 use std::sync::{mpsc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -10,7 +12,20 @@ use serde::Deserialize;
 
 use crate::diagram::{RenderOutput, MAX_SOURCE_BYTES, MAX_SVG_BYTES};
 
-static WORKER: LazyLock<Mutex<Option<Worker>>> = LazyLock::new(|| Mutex::new(None));
+static WORKER: LazyLock<Mutex<Option<Worker>>> = LazyLock::new(|| {
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(15));
+        if let Ok(mut guard) = WORKER.try_lock() {
+            if guard
+                .as_ref()
+                .is_some_and(|worker| worker.last_used.elapsed() >= Duration::from_secs(60))
+            {
+                *guard = None;
+            }
+        }
+    });
+    Mutex::new(None)
+});
 const RESPONSE_LIMIT: u64 = 52 * 1024 * 1024;
 
 #[derive(Deserialize)]
@@ -24,31 +39,43 @@ struct Worker {
     child: Child,
     input: ChildStdin,
     replies: mpsc::Receiver<Result<String, String>>,
+    last_used: std::time::Instant,
+    #[cfg(target_os = "macos")]
+    directory: std::path::PathBuf,
 }
 impl Drop for Worker {
     fn drop(&mut self) {
         let _ = self.child.kill();
         let _ = self.child.wait();
+        #[cfg(target_os = "macos")]
+        crate::mermaid_webkit::cleanup(&self.directory);
     }
 }
 impl Worker {
     fn start() -> Result<Self, String> {
-        let directory = std::env::var_os("RMDV_MERMAID_RUNTIME")
-            .map(std::path::PathBuf::from)
-            .unwrap_or_else(|| {
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/mermaid-js")
-            });
-        let mut child = Command::new(
-            std::env::var_os("RMDV_NODE").unwrap_or_else(|| "node".into()),
-        )
-        .arg(directory.join("worker.mjs"))
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .map_err(|e| {
-            format!("Mermaid.js needs Node.js and Chrome: {e}. See runtime/mermaid-js/README.md")
-        })?;
+        #[cfg(target_os = "macos")]
+        let (mut command, directory) = {
+            let runtime = crate::mermaid_webkit::prepare()?;
+            (runtime.command, runtime.directory)
+        };
+        #[cfg(not(target_os = "macos"))]
+        let mut command = {
+            let directory = std::env::var_os("RMDV_MERMAID_RUNTIME")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| {
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("runtime/mermaid-js")
+                });
+            let mut command =
+                Command::new(std::env::var_os("RMDV_NODE").unwrap_or_else(|| "node".into()));
+            command.arg(directory.join("worker.mjs"));
+            command
+        };
+        let mut child = command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .map_err(|e| format!("Could not start Mermaid rendering worker: {e}"))?;
         let input = child.stdin.take().ok_or("worker stdin unavailable")?;
         let output = child.stdout.take().ok_or("worker stdout unavailable")?;
         let (send, replies) = mpsc::sync_channel(1);
@@ -61,10 +88,7 @@ impl Worker {
                     .take(RESPONSE_LIMIT + 1)
                     .read_line(&mut line);
                 let reply = match result {
-                    Ok(0) => Err(
-                        "Mermaid.js worker exited; check Node.js, Chrome and runtime dependencies"
-                            .into(),
-                    ),
+                    Ok(0) => Err("Mermaid.js worker exited; check the rendering runtime".into()),
                     Ok(_) if line.len() as u64 > RESPONSE_LIMIT => {
                         Err("Mermaid.js response too large".into())
                     }
@@ -81,11 +105,14 @@ impl Worker {
             child,
             input,
             replies,
+            last_used: std::time::Instant::now(),
+            #[cfg(target_os = "macos")]
+            directory,
         })
     }
 }
 
-fn request(source: &str, raster: bool) -> Result<Response, String> {
+fn request(source: &str, config: &serde_json::Value, raster: bool) -> Result<Response, String> {
     if source.len() > MAX_SOURCE_BYTES + 4096 {
         return Err("diagram too large".into());
     }
@@ -97,7 +124,7 @@ fn request(source: &str, raster: bool) -> Result<Response, String> {
     }
     let worker = guard.as_mut().unwrap();
     let result = (|| {
-        let payload = serde_json::json!({ "source": source, "raster": raster });
+        let payload = serde_json::json!({ "source": source, "config": config, "raster": raster });
         writeln!(worker.input, "{payload}").map_err(|e| e.to_string())?;
         worker.input.flush().map_err(|e| e.to_string())?;
         let line = worker
@@ -114,6 +141,9 @@ fn request(source: &str, raster: bool) -> Result<Response, String> {
             return Err(error);
         }
     };
+    if let Some(worker) = guard.as_mut() {
+        worker.last_used = std::time::Instant::now();
+    }
     if let Some(error) = response.error {
         return Err(error);
     }
@@ -127,14 +157,14 @@ fn request(source: &str, raster: bool) -> Result<Response, String> {
     Ok(response)
 }
 
-pub(crate) fn svg(source: &str) -> Result<String, String> {
-    request(source, false)?
+pub(crate) fn svg(source: &str, config: &serde_json::Value) -> Result<String, String> {
+    request(source, config, false)?
         .svg
         .ok_or_else(|| "Mermaid.js SVG missing".into())
 }
 
-pub(crate) fn render(source: &str) -> Result<RenderOutput, String> {
-    let response = request(source, true)?;
+pub(crate) fn render(source: &str, config: &serde_json::Value) -> Result<RenderOutput, String> {
+    let response = request(source, config, true)?;
     let png = base64::engine::general_purpose::STANDARD
         .decode(response.png.ok_or("Mermaid.js raster missing")?)
         .map_err(|e| e.to_string())?;

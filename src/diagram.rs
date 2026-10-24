@@ -278,26 +278,33 @@ fn color_over(c: Color, backdrop: Color) -> Color {
 ///   secondaryColor     <- palette.surface_alt
 ///   tertiaryColor      <- palette.accent
 ///   fontFamily         <- caller-supplied font family
-fn mermaid_init_block(palette: &Palette, font_family: &str) -> String {
+fn mermaid_config(palette: &Palette, font_family: &str) -> serde_json::Value {
     // Node strokes and labels sit over the node fill, while fills and edges
     // sit over the document background. Do not turn a faint white/black
     // hairline into an opaque white/black stroke by discarding its alpha.
     let surface = color_over(palette.surface, palette.bg);
-    let config = serde_json::json!({ "theme": "base", "themeVariables": {
+    serde_json::json!({ "theme": "base", "fontFamily": font_family, "themeVariables": {
+        "darkMode": palette.is_dark(),
         "background": color_to_hex(palette.bg),
         "primaryColor": color_to_hex(surface),
         "primaryTextColor": color_to_hex(color_over(palette.fg, surface)),
+        "textColor": color_to_hex(color_over(palette.fg, palette.bg)),
+        "nodeTextColor": color_to_hex(color_over(palette.fg, surface)),
+        "edgeLabelBackground": color_to_hex(surface),
+        "clusterBkg": color_to_hex(color_over(palette.surface_alt, palette.bg)),
+        "clusterBorder": color_to_hex(color_over(palette.code_border, surface)),
+        "titleColor": color_to_hex(palette.fg),
         "primaryBorderColor": color_to_hex(color_over(palette.code_border, surface)),
         "lineColor": color_to_hex(color_over(palette.muted, palette.bg)),
         "secondaryColor": color_to_hex(color_over(palette.surface_alt, palette.bg)),
         "tertiaryColor": color_to_hex(color_over(palette.accent, palette.bg)),
         "fontFamily": font_family,
-    }});
-    format!("%%{{init: {config}}}%%\n")
+    }})
 }
 
 /// True if `source` already opens with a `%%{init` directive — caller wins.
-pub(crate) fn has_user_init(source: &str) -> bool {
+#[cfg(test)]
+fn has_user_init(source: &str) -> bool {
     source.trim_start().starts_with("%%{init")
 }
 
@@ -358,7 +365,7 @@ pub async fn render_blocking_async(
             return Err("diagram too large".into());
         }
         if kind == DiagramKind::Mermaid {
-            return crate::mermaid_js::render(&prepare_mermaid(&source, &palette, &font_family));
+            return crate::mermaid_js::render(&source, &mermaid_config(&palette, &font_family));
         }
         let svg_string = render_blocking(kind, &source, &palette, &font_family)?;
         let svg_bytes = svg_string.into_bytes();
@@ -444,17 +451,7 @@ pub fn render_blocking(
 }
 
 fn render_mermaid(source: &str, palette: &Palette, font_family: &str) -> Result<String, String> {
-    crate::mermaid_js::svg(&prepare_mermaid(source, palette, font_family))
-}
-
-fn prepare_mermaid(source: &str, palette: &Palette, font_family: &str) -> String {
-    if has_user_init(source) {
-        source.to_string()
-    } else {
-        let mut s = mermaid_init_block(palette, font_family);
-        s.push_str(source);
-        s
-    }
+    crate::mermaid_js::svg(source, &mermaid_config(palette, font_family))
 }
 
 fn render_dot(source: &str, palette: &Palette, font_family: &str) -> Result<String, String> {

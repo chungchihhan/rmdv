@@ -1,6 +1,8 @@
-# Official Mermaid.js desktop trial
+# Node/Chrome Mermaid.js worker (non-macOS fallback)
 
-The `codex/mermaid-js-integration` branch uses Mermaid 12.2.0 in a persistent
+On macOS, `codex/mermaid-js-integration` uses the embedded system WebKit helper
+in `../mermaid-webkit/README.md`. This directory supplies its build-time assets.
+Other platforms retain the Node/Chrome worker described below, using Mermaid 12.2.0 in a persistent
 background Chrome worker. Chromium supplies the PNG pixels displayed by Iced;
 the original SVG is retained for export. DOT and math keep their native paths.
 

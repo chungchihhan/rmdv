@@ -89,21 +89,29 @@ This local Mermaid.js integration trial requires Rust 1.88+ (tested with 1.98.1)
 --no-default-features`; PDF text extraction is currently available on macOS and
 Linux only.
 
-This branch renders Mermaid with official Mermaid.js 12.2.0 in a background
-Node.js/Chrome worker. Before running the desktop trial, install Node.js
-22.12+ and Google Chrome, then prepare the local runtime:
+This branch renders Mermaid with official Mermaid.js 12.2.0. On macOS, a
+shared system WebKit helper replaces Node.js/Chrome (transparent output requires
+macOS 14+). The compiled helper,
+Mermaid scripts, `aws:`/`logos:` icons and license notices are embedded in the
+Rust executable; Node.js and Chrome are not macOS runtime requirements.
+The helper starts lazily and is released after about a minute idle.
+
+Before **building**, install Node.js 22.12+ and prepare the local assets:
 
 ```sh
 cd runtime/mermaid-js
 npm ci
 npm run prepare:icons
+cd ../..
+cargo build --release --bin rmdv
 ```
 
-The runtime supports local `aws:` and `logos:` icon packs. See
-[runtime setup](runtime/mermaid-js/README.md) for executable overrides and icon
-attribution. The release binary currently depends on this source checkout and
-local Node/Chrome; self-contained installers and CI runtime provisioning are
-not implemented. DOT and math retain their native rendering paths.
+macOS builds also require Xcode command-line tools (`swiftc`). This is an
+experimental system-WebKit trial; actual visual quality, memory use and helper
+signing/notarization still need acceptance. Other platforms retain the earlier
+Node/Chrome worker and source-directory setup. See
+[WebKit runtime](runtime/mermaid-webkit/README.md) and
+[legacy worker setup](runtime/mermaid-js/README.md). DOT and math remain native.
 Open `tests/fixtures/renderer_trial.md` to inspect the diagram trial.
 
 ## CLI / agent control

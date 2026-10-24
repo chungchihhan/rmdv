@@ -3,7 +3,7 @@
 Last verified: 2026-10-24 (Asia/Taipei; local MDV-050 prototype)
 Stale after: 7 days
 Current checkout: `/Users/harry_chung/Developer/Personal/rmdv`.
-Integration base: `5e1b769`; branch: `codex/mermaid-js-integration`.
+Integration base: `5e1b769`; branch: `codex/mermaid-js-integration` (PR #80).
 Remotes: owner fork `chungchihhan/rmdv` as origin; minchenlee/rmdv as upstream.
 Latest published upstream release: v0.10.1 (GitHub API, 2026-10-24).
 Historical release evidence below was not re-run.
@@ -29,35 +29,26 @@ manual evidence before mutation.
 
 ## Live workstreams
 
-Owner requested [MDV-050](docs/plans/active/MDV-050-official-mermaid-js-prototype.md)
-after rejecting the visual output of the MDV-049 Rust trial on 2026-10-24.
-A standalone Mermaid.js 12.2.0 / Pele 1.9.0 comparison runs locally at
-`http://127.0.0.1:4317`, with the original Rust references in a collapsible
-panel. Both live engines support source edits, themes, and SVG export. A shared
-local AWS Labs pack supplies 871 icons plus 279 source-derived aliases;
-AWS flowchart and architecture examples are provided. AWS icon rendering and
-export are now requirements for future desktop renderer selection.
-The owner selected official Mermaid.js and authorized desktop integration on
-2026-10-24. The integration branch now uses a persistent Node/Chrome worker
-for Mermaid SVG and browser-rasterized pixels in the existing Iced cache.
-The desktop runtime also registers the local Iconify `logos` pack, supporting
-existing `logos:aws-*` Markdown without rewriting notes.
-DOT and math retain their native renderers. Local runtime dependencies and AWS
-icons are prepared. The owner confirmed the desktop renderer works and requested
-a centered preview modal with an opaque theme background, replacing the full-window
-preview. The modal uses 16px corners and a 45%-black translucent outside scrim;
-the modal stays centered at a fixed size while the rendered diagram supports
-macOS pinch zoom, two-finger pixel-scroll pan, mouse-wheel zoom and drag pan. Close controls remain available.
-Packaging remains source-checkout dependent; the owner manually verifies trial
-builds, with no additional automated verification requested for this round.
+[PR #80](https://github.com/minchenlee/rmdv/pull/80) contains the official
+Mermaid.js integration, AWS/Logos icons, preview controls and reading-width
+slider ([MDV-050](docs/plans/active/MDV-050-official-mermaid-js-prototype.md),
+[MDV-051](docs/plans/active/MDV-051-reading-width-slider.md)).
 
-Owner also requested [MDV-051](docs/plans/active/MDV-051-reading-width-slider.md):
-a bottom-right slider controls the main reading column's maximum width
-(default 720), including Mermaid blocks. The slider uses palette colors and
-ends at the currently available reader width (up to 1920px). Word count and
-read time sit beside keyboard shortcuts, above the slider. The value
-is persisted on release; layout heights are refreshed during adjustment.
-Native acceptance is pending owner manual review.
+The owner accepted the WebKit transparency fix and authorized updating that
+same PR with [MDV-052](docs/plans/active/MDV-052-system-webkit-renderer.md).
+On macOS 14+, Mermaid uses a lazy shared native WebKit helper with embedded
+scripts/icons and idle release; Node and Chrome are no longer runtime
+requirements there. Transparent PDF capture is rasterized into cleared RGBA,
+retaining original SVG, CJK labels and icon artwork. Non-macOS retains the
+Node/Chrome worker. Memory use, cross-platform coverage, installer signing and
+CI asset provisioning remain unverified; the PR is open and ready for review; this update preserves that state.
+
+The fixed-size preview has 16px corners, an opaque theme fill and a translucent
+outside scrim. Diagram pinch zoom, trackpad pan and mouse interaction are
+independent of the modal. The theme-colored reading-width slider ends at the
+available reader width (up to 1920px); keyboard shortcuts sit left of the
+word-count/read-time pill above it. The selected width persists on release.
+The standalone Mermaid/Pele comparison is retained as development material.
 
 ## Human decisions / blockers
 
@@ -81,7 +72,8 @@ Native acceptance is pending owner manual review.
 1. Draft [PR #80](https://github.com/minchenlee/rmdv/pull/80) submits the Mermaid.js
    integration, preview controls and reading-width slider for upstream review.
    Packaging/CI follow-up remains; merging and publication are not authorized.
-2. Record native acceptance and decide how to package Node/Chromium.
+2. Resolve CI asset provisioning and native-helper signing/installer support;
+   measure resource use before making lightweight-runtime claims.
 
 ## Verification state
 

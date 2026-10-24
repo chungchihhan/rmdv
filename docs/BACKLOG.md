@@ -22,6 +22,7 @@ a design for the owner, not code. Sources:
 
 | ID | Priority | State | Outcome | Acceptance | Plan | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
+| MDV-052 | P2 | submitted | Use embedded system WebKit on macOS 14+; owner accepted transparency fix, submitted with PR #80. | Owner native review; no Node/Chrome runtime dependency, SVG/icons/CJK, bounded snapshots. | [MDV-052](plans/active/MDV-052-system-webkit-renderer.md) | Owner manual acceptance. |
 | MDV-051 | P2 | submitted | Adjust main rendered reading width with a bottom-right slider and persist the selection. | Owner manual review: text/Mermaid reflow, window bounds, restart persistence. | [MDV-051](plans/active/MDV-051-reading-width-slider.md) | Owner manual acceptance. |
 | MDV-050 | P2 | submitted | Integrate owner-selected official Mermaid.js through a background browser worker, retaining AWS icons. | Native Iced trial; AWS artwork, CJK, themes, errors, export, and owner manual review. | [MDV-050](plans/active/MDV-050-official-mermaid-js-prototype.md) | Owner visual acceptance. |
 | MDV-049 | P2 | deferred | Upstream Rust renderer trial; owner rejected visual output on 2026-10-24. Retained as the native reference for MDV-050. | Theme/alpha, CJK, diagram raster tests, and a local release build. | [MDV-049](plans/active/MDV-049-upstream-mermaid-renderer-trial.md) | Owner visual acceptance. |
