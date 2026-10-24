@@ -474,3 +474,37 @@ fn clearing_or_assigning_a_slot_cancels_the_waiting_slot() {
     cleanup(&app, &a);
 }
 
+#[test]
+fn with_no_workspace_open_the_toolbar_popover_opens_a_slot() {
+    let (mut app, a, _b) = two_workspaces("welcome");
+    assign(&mut app, &a.join("a.md"), 2);
+    let mut welcome = App::default();
+    welcome.quick_slots = app.quick_slots.clone();
+    welcome.quick_slots.active = None;
+    assert!(welcome.workspace.is_none() && welcome.file.is_none());
+
+    let mut ui = PointerUi::new();
+    let button = ui
+        .id_bounds(&welcome, "toolbar-quick-slots")
+        .expect("the toolbar button");
+    let messages = ui.click(&welcome, center(button));
+    apply(&mut welcome, messages);
+    assert!(welcome.quick_slots_pinned, "the popover opens with no workspace");
+    let popover = ui
+        .id_bounds(&welcome, "quick-slots-popover")
+        .expect("the popover shows");
+    let chip = ui.text_bounds(&welcome, "3").expect("slot 3's chip");
+    assert!(popover.contains(center(chip)));
+    let messages = ui.click(&welcome, center(chip));
+    apply(&mut welcome, messages);
+
+    assert_eq!(
+        welcome.workspace.as_deref(),
+        Some(a.as_path()),
+        "the slot's workspace opens ({:?})",
+        toast(&welcome)
+    );
+    let _ = std::fs::remove_file(welcome.quick_slots_persistence_path.clone().unwrap());
+    cleanup(&app, &a);
+}
+

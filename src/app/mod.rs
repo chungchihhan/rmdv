@@ -1032,18 +1032,19 @@ impl App {
         }
     }
 
-    /// The Quick Slots rail may show: a workspace holds the slots, and no
-    /// overlay, vault page, find bar, or unsaved Zen edit takes the keys.
+    /// The Quick Slots rail may show: no overlay, vault page, find bar, or
+    /// unsaved Zen edit takes the keys. The bank is global, so it shows with
+    /// no workspace open too (a slot opens its own workspace); only
+    /// assigning needs one.
     fn quick_slots_rail_allowed(&self) -> bool {
-        self.quick_slots_workspace_root().is_some()
-            && quick_slots_rail_visible(
-                true,
-                self.overlay != Overlay::None,
-                self.vault_open,
-                self.search_open,
-                self.view_mode == ViewMode::Raw && self.editor.is_some(),
-                self.dirty,
-            )
+        quick_slots_rail_visible(
+            true,
+            self.overlay != Overlay::None,
+            self.vault_open,
+            self.search_open,
+            self.view_mode == ViewMode::Raw && self.editor.is_some(),
+            self.dirty,
+        )
     }
 
     /// Remember the sidebar width for the next launch; one write per drag.
