@@ -373,6 +373,9 @@ impl App {
     }
 
     pub(super) fn begin_quick_slot_activation(&mut self, index: usize) -> Task<Message> {
+        // The newest slot press wins over one still waiting for its
+        // workspace; a press of another workspace's slot waits again below.
+        self.pending_quick_slot_switch = None;
         let Some(slot) = self.quick_slots.occupied(index).cloned() else {
             return self.show_toast(format!("Quick Slot {} is empty", index + 1));
         };
@@ -509,8 +512,9 @@ impl App {
 
     /// After every update: a slot waiting for its workspace activates once
     /// that workspace is open. It is dropped when another workspace opened
-    /// instead, or the slot changed meanwhile; it keeps waiting while Full
-    /// Mindmap still indexes its workspace.
+    /// instead, the slot changed meanwhile, or a later slot press,
+    /// assignment, clear, or close superseded it; it keeps waiting while
+    /// Full Mindmap still indexes its workspace.
     pub(super) fn resume_quick_slot_switch(&mut self) -> Task<Message> {
         let Some(pending) = self.pending_quick_slot_switch.as_ref() else {
             return Task::none();
@@ -592,6 +596,7 @@ impl App {
         target: Option<PathBuf>,
         replace_confirmed: bool,
     ) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         if index >= crate::quick_slots::SLOT_COUNT {
             return Task::none();
         }
@@ -698,6 +703,7 @@ impl App {
     }
 
     pub(super) fn clear_quick_slot(&mut self, index: usize) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         if self.dirty {
             return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
@@ -721,6 +727,7 @@ impl App {
     }
 
     pub(super) fn clear_all_quick_slots(&mut self) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         if self.dirty {
             return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
@@ -749,6 +756,7 @@ impl App {
     }
 
     pub(super) fn undo_quick_slot_clear(&mut self) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         let Some(undo) = self.quick_slots_undo.take() else {
             return self.show_toast("Nothing to undo".into());
         };
@@ -763,6 +771,7 @@ impl App {
     }
 
     pub(super) fn close_active_quick_slot(&mut self) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         let Some(active) = self.quick_slots.active else {
             return self.show_toast("No active Quick Slot".into());
         };

@@ -386,3 +386,91 @@ fn opening_another_workspace_meanwhile_drops_the_waiting_slot() {
     );
     cleanup(&app, &a);
 }
+
+// --- P8b review fixes ---------------------------------------------------------
+
+/// `b`'s `b.md` as a Full Mindmap slot: pressing it keeps Full Mindmap open.
+fn full_mindmap_slot(b: &Path) -> crate::quick_slots::QuickSlot {
+    crate::quick_slots::QuickSlot {
+        root: b.to_string_lossy().into_owned(),
+        relative_path: "b.md".into(),
+        context: crate::quick_slots::SlotContext {
+            mode: crate::quick_slots::SlotMode::FullMindmap,
+            ..Default::default()
+        },
+    }
+}
+
+/// In Full Mindmap in `b`, slot 1 (from `a`) waits for `a`'s index.
+fn waiting_for_a(tag: &str) -> (App, PathBuf, PathBuf) {
+    let (mut app, a, b) = two_workspaces(tag);
+    assign(&mut app, &a.join("a.md"), 0);
+    let _ = app.update(Message::OpenWorkspace(b.clone()));
+    assert!(app.quick_slots.set(1, full_mindmap_slot(&b)));
+    let _ = app.update(Message::ToggleFullMindmap);
+    app.quick_slots.active = None;
+    let _ = app.update(Message::QuickSlotActivate(0));
+    assert!(app.pending_quick_slot_switch.is_some(), "slot 1 waits");
+    (app, a, b)
+}
+
+/// `a`'s Full Mindmap index lands.
+fn land_a(app: &mut App, a: &Path) {
+    let request = app
+        .full_mindmap
+        .as_ref()
+        .and_then(|full| full.pending_workspace_load.clone())
+        .expect("a is being indexed");
+    assert_eq!(request.path, a);
+    let snapshot = tree::build_workspace(&request.path, app.show_hidden).unwrap();
+    let _ = app.update(Message::FullMindmapWorkspaceLoaded {
+        request,
+        result: Ok((a.to_path_buf(), snapshot)),
+    });
+}
+
+#[test]
+fn a_newer_slot_press_cancels_the_waiting_slot() {
+    let (mut app, a, _b) = waiting_for_a("newer-press");
+
+    // The user presses slot 2, a Full Mindmap slot of this workspace.
+    let _ = app.update(Message::QuickSlotActivate(1));
+    assert!(app.full_mindmap.is_some());
+    assert!(
+        app.pending_quick_slot_switch.is_none(),
+        "the newest press wins"
+    );
+    land_a(&mut app, &a);
+
+    assert_ne!(app.quick_slots.active, Some(0), "slot 1 does not activate");
+    assert_ne!(
+        app.pending_quick_slot_restore
+            .as_ref()
+            .map(|pending| pending.index),
+        Some(0)
+    );
+    cleanup(&app, &a);
+}
+
+#[test]
+fn clearing_or_assigning_a_slot_cancels_the_waiting_slot() {
+    let (mut app, a, _b) = waiting_for_a("newer-clear");
+    let _ = app.update(Message::QuickSlotClear(1));
+    assert!(app.pending_quick_slot_switch.is_none(), "a clear cancels it");
+    land_a(&mut app, &a);
+    assert_eq!(app.quick_slots.active, None, "slot 1 does not activate");
+    cleanup(&app, &a);
+
+    let (mut app, a, b) = waiting_for_a("newer-assign");
+    // The file tree's Add to Quick Slot takes the first free slot, 3.
+    let _ = app.update(Message::QuickSlotAssignPath(b.join("same.md")));
+    assert!(app.quick_slots.occupied(2).is_some(), "{:?}", toast(&app));
+    assert!(
+        app.pending_quick_slot_switch.is_none(),
+        "an assignment cancels it"
+    );
+    land_a(&mut app, &a);
+    assert_ne!(app.quick_slots.active, Some(0), "slot 1 does not activate");
+    cleanup(&app, &a);
+}
+
