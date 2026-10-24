@@ -141,10 +141,13 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   before a close is saved with the previous zoom state.
 - P8b (2026-10-24, owner feedback from the P8 trial): Full Mindmap has no
   floating nav island. Its actions are toolbar buttons while it shows:
-  Back is the Read segment (Esc), and Open Parent Folder (disabled at the
+  Back is the Read segment, and Open Parent Folder (disabled at the
   filesystem root) and the panel toggle (⌘⌥B) sit after the view switch.
-  The bottom zoom and hint island stays. In On hover mode the toolbar
-  reveals over Full Mindmap as it does over the reader.
+  Read's tooltip names Esc only when Full Mindmap was entered from Read
+  (Esc returns to the view it was entered from). Both buttons hide while
+  Settings covers Full Mindmap. The bottom zoom and hint island stays. In
+  On hover mode the toolbar reveals over Full Mindmap as it does over the
+  reader.
 - P8b: Quick Slots are one global bank of nine, saved as
   `global_quick_slots` in `prefs.json`. A slot keeps the workspace root it
   was assigned in, its path relative to that root, and its context, so a
@@ -159,7 +162,10 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   per-workspace `quick_slots.banks` stay unchanged and unused, so a
   downgrade still finds them. The rail tooltip and the Go menu title add
   the workspace folder name for a slot of another workspace ("b.md —
-  notes"); the title stays the file name.
+  notes"); the title stays the file name, and the replace-slot
+  confirmation names it too. A later slot press, assignment, clear, or
+  close cancels a slot still waiting for its workspace. The toolbar Quick
+  Slots popover opens with no workspace open; assigning still needs one.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -213,6 +219,7 @@ Per phase:
 - 2026-10-24: P7 trial build: Release dry run 40024937189, macOS aarch64 notarized (PR #77). The first run failed on the Linux CJK double-click test (no CJK font sets glyph widths there), fixed in the P7 test and carried onto P8. macOS x86_64 failed twice on `hdiutil detach` "Resource busy" after notarization, a release-script issue outside MDV-048. P8 verified by the orchestrator: lib 992 passed, integration all passed, release build, Linux title bar simulation 348 passed with the 1 expected macOS-only failure.
 
 - 2026-10-24: P8b on `feat/pointer-p8b` (stacked on P8): the Full Mindmap nav island is gone; Open Parent Folder and the panel toggle are toolbar buttons while Full Mindmap shows, and Read leaves it, in both toolbar modes. Quick Slots are one global bank: a slot of another workspace opens that workspace, then its file with its context; seeded once from the most recent workspace's old bank, which stays unchanged.
+- 2026-10-24: P8b review: 7 findings, all fixed red-first: the superseded-switch test starts with no active slot (the stale marker came from the assignment); a newer slot action cancels a waiting cross-workspace slot; the Quick Slots popover opens with no workspace; the replace confirmation names the old slot's workspace; Full Mindmap's toolbar buttons hide under Settings; Read names Esc only when Esc returns to Read; `QuickSlot::in_workspace` compares keys without canonicalizing. lib 1013 passed.
 
 ## Decision log
 
