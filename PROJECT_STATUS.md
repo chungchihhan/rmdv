@@ -40,6 +40,8 @@ export are now requirements for future desktop renderer selection.
 The owner selected official Mermaid.js and authorized desktop integration on
 2026-10-24. The integration branch now uses a persistent Node/Chrome worker
 for Mermaid SVG and browser-rasterized pixels in the existing Iced cache.
+The desktop runtime also registers the local Iconify `logos` pack, supporting
+existing `logos:aws-*` Markdown without rewriting notes.
 DOT and math retain their native renderers. Local runtime dependencies and AWS
 icons are prepared. The owner confirmed the desktop renderer works and requested
 a 95%-opaque theme-background backing for enlarged diagrams to reduce document bleed-through.

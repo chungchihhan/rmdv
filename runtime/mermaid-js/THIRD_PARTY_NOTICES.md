@@ -17,3 +17,12 @@
 
 `prepare-icons.mjs` fetches only the pinned data file and verifies its checksum.
 The cached icon file is not relicensed under the application's MIT license.
+
+
+- SVG Logos / `@iconify-json/logos` 1.2.17, by Gil Barbara:
+  https://github.com/gilbarbara/logos, distributed through Iconify:
+  https://icon-sets.iconify.design/logos/.
+  Package metadata identifies CC0-1.0; upstream license:
+  https://raw.githubusercontent.com/gilbarbara/logos/master/LICENSE.txt.
+  Original icon artwork is loaded without modification from the locked npm
+  package. The existing AWS Labs pack retains its separate license above.

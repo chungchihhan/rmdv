@@ -157,3 +157,13 @@ no additional automated tests are run for this small visual adjustment.
 The theme-matched overlay release build completed successfully. The owner
 requested a local commit of the integration and preview changes. No push or
 publication is authorized by this commit request.
+
+
+### Logos icon pack compatibility
+
+Owner requested support for the official Mermaid example's Iconify `logos`
+pack after an existing note used `logos:aws-*`. Register the actual local
+package alongside `aws`; do not rewrite notes or substitute different icons.
+Serve its JSON through the worker's existing loopback allowlist, retain the
+npm lockfile and package attribution, and report unknown `logos:` names.
+The owner continues to handle native visual verification manually.

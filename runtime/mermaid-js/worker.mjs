@@ -14,7 +14,7 @@ const server = createServer(async (req, res) => {
       res.end('<!doctype html><meta charset="utf-8"><style>html,body{margin:0;background:transparent}#diagram{display:inline-block}svg{display:block}</style><div id="diagram"></div><script type="module" src="/page.mjs"></script>');
       return;
     }
-    if (!name.startsWith('/node_modules/mermaid/dist/') && !['/page.mjs', '/icons.mjs', '/icon-cache/aws-icons.json'].includes(name)) throw Error('Unavailable asset');
+    if (!name.startsWith('/node_modules/mermaid/dist/') && !['/page.mjs', '/icons.mjs', '/icon-cache/aws-icons.json', '/node_modules/@iconify-json/logos/icons.json'].includes(name)) throw Error('Unavailable asset');
     const path = new URL('.' + name, root);
     if (!path.href.startsWith(root.href)) throw Error('Invalid path');
     res.setHeader('Content-Type', name.endsWith('.json') ? 'application/json' : 'text/javascript');

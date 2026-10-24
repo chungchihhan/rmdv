@@ -27,6 +27,12 @@ AWS pack. Browser requests outside that local origin are blocked. The worker
 is serialized, reused between diagrams, and reset after a protocol failure or
 45-second timeout. Missing dependencies produce a diagram error.
 
+The official example's `logos` pack is also registered locally. Existing
+Markdown can use `logos:aws-route53`, `logos:aws-cloudfront`, `logos:aws-s3`,
+`logos:aws-elb`, `logos:aws-ec2`, `logos:aws-rds`, and `logos:aws-elasticache`.
+Unknown `logos:` names produce a clear error instead of a placeholder.
+After updating dependencies, restart rmdv to reload the persistent worker.
+
 AWS flowcharts and architecture diagrams support canonical names such as
 `aws:lambda` and source-derived aliases such as `aws:arch-aws-lambda`.
 Unknown names produce an error. See THIRD_PARTY_NOTICES.md and

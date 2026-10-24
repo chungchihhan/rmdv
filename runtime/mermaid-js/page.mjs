@@ -1,11 +1,19 @@
 import mermaid from '/node_modules/mermaid/dist/mermaid.esm.min.mjs';
 import { loadAwsIcons } from '/icons.mjs';
 const aws = await loadAwsIcons();
-mermaid.registerIconPacks([{ name: 'aws', icons: aws.pack }]);
+const logosResponse = await fetch('/node_modules/@iconify-json/logos/icons.json');
+if (!logosResponse.ok) throw Error('Logos 圖示包尚未安裝，請在 runtime/mermaid-js 執行 npm ci。');
+const logos = await logosResponse.json();
+mermaid.registerIconPacks([{ name: 'aws', icons: aws.pack }, { name: 'logos', icons: logos }]);
 let serial = 0;
 window.renderDiagram = async ({ source, raster }) => {
   if (new TextEncoder().encode(source).length > 68 * 1024) throw Error('diagram too large');
   aws.validate(source);
+  for (const match of source.matchAll(/\blogos:([a-z0-9-]+)/g)) {
+    if (!Object.hasOwn(logos.icons, match[1]) && !Object.hasOwn(logos.aliases || {}, match[1])) {
+      throw Error(`找不到 Logos 圖示：${match[0]}。`);
+    }
+  }
   mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
     maxTextSize: 68 * 1024, maxEdges: 500, layout: 'dagre', theme: 'base',
     fontFamily: 'Helvetica, PingFang TC, sans-serif' });
