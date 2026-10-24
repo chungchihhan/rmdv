@@ -30,3 +30,6 @@ reading area is full instead of continuing through ineffective larger values.
 Retain the saved requested cap so a temporarily narrower window does not lose
 it. Use palette accent, ink rail, foreground and theme borders for all slider
 states instead of the global Iced theme's default colors.
+
+Owner layout refinement: the shared row places keyboard shortcuts on the left
+and the word-count/read-time pill on the right, above the width slider.

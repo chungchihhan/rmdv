@@ -3681,7 +3681,7 @@ impl App {
                 Space::new().into()
             };
             container(
-                irow![footer, shortcut]
+                irow![shortcut, footer]
                     .spacing(8)
                     .align_y(iced::Alignment::Center),
             )

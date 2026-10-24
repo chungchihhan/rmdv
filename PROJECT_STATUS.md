@@ -78,7 +78,8 @@ Native acceptance is pending owner manual review.
 
 ## Next safe actions
 
-1. Owner manually tries `target/release/rmdv` on the integration branch.
+1. Owner requested an upstream PR for the local integration branch; submission
+   is authorized, while merging and publication remain separate actions.
 2. Record native acceptance and decide how to package Node/Chromium.
 
 ## Verification state

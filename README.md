@@ -85,13 +85,26 @@ action. This creates `~/.local/bin/rmdv`, pointing to the AppImage. Keep
     cargo build --release
     ./target/release/rmdv path/to/file.md
 
-This local renderer trial requires Rust 1.88+ (tested with 1.98.1). On Windows, build with `cargo build --release
+This local Mermaid.js integration trial requires Rust 1.88+ (tested with 1.98.1). On Windows, build with `cargo build --release
 --no-default-features`; PDF text extraction is currently available on macOS and
 Linux only.
 
-This checkout trials the upstream `1jehuang/mermaid-rs-renderer` at `3726ccb`,
-with CLI and PNG features disabled; rmdv uses its existing raster pipeline.
-Open `tests/fixtures/renderer_trial.md` to inspect the trial.
+This branch renders Mermaid with official Mermaid.js 12.2.0 in a background
+Node.js/Chrome worker. Before running the desktop trial, install Node.js
+22.12+ and Google Chrome, then prepare the local runtime:
+
+```sh
+cd runtime/mermaid-js
+npm ci
+npm run prepare:icons
+```
+
+The runtime supports local `aws:` and `logos:` icon packs. See
+[runtime setup](runtime/mermaid-js/README.md) for executable overrides and icon
+attribution. The release binary currently depends on this source checkout and
+local Node/Chrome; self-contained installers and CI runtime provisioning are
+not implemented. DOT and math retain their native rendering paths.
+Open `tests/fixtures/renderer_trial.md` to inspect the diagram trial.
 
 ## CLI / agent control
 
