@@ -218,7 +218,8 @@ pub(in crate::app) fn toolbar<'a>(
         });
 
     let mut right = irow![segments].spacing(2).align_y(iced::Alignment::Center);
-    if let Some(full) = app.full_mindmap.as_ref() {
+    // Settings covers Full Mindmap: its actions hide, as the island did.
+    if let Some(full) = app.full_mindmap.as_ref().filter(|_| !app.settings_open) {
         // Full Mindmap's own actions: the workspace's parent folder
         // (disabled at the filesystem root) and the preview panel.
         let has_parent = app.workspace.as_deref().and_then(Path::parent).is_some();

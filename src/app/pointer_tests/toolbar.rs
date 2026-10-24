@@ -721,6 +721,23 @@ fn full_mindmap_read_segment_leaves_without_a_graph() {
     }
 }
 
+#[test]
+fn full_mindmap_toolbar_buttons_hide_under_settings() {
+    let (app, dir) = full_mindmap_app("p8b-settings");
+    let mut app = always(app);
+    let _ = app.update(Message::OpenSettings);
+    assert!(app.settings_open && app.full_mindmap.is_some());
+    let mut ui = PointerUi::new();
+    // As the island did: Settings covers Full Mindmap, so its actions are
+    // not offered behind the page.
+    assert!(glyphs(&mut ui, &app, ic::FOLDER_UP).is_empty());
+    assert!(glyphs(&mut ui, &app, ic::PANEL_RIGHT_OPEN).is_empty());
+    let _ = app.update(Message::CloseSettings);
+    assert!(!app.settings_open);
+    only_in_toolbar(&mut ui, &app, ic::FOLDER_UP);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // --- 6. Screenshots for owner review --------------------------------------------
 
 /// Renders the toolbar to PNG files for review. Run with
