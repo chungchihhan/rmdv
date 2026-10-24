@@ -16,6 +16,7 @@ pub mod keyed_body;
 pub mod macos_open;
 pub mod macos_vibrancy;
 pub mod md_highlight;
+mod mermaid_js;
 pub mod mindmap;
 pub mod native_pinch;
 pub mod parser;

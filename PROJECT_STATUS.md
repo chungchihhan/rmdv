@@ -1,11 +1,11 @@
 # rmdv — project status
 
-Last verified: 2026-10-19 (Asia/Taipei; local MDV-049 trial)
+Last verified: 2026-10-24 (Asia/Taipei; local MDV-050 prototype)
 Stale after: 7 days
 Current checkout: `/Users/harry_chung/Developer/Personal/rmdv`.
-Trial base: `main@09d6394`; branch: `codex/mermaid-rs-renderer`.
+Integration base: `5e1b769`; branch: `codex/mermaid-js-integration`.
 Remotes: owner fork `chungchihhan/rmdv` as origin; minchenlee/rmdv as upstream.
-Latest published upstream release: v0.10.1 (GitHub API, 2026-10-19).
+Latest published upstream release: v0.10.1 (GitHub API, 2026-10-24).
 Historical release evidence below was not re-run.
 Authority: This is a routing snapshot. Verify Git, GitHub, runtime identity, and
 manual evidence before mutation.
@@ -29,11 +29,22 @@ manual evidence before mutation.
 
 ## Live workstreams
 
-Owner-requested local trial: [MDV-049](docs/plans/active/MDV-049-upstream-mermaid-renderer-trial.md)
-switches Zed's fork to original upstream `1jehuang/mermaid-rs-renderer`, pinned
-at `3726ccb`. It carries the alpha-compositing fix and comparison cases from
-the separately preserved `codex/merman-renderer@190d76a`. No native-window
-acceptance has been given. Local rustc is 1.98.1 on macOS arm64.
+Owner requested [MDV-050](docs/plans/active/MDV-050-official-mermaid-js-prototype.md)
+after rejecting the visual output of the MDV-049 Rust trial on 2026-10-24.
+A standalone Mermaid.js 12.2.0 / Pele 1.9.0 comparison runs locally at
+`http://127.0.0.1:4317`, with the original Rust references in a collapsible
+panel. Both live engines support source edits, themes, and SVG export. A shared
+local AWS Labs pack supplies 871 icons plus 279 source-derived aliases;
+AWS flowchart and architecture examples are provided. AWS icon rendering and
+export are now requirements for future desktop renderer selection.
+The owner selected official Mermaid.js and authorized desktop integration on
+2026-10-24. The integration branch now uses a persistent Node/Chrome worker
+for Mermaid SVG and browser-rasterized pixels in the existing Iced cache.
+DOT and math retain their native renderers. Local runtime dependencies and AWS
+icons are prepared. The owner confirmed the desktop renderer works and requested
+a 95%-opaque theme-background backing for enlarged diagrams to reduce document bleed-through.
+Packaging remains source-checkout dependent; the owner manually verifies trial
+builds, with no additional automated verification requested for this round.
 
 ## Human decisions / blockers
 
@@ -54,13 +65,23 @@ acceptance has been given. Local rustc is 1.98.1 on macOS arm64.
 
 ## Next safe actions
 
-1. Inspect the MDV-049 release build in the native window.
-2. Inspect `tests/fixtures/renderer_trial.md` and compare against the Merman
-   branch before selecting a renderer.
+1. Owner manually tries `target/release/rmdv` on the integration branch.
+2. Record native acceptance and decide how to package Node/Chromium.
 
 ## Verification state
 
 ### Verified now
+
+- MDV-050: exported seven identical sources through the actual Rust parser and
+  SVG/RGBA path; Chrome 155 passed 26 browser checks, including both themes,
+  CJK editing, errors/recovery, export, zoom, and narrow viewport overflow.
+  No unexpected page errors, failed asset requests, or external requests were
+  observed. Desktop screenshots were inspected; mobile layout geometry passed,
+  but Chrome captures showed repeated strips, so mobile visual acceptance is
+  still pending. The comparison was opened in the app browser. Rust
+  library/application code was not changed, so the prior 627-test results below
+  are historical evidence, not a new full-suite run. Formatting and diff
+  checks pass for the new example and prototype.
 
 - MDV-049: 627 tests passed, 2 ignored; cargo check, formatting, and diff
   checks passed. Exported light/dark PNGs were visually inspected. CJK,

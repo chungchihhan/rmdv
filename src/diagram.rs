@@ -1,6 +1,6 @@
 //! Diagram rendering core — Mermaid + Graphviz/DOT pipelines.
 //!
-//! Pure-Rust, blocking renderer plus an LRU cache. Higher layers (T3 render path,
+//! Background Mermaid.js / native DOT and math renderers plus an LRU cache. Higher layers (T3 render path,
 //! T4 app integration) wrap the blocking call in `iced::Task::perform` and feed
 //! the resulting SVG into `iced::widget::svg::Handle`.
 
@@ -283,26 +283,17 @@ fn mermaid_init_block(palette: &Palette, font_family: &str) -> String {
     // sit over the document background. Do not turn a faint white/black
     // hairline into an opaque white/black stroke by discarding its alpha.
     let surface = color_over(palette.surface, palette.bg);
-    format!(
-        "%%{{init: {{ 'theme': 'base', 'themeVariables': {{ \
-         'background': '{bg}', \
-         'primaryColor': '{primary}', \
-         'primaryTextColor': '{text}', \
-         'primaryBorderColor': '{border}', \
-         'lineColor': '{line}', \
-         'secondaryColor': '{secondary}', \
-         'tertiaryColor': '{tertiary}', \
-         'fontFamily': '{font}' \
-         }} }}}}%%\n",
-        bg = color_to_hex(palette.bg),
-        primary = color_to_hex(surface),
-        text = color_to_hex(color_over(palette.fg, surface)),
-        border = color_to_hex(color_over(palette.code_border, surface)),
-        line = color_to_hex(color_over(palette.muted, palette.bg)),
-        secondary = color_to_hex(color_over(palette.surface_alt, palette.bg)),
-        tertiary = color_to_hex(color_over(palette.accent, palette.bg)),
-        font = font_family,
-    )
+    let config = serde_json::json!({ "theme": "base", "themeVariables": {
+        "background": color_to_hex(palette.bg),
+        "primaryColor": color_to_hex(surface),
+        "primaryTextColor": color_to_hex(color_over(palette.fg, surface)),
+        "primaryBorderColor": color_to_hex(color_over(palette.code_border, surface)),
+        "lineColor": color_to_hex(color_over(palette.muted, palette.bg)),
+        "secondaryColor": color_to_hex(color_over(palette.surface_alt, palette.bg)),
+        "tertiaryColor": color_to_hex(color_over(palette.accent, palette.bg)),
+        "fontFamily": font_family,
+    }});
+    format!("%%{{init: {config}}}%%\n")
 }
 
 /// True if `source` already opens with a `%%{init` directive — caller wins.
@@ -363,6 +354,12 @@ pub async fn render_blocking_async(
         .await
         .map_err(|_| "render limit closed".to_string())?;
     tokio::task::spawn_blocking(move || -> Result<RenderOutput, String> {
+        if source.len() > MAX_SOURCE_BYTES {
+            return Err("diagram too large".into());
+        }
+        if kind == DiagramKind::Mermaid {
+            return crate::mermaid_js::render(&prepare_mermaid(&source, &palette, &font_family));
+        }
         let svg_string = render_blocking(kind, &source, &palette, &font_family)?;
         let svg_bytes = svg_string.into_bytes();
         let (rgba, w, h) = rasterize_for_inline(&svg_bytes)?;
@@ -447,19 +444,17 @@ pub fn render_blocking(
 }
 
 fn render_mermaid(source: &str, palette: &Palette, font_family: &str) -> Result<String, String> {
-    let prepared = if has_user_init(source) {
+    crate::mermaid_js::svg(&prepare_mermaid(source, palette, font_family))
+}
+
+fn prepare_mermaid(source: &str, palette: &Palette, font_family: &str) -> String {
+    if has_user_init(source) {
         source.to_string()
     } else {
         let mut s = mermaid_init_block(palette, font_family);
         s.push_str(source);
         s
-    };
-
-    mermaid_rs_renderer::render_with_options(
-        &prepared,
-        mermaid_rs_renderer::RenderOptions::default(),
-    )
-    .map_err(|e| e.to_string())
+    }
 }
 
 fn render_dot(source: &str, palette: &Palette, font_family: &str) -> Result<String, String> {

@@ -88,8 +88,9 @@ async fn mermaid_families_render_through_the_app_raster_pipeline() {
             .await
             .unwrap_or_else(|error| panic!("{name}: {error}"));
             let svg = std::str::from_utf8(&output.svg).unwrap();
-            assert!(!svg.contains("<foreignObject"), "HTML labels in {name}");
-            assert!(svg.contains("<text"), "missing SVG labels in {name}");
+            assert!(svg.contains("<svg"), "missing SVG in {name}");
+            // Official Mermaid uses HTML labels; Chromium must preserve them
+            // in both the exported SVG and the actual Iced RGBA image.
             if name == "flowchart" {
                 assert!(svg.contains("開始"), "missing CJK label");
             }
@@ -161,6 +162,45 @@ fn cup_handle_math_renders_via_pipeline() {
                 "no glyphs for {s}"
             ),
             Err(e) => panic!("render_blocking Math ERR for {s:?}: {e}"),
+        }
+    }
+}
+#[tokio::test]
+async fn official_mermaid_aws_artwork_and_error_recovery() {
+    use rmdv::diagram::render_blocking_async;
+    let cases = [
+        "flowchart LR\n A@{ icon: \"aws:arch-aws-lambda\", label: \"Lambda\" } --> B[完成]",
+        "architecture-beta\n service fn(aws:arch-aws-lambda)[Lambda]",
+    ];
+    for palette in [Palette::ONE_LIGHT, Palette::ONE_DARK] {
+        let error = render_blocking_async(
+            DiagramKind::Mermaid,
+            "flowchart LR\n A@{ icon: \"aws:missing-icon\" }".into(),
+            palette,
+            "sans-serif".into(),
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("aws:missing-icon"), "{error}");
+        for source in cases {
+            let output = render_blocking_async(
+                DiagramKind::Mermaid,
+                source.into(),
+                palette,
+                "sans-serif".into(),
+            )
+            .await
+            .unwrap();
+            let svg = String::from_utf8(output.svg).unwrap();
+            assert!(svg.contains("#ED7100"), "missing original Lambda artwork");
+            assert!(
+                output.rgba.chunks_exact(4).any(|p| p[0] > 200
+                    && p[1] > 70
+                    && p[1] < 170
+                    && p[2] < 50
+                    && p[3] > 200),
+                "AWS artwork missing from Iced pixels"
+            );
         }
     }
 }

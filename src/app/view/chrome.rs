@@ -259,6 +259,13 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
             None => text("").into(),
         }
     };
+    // Diagram pixels contain transparent areas. Give the enlarged diagram a
+    // theme-matched backing so document text cannot show through those areas.
+    let backdrop = if diagram.is_some() {
+        Color { a: 0.95, ..pal.bg }
+    } else {
+        Color { a: 0.85, ..pal.bg }
+    };
     let scrim = container(
         container(inner)
             .padding(8)
@@ -268,7 +275,7 @@ pub(in crate::app) fn image_zoom_overlay<'a>(
     .width(Length::Fill)
     .height(Length::Fill)
     .style(move |_| container::Style {
-        background: Some(Color { a: 0.85, ..pal.bg }.into()),
+        background: Some(backdrop.into()),
         ..Default::default()
     });
     // Click background scrim → close. Pointer cursor would mislead since

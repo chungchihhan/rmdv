@@ -1,0 +1,37 @@
+# Official Mermaid.js desktop trial
+
+The `codex/mermaid-js-integration` branch uses Mermaid 12.2.0 in a persistent
+background Chrome worker. Chromium supplies the PNG pixels displayed by Iced;
+the original SVG is retained for export. DOT and math keep their native paths.
+
+For a fresh checkout, install Node.js >=22.12 and Google Chrome, then run:
+
+```sh
+cd runtime/mermaid-js
+npm ci
+npm run prepare:icons
+```
+
+Run `target/release/rmdv` from the repository. The default runtime path points
+to this source checkout; this is a local trial, not a self-contained installer.
+The dependencies and AWS icon cache are already prepared on the trial machine.
+
+Optional environment variables:
+
+- `RMDV_NODE`: absolute Node executable path.
+- `RMDV_CHROME`: absolute Chrome/Chromium executable path.
+- `RMDV_MERMAID_RUNTIME`: directory containing worker.mjs and installed packages.
+
+A loopback-only server serves local Mermaid modules and the checksum-pinned
+AWS pack. Browser requests outside that local origin are blocked. The worker
+is serialized, reused between diagrams, and reset after a protocol failure or
+45-second timeout. Missing dependencies produce a diagram error.
+
+AWS flowcharts and architecture diagrams support canonical names such as
+`aws:lambda` and source-derived aliases such as `aws:arch-aws-lambda`.
+Unknown names produce an error. See THIRD_PARTY_NOTICES.md and
+AWS-ICONS-LICENSE.txt for the asset attribution and separate license.
+
+Packaging Node/Chromium, startup cost, cross-platform behavior and native
+visual acceptance remain follow-up work. The owner will manually verify the
+release trial; do not treat compilation as visual acceptance.
