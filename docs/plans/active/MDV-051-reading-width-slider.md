@@ -33,3 +33,7 @@ states instead of the global Iced theme's default colors.
 
 Owner layout refinement: the shared row places keyboard shortcuts on the left
 and the word-count/read-time pill on the right, above the width slider.
+
+Submitted for upstream review in Draft [PR #80](https://github.com/minchenlee/rmdv/pull/80).
+The owner explicitly authorized this push and PR. It is not merged; native
+acceptance and runtime packaging/CI follow-up remain as described above.

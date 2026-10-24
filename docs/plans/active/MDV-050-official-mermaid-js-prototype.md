@@ -213,3 +213,7 @@ replaying old gestures. Keep the modal fixed. Header now says Pinch to zoom.
 
 Upstream viewer copyright and license are retained alongside the adaptation.
 Release build only; owner will verify actual macOS gestures manually.
+
+Submitted for upstream review in Draft [PR #80](https://github.com/minchenlee/rmdv/pull/80).
+The owner explicitly authorized this push and PR. It is not merged; native
+acceptance and runtime packaging/CI follow-up remain as described above.

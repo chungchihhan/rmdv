@@ -78,8 +78,9 @@ Native acceptance is pending owner manual review.
 
 ## Next safe actions
 
-1. Owner requested an upstream PR for the local integration branch; submission
-   is authorized, while merging and publication remain separate actions.
+1. Draft [PR #80](https://github.com/minchenlee/rmdv/pull/80) submits the Mermaid.js
+   integration, preview controls and reading-width slider for upstream review.
+   Packaging/CI follow-up remains; merging and publication are not authorized.
 2. Record native acceptance and decide how to package Node/Chromium.
 
 ## Verification state
