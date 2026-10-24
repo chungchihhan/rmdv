@@ -44,7 +44,10 @@ The desktop runtime also registers the local Iconify `logos` pack, supporting
 existing `logos:aws-*` Markdown without rewriting notes.
 DOT and math retain their native renderers. Local runtime dependencies and AWS
 icons are prepared. The owner confirmed the desktop renderer works and requested
-a 95%-opaque theme-background backing for enlarged diagrams to reduce document bleed-through.
+a centered preview modal with an opaque theme background, replacing the full-window
+preview. The modal uses 16px corners and a 45%-black translucent outside scrim;
+the modal stays centered at a fixed size while the rendered diagram supports
+macOS pinch zoom, two-finger pixel-scroll pan, mouse-wheel zoom and drag pan. Close controls remain available.
 Packaging remains source-checkout dependent; the owner manually verifies trial
 builds, with no additional automated verification requested for this round.
 

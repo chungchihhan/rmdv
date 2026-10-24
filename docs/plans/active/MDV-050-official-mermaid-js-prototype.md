@@ -167,3 +167,49 @@ package alongside `aws`; do not rewrite notes or substitute different icons.
 Serve its JSON through the worker's existing loopback allowlist, retain the
 npm lockfile and package attribution, and report unknown `logos:` names.
 The owner continues to handle native visual verification manually.
+
+
+### Centered preview modal
+
+Owner superseded the full-window translucent preview: use the existing modal
+frame with 40px outer margins, a maximum 1100×760 panel, an opaque theme
+background, preview title and close button. Preserve the existing image viewer
+for wheel zoom and drag pan, Escape dismissal and outside-click dismissal.
+Use the application's theme typography, LG frame radius, border and DIALOG
+shadow. The diagram remains the main content; only the title and close control
+occupy the header. No new palette or decorative UI is introduced.
+
+This matches the owner's request for a bounded popup and eliminates document
+bleed-through within the panel. Native visual review remains with the owner.
+
+
+Owner refinement: paint the opaque preview fill directly on a 16px rounded
+panel so no square child background covers its corners. Give this preview a
+45%-black translucent outside scrim, leaving the document visible but dimmed.
+Keep the close button and outside click; blank clicks inside the panel are
+consumed without dismissing it. Other modal styles remain unchanged.
+
+
+### Diagram interaction clarification
+
+The owner clarified that resizing and dragging apply to the rendered diagram,
+not to the modal. Remove the mistaken modal geometry/drag implementation.
+Keep the popup centered at its fixed bounded size, with rounded opaque theme
+surface and translucent scrim. Its existing image viewer handles wheel zoom
+and drag pan on enlarged content; the header now makes those controls visible.
+The owner manually verifies the release build.
+
+
+### Trackpad interaction
+
+Owner requested native two-finger pinch instead of treating trackpad scrolling
+as zoom. Forward the existing macOS magnification bridge to the preview only
+while it is open; preserve mindmap routing when no overlay is active. Adapt
+Iced's MIT-licensed image viewer locally so native pinch and mouse wheel use
+the same cursor-anchored scale state. Trackpad pixel scrolling pans; mouse
+wheel line scrolling zooms. Consume cumulative pinch deltas only while the
+pointer is over the diagram, and initialize newly mounted viewer state without
+replaying old gestures. Keep the modal fixed. Header now says Pinch to zoom.
+
+Upstream viewer copyright and license are retained alongside the adaptation.
+Release build only; owner will verify actual macOS gestures manually.
