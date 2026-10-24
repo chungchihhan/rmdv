@@ -139,6 +139,12 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   frame, title bar and taskbar) shrinks to fit and stays centered.
   A close cannot ask the window, so a zoom or unzoom in the last 500 ms
   before a close is saved with the previous zoom state.
+- P8b (2026-10-24, owner feedback from the P8 trial): Full Mindmap has no
+  floating nav island. Its actions are toolbar buttons while it shows:
+  Back is the Read segment (Esc), and Open Parent Folder (disabled at the
+  filesystem root) and the panel toggle (⌘⌥B) sit after the view switch.
+  The bottom zoom and hint island stays. In On hover mode the toolbar
+  reveals over Full Mindmap as it does over the reader.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -152,6 +158,7 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
 | P6 | `feat/pointer-p6` | D: context menus, double-click, file operations |
 | P7 | `feat/pointer-p7` | H and I: selection from margins, auto-scroll, CJK words, outline scroll-spy, Quick Slot pointer entry, hit targets, divider persistence |
 | P8 | `feat/pointer-p8` | C: native menu bar |
+| P8b | `feat/pointer-p8b` | P8 trial feedback: Full Mindmap actions in the toolbar, global Quick Slots |
 
 ## Acceptance evidence
 
@@ -189,6 +196,8 @@ Per phase:
 - 2026-10-24: P8 window frame persistence on `feat/pointer-p8`: size, position and zoom saved once per settled move or resize (500 ms) and on close, lenient load, restore clamped onto a visible screen (macOS) or centered (elsewhere); full screen not restored. AppKit test target `window_frame_appkit` (no window); a minimized (0×0) window keeps the saved frame. lib 986 passed, integration all passed.
 - 2026-10-24: P8 review on `feat/pointer-p8`: 8 findings, all fixed red-first: Edit items stay disabled while the vault page or Settings covers the Zen editor; Enter Full Screen has no key, so ⌃⌘F stays Find in Document; hover, scroll and tick messages skip the menu computation, and `WindowMoved` runs the update epilogue once; a first zoomed save keeps the launch size as the normal frame; off macOS a window larger than its monitor shrinks to fit once it opens. lib 992 passed, integration all passed.
 - 2026-10-24: P7 trial build: Release dry run 40024937189, macOS aarch64 notarized (PR #77). The first run failed on the Linux CJK double-click test (no CJK font sets glyph widths there), fixed in the P7 test and carried onto P8. macOS x86_64 failed twice on `hdiutil detach` "Resource busy" after notarization, a release-script issue outside MDV-048. P8 verified by the orchestrator: lib 992 passed, integration all passed, release build, Linux title bar simulation 348 passed with the 1 expected macOS-only failure.
+
+- 2026-10-24: P8b on `feat/pointer-p8b` (stacked on P8): the Full Mindmap nav island is gone; Open Parent Folder and the panel toggle are toolbar buttons while Full Mindmap shows, and Read leaves it, in both toolbar modes.
 
 ## Decision log
 
