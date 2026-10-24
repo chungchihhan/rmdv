@@ -1486,7 +1486,7 @@ mod tests {
     fn slot_titles_name_their_files() {
         let mut app = reader_app();
         app.quick_slots.slots[1] = Some(crate::quick_slots::QuickSlot {
-            root: crate::quick_slots::workspace_key(app.workspace.as_deref().unwrap()),
+            root: app.workspace.as_deref().unwrap().to_string_lossy().into_owned(),
             relative_path: "notes/b.md".into(),
             context: Default::default(),
         });
@@ -1523,7 +1523,7 @@ mod tests {
         let _ = app.update(Message::ToggleSidebar);
         assert_eq!(app.menu_pushed.pushes, [2, 1, 1], "only the state changed");
         app.quick_slots.slots[0] = Some(crate::quick_slots::QuickSlot {
-            root: crate::quick_slots::workspace_key(app.workspace.as_deref().unwrap()),
+            root: app.workspace.as_deref().unwrap().to_string_lossy().into_owned(),
             relative_path: "a.md".into(),
             context: Default::default(),
         });

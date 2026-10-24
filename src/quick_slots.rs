@@ -96,9 +96,12 @@ impl QuickSlot {
         resolve_path(Path::new(&self.root), &self.relative_path)
     }
 
-    /// Whether the slot was assigned in workspace `root`.
+    /// Whether the slot was assigned in workspace `root`, which must be
+    /// canonical as [`workspace_key`] writes it (the app's open workspace
+    /// is). It runs on the menu, view, and scroll paths, so it compares the
+    /// saved key and never asks the filesystem.
     pub fn in_workspace(&self, root: &Path) -> bool {
-        !self.root.is_empty() && (Path::new(&self.root) == root || self.root == workspace_key(root))
+        !self.root.is_empty() && Path::new(&self.root) == root
     }
 
     /// The slot's title: its file name.
@@ -583,7 +586,6 @@ mod tests {
         };
         let canonical = std::fs::canonicalize(&root).unwrap();
         assert_eq!(slot.resolve(), Some(canonical.join("a.md")));
-        assert!(slot.in_workspace(&root));
         assert!(slot.in_workspace(&canonical));
         assert!(!slot.in_workspace(&test_root("other-root")));
         assert_eq!(slot.file_name(), "a.md");
@@ -598,6 +600,30 @@ mod tests {
         }
         .normalized()
         .is_none());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// `in_workspace` runs on the menu, view, and scroll paths, so it
+    /// compares the saved key with the (canonical) open workspace and never
+    /// asks the filesystem: an alias of the root does not match.
+    #[cfg(unix)]
+    #[test]
+    fn in_workspace_compares_the_saved_key_without_resolving_aliases() {
+        let root = test_root("key-only");
+        std::fs::create_dir_all(&root).unwrap();
+        let canonical = std::fs::canonicalize(&root).unwrap();
+        let alias = test_root("key-only-alias");
+        std::os::unix::fs::symlink(&canonical, &alias).unwrap();
+        let slot = QuickSlot {
+            root: workspace_key(&root),
+            ..legacy("a.md")
+        };
+        assert!(slot.in_workspace(&canonical));
+        assert!(
+            !slot.in_workspace(&alias),
+            "the alias is not canonicalized"
+        );
+        std::fs::remove_file(alias).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 }
