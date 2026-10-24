@@ -738,6 +738,27 @@ fn full_mindmap_toolbar_buttons_hide_under_settings() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn full_mindmap_read_names_esc_only_when_esc_returns_to_read() {
+    let (app, dir) = full_mindmap_app("p8b-read-esc");
+    let mut app = always(app);
+    let mut ui = PointerUi::new();
+    assert_eq!(app.view_mode, ViewMode::Rendered);
+    assert_tips(&tips(&mut ui, &app), &["Read  Esc"]);
+    // Entered from the document mind map or the editor, Esc goes back
+    // there, not to Read.
+    for mode in [ViewMode::Mindmap, ViewMode::Raw] {
+        app.view_mode = mode;
+        let tips = tips(&mut ui, &app);
+        assert_tips(&tips, &["Read"]);
+        assert!(!tips.iter().any(|tip| tip == "Read  Esc"), "{mode:?}: {tips:?}");
+    }
+    app.view_mode = ViewMode::Mindmap;
+    let _ = app.update(Message::ExitFullMindmap);
+    assert_eq!(app.view_mode, ViewMode::Mindmap, "Esc's target");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // --- 6. Screenshots for owner review --------------------------------------------
 
 /// Renders the toolbar to PNG files for review. Run with

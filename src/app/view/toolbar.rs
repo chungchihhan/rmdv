@@ -140,7 +140,9 @@ pub(in crate::app) fn toolbar<'a>(
     let read_key = match current {
         Some(ToolbarView::Edit) => Some("Esc"),
         Some(ToolbarView::Mindmap) => Some("⌘M"),
-        Some(ToolbarView::FullMindmap) => Some("Esc"),
+        // Esc leaves Full Mindmap to the view it was entered from; Read
+        // names it only when that view is Read.
+        Some(ToolbarView::FullMindmap) if app.view_mode == ViewMode::Rendered => Some("Esc"),
         _ => None,
     };
     // Each view is an icon; the tooltip names it and its shortcut. All four
