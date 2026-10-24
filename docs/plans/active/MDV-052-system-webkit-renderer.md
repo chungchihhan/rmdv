@@ -43,3 +43,26 @@ This authorizes the push/PR update, not merging, release or publication.
 
 The superseded attempts and source-level diagnosis are retained in
 [trial history](../../status-history/2026-10-24-webkit-transparency-trial.md).
+
+
+## Owner follow-up: flowchart title overlap (2026-10-25)
+
+The owner's ALB diagram reproduced overlapping sibling subgraph rectangles,
+long-title clipping and edge paths through titles. The worker inherited only
+JetBrains Mono from Iced even when that font was unavailable to WebKit.
+
+Add a Helvetica/PingFang/sans-serif fallback used consistently by body and
+Mermaid theme variables, and await font readiness before layout. Use ELK for
+flowcharts and retain Dagre for other types (including the known mindmap case);
+explicit config/source layout choices still take precedence. Add modest
+flowchart node/rank spacing and subgraph-title margins. Paint decorative title
+copies with their own cluster-color backing above edge paths, preserving the
+original labels for SVG semantics and hiding copies from accessibility/hit
+handling. Serialize SVGMatrix components explicitly for WebKit compatibility.
+
+A focused native-worker comparison of the unchanged ALB source showed separate
+sibling rectangles, titles contained within their rectangles and no line/text
+overlap in the final PNG. The 1420×1178 result was visually inspected. Temporary
+artifacts are /tmp/rmdv-alb-before.png and /tmp/rmdv-alb-after.png. No broad suite
+was run or note edited. The release build passed, and the owner accepted the
+result and authorized committing/pushing this round to the existing PR branch.

@@ -50,6 +50,12 @@ available reader width (up to 1920px); keyboard shortcuts sit left of the
 word-count/read-time pill above it. The selected width persists on release.
 The standalone Mermaid/Pele comparison is retained as development material.
 
+Local owner follow-up (2026-10-25): font fallback/readiness, ELK flowchart
+layout and foreground cluster-title painting address the ALB diagram's sibling
+subgraph overlap and clipped/crossed titles. A focused same-source WebKit PNG
+comparison passed visual inspection and the release build passed. The owner
+accepted the result and authorized committing/pushing this follow-up to PR #80.
+
 ## Human decisions / blockers
 
 - Merges, tags, releases, and deployments need explicit owner authority per

@@ -41,3 +41,13 @@ claim of memory reduction is made without measurement. The owner confirmed the n
 acceptance and resource measurements are not claimed. Non-macOS platforms retain the
 Node/Chrome fallback. Production helper signing/notarization, sandbox policy
 and installer integration require a separate audit. This native macOS path is included in upstream PR #80.
+
+
+## Layout and fonts
+
+Flowcharts default to Mermaid's ELK layout; other diagram types retain Dagre.
+Explicit source/config layout choices still apply. Measurement and final SVG
+use an explicit Helvetica/PingFang/sans-serif fallback because Iced's bundled
+fonts are not automatically registered in the helper. Subgraph titles are
+repainted above edge paths against their own cluster fill to preserve legibility;
+original semantic labels remain in the SVG.
