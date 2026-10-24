@@ -456,7 +456,10 @@ fn a_newer_slot_press_cancels_the_waiting_slot() {
 fn clearing_or_assigning_a_slot_cancels_the_waiting_slot() {
     let (mut app, a, _b) = waiting_for_a("newer-clear");
     let _ = app.update(Message::QuickSlotClear(1));
-    assert!(app.pending_quick_slot_switch.is_none(), "a clear cancels it");
+    assert!(
+        app.pending_quick_slot_switch.is_none(),
+        "a clear cancels it"
+    );
     land_a(&mut app, &a);
     assert_eq!(app.quick_slots.active, None, "slot 1 does not activate");
     cleanup(&app, &a);
@@ -489,7 +492,10 @@ fn with_no_workspace_open_the_toolbar_popover_opens_a_slot() {
         .expect("the toolbar button");
     let messages = ui.click(&welcome, center(button));
     apply(&mut welcome, messages);
-    assert!(welcome.quick_slots_pinned, "the popover opens with no workspace");
+    assert!(
+        welcome.quick_slots_pinned,
+        "the popover opens with no workspace"
+    );
     let popover = ui
         .id_bounds(&welcome, "quick-slots-popover")
         .expect("the popover shows");

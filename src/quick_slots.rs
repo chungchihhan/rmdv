@@ -619,10 +619,7 @@ mod tests {
             ..legacy("a.md")
         };
         assert!(slot.in_workspace(&canonical));
-        assert!(
-            !slot.in_workspace(&alias),
-            "the alias is not canonicalized"
-        );
+        assert!(!slot.in_workspace(&alias), "the alias is not canonicalized");
         std::fs::remove_file(alias).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }

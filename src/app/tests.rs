@@ -1040,7 +1040,6 @@ fn clean_zen_activation_leaves_editor_and_restores_active_reader_slot() {
 #[test]
 fn clean_zen_full_mindmap_activation_does_not_revive_editor_on_exit() {
     let (mut app, old_file, _new_file) = quick_slot_restore_test_app("clean-zen-full-mindmap");
-    let root = app.workspace.clone().unwrap();
     let slot = crate::quick_slots::QuickSlot {
         root: crate::quick_slots::workspace_key(app.workspace.as_deref().unwrap()),
         relative_path: "old.md".into(),
@@ -1099,7 +1098,6 @@ fn clean_zen_full_mindmap_activation_does_not_revive_editor_on_exit() {
 #[test]
 fn clean_zen_document_mindmap_activation_preserves_slot_context_in_bank_and_prefs() {
     let (mut app, old_file, _new_file) = quick_slot_restore_test_app("clean-zen-document-mindmap");
-    let root = app.workspace.clone().unwrap();
     let slot = crate::quick_slots::QuickSlot {
         root: crate::quick_slots::workspace_key(app.workspace.as_deref().unwrap()),
         relative_path: "old.md".into(),
@@ -1262,7 +1260,6 @@ fn selecting_full_mindmap_parent_does_not_rewrite_document_slot_mode() {
 #[test]
 fn switching_quick_slots_checkpoints_outgoing_context_before_restore() {
     let (mut app, old_file, _new_file) = quick_slot_restore_test_app("switch-checkpoints-outgoing");
-    let root = app.workspace.clone().unwrap();
     let outgoing = crate::quick_slots::QuickSlot {
         root: crate::quick_slots::workspace_key(app.workspace.as_deref().unwrap()),
         relative_path: "old.md".into(),
@@ -1341,7 +1338,6 @@ fn picker_file_navigation_checkpoints_active_slot_before_load() {
     assert_eq!(app.quick_slots.active, None);
     let isolated = app.quick_slots_persistence_path.clone().unwrap();
     let stored = crate::prefs::load_from(&isolated);
-    let root = app.workspace.as_ref().expect("workspace root");
     let persisted = stored.global_quick_slots.clone().unwrap_or_default();
     assert_eq!(persisted.active, None);
     assert_eq!(
@@ -4119,7 +4115,6 @@ fn full_mindmap_toggle_folder_checkpoints_and_clears_active_slot() {
 #[test]
 fn full_mindmap_deselect_checkpoints_and_clears_active_slot() {
     let (mut app, old_file, _new_file) = quick_slot_restore_test_app("deselect-checkpoint");
-    let root = app.workspace.clone().expect("workspace root");
     let mut full = App::new_full_mindmap_state();
     full.selected = Some(WorkspaceNodeId::File(old_file));
     app.full_mindmap = Some(full);

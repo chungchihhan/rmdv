@@ -751,7 +751,10 @@ fn full_mindmap_read_names_esc_only_when_esc_returns_to_read() {
         app.view_mode = mode;
         let tips = tips(&mut ui, &app);
         assert_tips(&tips, &["Read"]);
-        assert!(!tips.iter().any(|tip| tip == "Read  Esc"), "{mode:?}: {tips:?}");
+        assert!(
+            !tips.iter().any(|tip| tip == "Read  Esc"),
+            "{mode:?}: {tips:?}"
+        );
     }
     app.view_mode = ViewMode::Mindmap;
     let _ = app.update(Message::ExitFullMindmap);
