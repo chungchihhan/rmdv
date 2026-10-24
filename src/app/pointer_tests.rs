@@ -1681,3 +1681,7 @@ mod chrome_affordances;
 // --- P8: window frame persistence ------------------------------------------
 
 mod window_frame;
+
+// --- P8b: global Quick Slots -------------------------------------------------
+
+mod global_slots;

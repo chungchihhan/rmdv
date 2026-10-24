@@ -145,6 +145,21 @@ Audit (read-only, 2026-10-22, `main@75b637c`, every item with file:line):
   filesystem root) and the panel toggle (⌘⌥B) sit after the view switch.
   The bottom zoom and hint island stays. In On hover mode the toolbar
   reveals over Full Mindmap as it does over the reader.
+- P8b: Quick Slots are one global bank of nine, saved as
+  `global_quick_slots` in `prefs.json`. A slot keeps the workspace root it
+  was assigned in, its path relative to that root, and its context, so a
+  rename or move inside that root still updates it and a slot from another
+  workspace with the same relative path does not. A slot of the open
+  workspace opens as before; a slot of another workspace opens that
+  workspace the way Open Folder does (in Full Mindmap, through its bounded
+  index), then the file with its context. A gone root or file shows the
+  missing-slot toast and opens nothing. The bank is seeded once: at launch
+  from the most recently opened folder whose old bank has a slot, else from
+  the first workspace that opens; banks are never merged. The old
+  per-workspace `quick_slots.banks` stay unchanged and unused, so a
+  downgrade still finds them. The rail tooltip and the Go menu title add
+  the workspace folder name for a slot of another workspace ("b.md —
+  notes"); the title stays the file name.
 
 ## Phases (one branch and PR each, stacked)
 
@@ -197,7 +212,7 @@ Per phase:
 - 2026-10-24: P8 review on `feat/pointer-p8`: 8 findings, all fixed red-first: Edit items stay disabled while the vault page or Settings covers the Zen editor; Enter Full Screen has no key, so ⌃⌘F stays Find in Document; hover, scroll and tick messages skip the menu computation, and `WindowMoved` runs the update epilogue once; a first zoomed save keeps the launch size as the normal frame; off macOS a window larger than its monitor shrinks to fit once it opens. lib 992 passed, integration all passed.
 - 2026-10-24: P7 trial build: Release dry run 40024937189, macOS aarch64 notarized (PR #77). The first run failed on the Linux CJK double-click test (no CJK font sets glyph widths there), fixed in the P7 test and carried onto P8. macOS x86_64 failed twice on `hdiutil detach` "Resource busy" after notarization, a release-script issue outside MDV-048. P8 verified by the orchestrator: lib 992 passed, integration all passed, release build, Linux title bar simulation 348 passed with the 1 expected macOS-only failure.
 
-- 2026-10-24: P8b on `feat/pointer-p8b` (stacked on P8): the Full Mindmap nav island is gone; Open Parent Folder and the panel toggle are toolbar buttons while Full Mindmap shows, and Read leaves it, in both toolbar modes.
+- 2026-10-24: P8b on `feat/pointer-p8b` (stacked on P8): the Full Mindmap nav island is gone; Open Parent Folder and the panel toggle are toolbar buttons while Full Mindmap shows, and Read leaves it, in both toolbar modes. Quick Slots are one global bank: a slot of another workspace opens that workspace, then its file with its context; seeded once from the most recent workspace's old bank, which stays unchanged.
 
 ## Decision log
 

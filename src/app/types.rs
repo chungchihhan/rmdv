@@ -217,6 +217,14 @@ pub(super) struct PendingQuickSlotRestore {
     pub(super) root_key: String,
 }
 
+/// A Quick Slot from another workspace, waiting for the slot's root to
+/// become the open workspace.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct PendingQuickSlotSwitch {
+    pub(super) index: usize,
+    pub(super) slot: crate::quick_slots::QuickSlot,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingWatcherReload {
     pub(super) generation: u64,

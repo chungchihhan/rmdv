@@ -678,11 +678,8 @@ pub(in crate::app) fn quick_slots_rail<'a>(
     let mut controls = Column::new().spacing(6).align_x(iced::Alignment::Start);
     for index in 0..crate::quick_slots::SLOT_COUNT {
         let occupied = app.quick_slots.occupied(index);
-        let missing = occupied.is_some_and(|slot| {
-            app.quick_slots_workspace_root()
-                .and_then(|root| crate::quick_slots::resolve_path(root, &slot.relative_path))
-                .map_or(true, |path| !path.is_file())
-        });
+        let missing =
+            occupied.is_some_and(|slot| slot.resolve().map_or(true, |path| !path.is_file()));
         let active = app.quick_slots.active == Some(index);
         let assignable = app.current_quick_slot_context().is_some();
         let label = container(
@@ -731,11 +728,7 @@ pub(in crate::app) fn quick_slots_rail<'a>(
             let filename = if missing {
                 format!("Missing: {}", slot.relative_path)
             } else {
-                std::path::Path::new(&slot.relative_path)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| slot.relative_path.clone())
+                slot.file_name()
             };
             let details = container(
                 text(filename)
@@ -757,6 +750,18 @@ pub(in crate::app) fn quick_slots_rail<'a>(
                 },
                 ..Default::default()
             });
+            // A slot from another workspace names it in its tooltip; the
+            // title stays the file name.
+            let details: Element<'a, Message> = if app.quick_slot_in_workspace(slot) {
+                details.into()
+            } else {
+                label_tip(
+                    details,
+                    format!("{} — {}", slot.file_name(), slot.workspace_name()),
+                    iced::widget::tooltip::Position::Right,
+                    pal,
+                )
+            };
             irow![slot_button, details]
                 .spacing(6)
                 .align_y(iced::Alignment::Center)
