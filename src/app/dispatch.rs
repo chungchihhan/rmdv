@@ -797,6 +797,16 @@ impl App {
                     self.show_toast("Font reset".to_string()),
                 ])
             }
+            Message::SetReadingWidth(width) => {
+                self.prefs.reading_width = crate::prefs::clamp_reading_width(width);
+                self.height_cache.clear();
+                self.rebuild_virt_here();
+                self.measure_window_heights()
+            }
+            Message::SaveReadingWidth => {
+                self.save_prefs();
+                Task::none()
+            }
             Message::SetLineSpacing(spacing) => self.set_line_spacing(spacing),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a

@@ -51,6 +51,14 @@ macOS pinch zoom, two-finger pixel-scroll pan, mouse-wheel zoom and drag pan. Cl
 Packaging remains source-checkout dependent; the owner manually verifies trial
 builds, with no additional automated verification requested for this round.
 
+Owner also requested [MDV-051](docs/plans/active/MDV-051-reading-width-slider.md):
+a bottom-right slider controls the main reading column's maximum width
+(default 720), including Mermaid blocks. The slider uses palette colors and
+ends at the currently available reader width (up to 1920px). Word count and
+read time sit beside keyboard shortcuts, above the slider. The value
+is persisted on release; layout heights are refreshed during adjustment.
+Native acceptance is pending owner manual review.
+
 ## Human decisions / blockers
 
 - Merges, tags, releases, and deployments need explicit owner authority per
