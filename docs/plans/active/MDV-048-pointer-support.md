@@ -220,6 +220,7 @@ Per phase:
 
 - 2026-10-24: P8b on `feat/pointer-p8b` (stacked on P8): the Full Mindmap nav island is gone; Open Parent Folder and the panel toggle are toolbar buttons while Full Mindmap shows, and Read leaves it, in both toolbar modes. Quick Slots are one global bank: a slot of another workspace opens that workspace, then its file with its context; seeded once from the most recent workspace's old bank, which stays unchanged.
 - 2026-10-24: P8b review: 7 findings, all fixed red-first: the superseded-switch test starts with no active slot (the stale marker came from the assignment); a newer slot action cancels a waiting cross-workspace slot; the Quick Slots popover opens with no workspace; the replace confirmation names the old slot's workspace; Full Mindmap's toolbar buttons hide under Settings; Read names Esc only when Esc returns to Read; `QuickSlot::in_workspace` compares keys without canonicalizing. lib 1013 passed.
+- 2026-10-24: P8 trial build: Release dry run 40040570298, all four platforms built, macOS aarch64 notarized (PR #78). P8b verified by the orchestrator: lib 1013 passed, integration all passed, release build, Linux title bar simulation 365 passed with the 1 expected macOS-only failure; the real prefs file was not written by the tests.
 
 ## Decision log
 
@@ -233,4 +234,3 @@ See the two decision sections above.
 ## Final evidence
 
 Pending.
-- 2026-10-24: P8 trial build: Release dry run 40040570298, all four platforms built, macOS aarch64 notarized (PR #78). P8b verified by the orchestrator: lib 1013 passed, integration all passed, release build, Linux title bar simulation 365 passed with the 1 expected macOS-only failure; the real prefs file was not written by the tests.
