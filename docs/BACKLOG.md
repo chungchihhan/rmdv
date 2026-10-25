@@ -1,6 +1,6 @@
 # rmdv project backlog
 
-Last triaged: 2026-10-25
+Last triaged: 2026-10-18
 
 ## State model
 
@@ -22,8 +22,6 @@ a design for the owner, not code. Sources:
 
 | ID | Priority | State | Outcome | Acceptance | Plan | Blocked by |
 | --- | --- | --- | --- | --- | --- | --- |
-| MDV-051 | P2 | submitted | Reading-width control and preview modal/gestures retained with Merman. | Combined native build accepted by owner; prefs persist. | [MDV-051](plans/active/MDV-051-reading-width-slider.md) | Combined native visual acceptance. |
-| MDV-048 | P2 | submitted | Local trial of Merman 0.9.1 with optional ELK and bundled AWS/logos icons. | SVG/RGBA, themes, errors, automated checks, and an owner trial build. | [MDV-048](plans/active/MDV-048-merman-renderer-trial.md) | Native visual acceptance. |
 | MDV-044 | P2 | proposed | Full Mindmap: opening a large folder such as `/` shows `More files not indexed` / `More items not indexed` nodes that do nothing on Enter, so later items are unreachable. List direct children with a plain non-recursive `read_dir`, independent of the 10,000-item scan budget; keep a `More… (N left)` node only when one folder has more than ~2,000 children, and load the next batch from it. | Failing test first: with a root over the budget, every direct child folder is selectable and the More node expands; recursive counts still show `N+` / `scan limit reached`. | — | — |
 | MDV-045 | P3 | done | Website screenshots: seven uniform full-screen-size captures (1470x956 logical, 2x) in a window frame with shadow; plain hero. | Before/after shown to the owner; deployed by the owner (rmdv-site `34037c9a`, 2026-10-18). Merged at `2fd7e5f`. | — | — |
 | MDV-046 | P3 | proposed | Re-test cold start and parse numbers on a quiet machine (v0.8.0 claims). | Recorded numbers next to the v0.8.0 claims; docs flag cleared or corrected. | — | Quiet machine. |

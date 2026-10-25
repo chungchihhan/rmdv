@@ -21,7 +21,6 @@ use std::sync::{
 };
 
 mod image_cache;
-mod preview_viewer;
 use image_cache::IMAGE_CACHE_BYTE_BUDGET;
 pub use image_cache::{ImageCache, ImageState};
 
@@ -32,6 +31,7 @@ const QUICK_SLOTS_RAIL_REVEAL_DELAY_MS: u64 = 500;
 /// debounced above it, where one search no longer fits inside a frame.
 const SEARCH_DEBOUNCE_MIN_BYTES: usize = 1024 * 1024;
 const SEARCH_DEBOUNCE_MS: u64 = 80;
+const READING_MAX: f32 = theme::READING_MAX_PX;
 /// Radius of the reader panel's top-left corner next to the sidebar.
 const READER_CORNER_RADIUS: f32 = 24.0;
 const KEYBOARD_BUTTON_HEIGHT: f32 = 26.0; // 14px text at 1.3 line-height + 4px vertical padding on each side.
@@ -271,7 +271,6 @@ pub struct App {
     pub theme_id: crate::theme::ThemeId,
     pub image_cache: ImageCache,
     pub zoom_url: Option<String>,
-    preview_pinch_log: f64,
     pub view_mode: ViewMode,
     pub editor: Option<iced::widget::text_editor::Content>,
     /// `editor`'s text as read right after the last edit action. The next edit
@@ -543,7 +542,6 @@ impl Default for App {
             theme_id: crate::theme::ThemeId::Preset(preset),
             image_cache: ImageCache::default(),
             zoom_url: None,
-            preview_pinch_log: 0.0,
             view_mode: ViewMode::Rendered,
             editor: None,
             editor_text: None,
@@ -3411,7 +3409,7 @@ impl App {
                         container(editor)
                             .width(Length::Fill)
                             .height(Length::Fill)
-                            .max_width(self.prefs.reading_width),
+                            .max_width(READING_MAX),
                     )
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -3425,7 +3423,7 @@ impl App {
                     container(
                         container(fallback)
                             .width(Length::Fill)
-                            .max_width(self.prefs.reading_width),
+                            .max_width(READING_MAX),
                     )
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -3451,7 +3449,7 @@ impl App {
                         true,
                         (0, 0),
                         recently_scrolled,
-                        crate::render::ReadingWidth::Fill,
+                        crate::render::ReadingWidth::Capped,
                     )
                 }
             } else {
@@ -3470,7 +3468,7 @@ impl App {
                     true,
                     (0, 0),
                     recently_scrolled,
-                    crate::render::ReadingWidth::Fill,
+                    crate::render::ReadingWidth::Capped,
                 )
             };
             if self.view_mode == ViewMode::Raw || self.view_mode == ViewMode::Mindmap {
@@ -3488,7 +3486,7 @@ impl App {
                 // each block, and it covers off-screen blocks as they scroll in.
                 let select_all = self.reader_select_all && self.reader_shows_document();
                 let column = container(body)
-                    .max_width(self.prefs.reading_width)
+                    .max_width(READING_MAX)
                     .width(Length::Fill)
                     .style(move |_| container::Style {
                         background: select_all.then(|| pal.selection.into()),
@@ -3628,39 +3626,27 @@ impl App {
             Overlay::ImageZoom => image_zoom_overlay(
                 self.zoom_url.as_deref(),
                 self.zoom_diagram.as_ref(),
-                self.preview_pinch_log,
                 &self.image_cache,
                 pal,
             ),
         };
-        let width_slider_visible = !full_mindmap
-            && self.overlay == Overlay::None
-            && !self.settings_open
-            && self.view_mode == ViewMode::Rendered
-            && self.file.is_some()
-            && !self.is_data_doc;
-        let width_slider_layer: Element<'_, Message> = if width_slider_visible {
-            let requested_width = self.prefs.reading_width;
-            let sidebar_extent = if self.sidebar_open && self.workspace.is_some() {
-                self.sidebar_width + 5.0
-            } else {
-                0.0
-            };
-            iced::widget::responsive(move |size| {
-                reading_width_slider(requested_width, size.width - sidebar_extent - 64.0, pal)
-            })
-            .into()
+        // Status footer floats over the reader (content scrolls behind it),
+        // pinned bottom-right. Shown for any open document except mindmap.
+        let footer_layer: Element<'_, Message> = if footer_visible {
+            status_footer(self.source_words, pal)
         } else {
             Space::new().into()
         };
-        // Status and shortcuts share one row above the bottom width control.
+        // Floating cheatsheet button, bottom-right of the active reader or mindmap.
+        // Sits just above the word-count pill when the footer is visible; drops to
+        // the corner when it's off. Hidden only while an overlay is open.
         let kb_button_layer: Element<'_, Message> = if self.overlay == Overlay::None {
-            let bottom_pad = if width_slider_visible {
-                56.0
+            let bottom_pad = if footer_visible {
+                KEYBOARD_BUTTON_FOOTER_BOTTOM_PAD
             } else {
                 KEYBOARD_BUTTON_BOTTOM_PAD
             };
-            let shortcut = iced::widget::tooltip(
+            container(iced::widget::tooltip(
                 ghost_lu(ic::KEYBOARD, pal).on_press(Message::ToggleShortcuts),
                 container(text("Keyboard shortcuts  ⌘/").size(12).color(pal.fg))
                     .padding(Padding::from([4, 8]))
@@ -3674,17 +3660,7 @@ impl App {
                         ..Default::default()
                     }),
                 iced::widget::tooltip::Position::Left,
-            );
-            let footer: Element<'_, Message> = if footer_visible {
-                status_footer(self.source_words, pal)
-            } else {
-                Space::new().into()
-            };
-            container(
-                irow![shortcut, footer]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center),
-            )
+            ))
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(Padding {
@@ -3721,7 +3697,7 @@ impl App {
         };
         let base: Element<'_, Message> = iced::widget::stack![
             Element::from(main),
-            width_slider_layer,
+            footer_layer,
             kb_button_layer,
             quick_slots_layer,
             overlay_layer

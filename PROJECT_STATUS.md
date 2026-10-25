@@ -1,12 +1,11 @@
 # rmdv — project status
 
-Last verified: 2026-10-25 (Asia/Taipei; local MDV-048 follow-up)
+Last verified: 2026-10-17 (Asia/Taipei)
 Stale after: 7 days
-Current checkout: `/Users/harry_chung/Developer/Personal/rmdv` (owner's fork).
-Trial base: `main@09d6394`; work branch: `codex/merman-renderer` (MDV-048).
-Remotes: `origin` = `chungchihhan/rmdv`, `upstream` = `minchenlee/rmdv`.
-Latest published upstream release: `v0.10.1` (verified via GitHub API on
-2026-10-19). Historical release evidence below was not re-run.
+Canonical repository: `~/Documents/GitHub/mdv`
+Expected branch / HEAD / PR: start new work from the live `origin/main`.
+Latest published release: `v0.10.0` → `9e876c0` (2026-10-17, Release run
+39039978898).
 Authority: This is a routing snapshot. Verify Git, GitHub, runtime identity, and
 manual evidence before mutation.
 
@@ -29,16 +28,8 @@ manual evidence before mutation.
 
 ## Live workstreams
 
-Local owner-requested trial: [`MDV-048`](docs/plans/active/MDV-048-merman-renderer-trial.md)
-replaces the Mermaid renderer with Merman 0.9.1. It raises the declared Rust
-minimum to 1.95; local rustc is 1.98.1. ELK is enabled alongside default Dagre,
-and AWS/logos icon packs are embedded for offline rendering. The owner accepted
-this renderer trial on 2026-10-25; [PR #82](https://github.com/minchenlee/rmdv/pull/82)
-submits it upstream. The owner requested retaining it instead of
-Mermaid.js. [PR #80](https://github.com/minchenlee/rmdv/pull/80) is closed.
-Preview modal, pinch/pan gestures and the reading-width control are now ported
-from that branch; acceptance of the combined build remains pending. No installed
-`rmdv` command was found at trial start.
+No active product workstream. Pick the next task from
+[`docs/BACKLOG.md`](docs/BACKLOG.md).
 
 ## Human decisions / blockers
 
@@ -59,32 +50,13 @@ from that branch; acceptance of the combined build remains pending. No installed
 
 ## Next safe actions
 
-1. Inspect the combined Merman build: modal, pinch/pan, width slider,
-   theme colors, footer order and restart persistence.
-2. Review the local combined diff before committing or proposing a replacement PR.
+1. Pick the next task from the backlog (`MDV-042` goto offset is the smallest).
+2. Re-run the cold-start and parse perf check on a quiet machine.
 
 ## Verification state
 
 ### Verified now
 
-- Combined Merman + modal/width UI port: locked release build, formatting and
-  diff checks passed on 2026-10-25. Native combined-build acceptance is pending;
-  submitted in [PR #82](https://github.com/minchenlee/rmdv/pull/82).
-
-- 2026-10-25 MDV-048 follow-up: release build, formatting and diff checks
-  passed. A focused Merman probe loaded 3,414 icon/alias entries and rendered
-  ELK with AWS/logos through the resvg-safe SVG pipeline. Full tests and native
-  visual acceptance were not repeated. This follow-up is included in the owner-authorized PR submission.
-
-- MDV-048 local trial: 627 tests passed, 2 ignored (`cargo test --locked
-  --lib --tests`); `cargo check --locked`, formatting and diff checks passed.
-  The SVG/RGBA pipeline passed CJK flowchart, sequence, class, state, mindmap,
-  both palettes, user init, and error/size checks. Semi-transparent Mermaid
-  theme colors are composited onto their backdrop before RGB encoding, with
-  regression coverage for light/dark node borders. Exported light/dark PNGs
-  were visually inspected; native-window acceptance remains pending.
-  `cargo build --locked --release --bin rmdv` passed; the local binary reports
-  `rmdv 0.10.1` and has not been installed or published.
 - `v0.10.0` was tagged at `9e876c0` (owner authority, 2026-10-17); the Release
   workflow passed every job and the seven installers match `SHA256SUMS`. The
   `aarch64` dmg and app were also checked by hand: codesign valid, stapled,

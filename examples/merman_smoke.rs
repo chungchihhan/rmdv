@@ -8,17 +8,14 @@ use rmdv::theme::Palette;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let directory = std::env::args()
         .nth(1)
-        .ok_or("usage: merman_smoke <output-directory> [diagram.mmd]")?;
+        .ok_or("usage: merman_smoke <output-directory>")?;
     let directory = std::path::Path::new(&directory);
     std::fs::create_dir_all(directory)?;
-    let source = match std::env::args().nth(2) {
-        Some(path) => std::fs::read_to_string(path)?,
-        None => "flowchart LR\n A[開始] -->|讀取文件| B{包含圖表？}\n B -->|是| C[Merman → SVG]\n B -->|否| D[顯示文字]".to_owned(),
-    };
+    let source = "flowchart LR\n A[開始] -->|讀取文件| B{包含圖表？}\n B -->|是| C[Merman → SVG]\n B -->|否| D[顯示文字]";
     for (name, palette) in [("light", Palette::ONE_LIGHT), ("dark", Palette::ONE_DARK)] {
         let output = render_blocking_async(
             DiagramKind::Mermaid,
-            source.clone(),
+            source.to_owned(),
             palette,
             "sans-serif".to_owned(),
         )

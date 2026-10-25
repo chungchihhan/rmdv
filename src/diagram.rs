@@ -446,15 +446,6 @@ pub fn render_blocking(
     Ok(svg)
 }
 
-// Build once on the diagram worker; packs are embedded for offline rendering.
-static MERMAID_ICONS: LazyLock<Result<merman::svg::IconRegistry, String>> = LazyLock::new(|| {
-    merman::svg::IconRegistry::from_packs([
-        merman::svg::IconPack::new(include_bytes!("../assets/mermaid-icons/aws.json")),
-        merman::svg::IconPack::new(include_bytes!("../assets/mermaid-icons/logos.json")),
-    ])
-    .map_err(|error| format!("cannot load Mermaid icon packs: {error}"))
-});
-
 fn render_mermaid(source: &str, palette: &Palette, font_family: &str) -> Result<String, String> {
     let prepared = if has_user_init(source) {
         source.to_string()
@@ -467,8 +458,6 @@ fn render_mermaid(source: &str, palette: &Palette, font_family: &str) -> Result<
     // The default output may contain HTML labels, which resvg cannot paint.
     // Ask Merman to lower them to SVG text before using our existing raster path.
     let request = merman::SvgRequest {
-        environment: merman::SvgEnvironment::deterministic()
-            .with_icon_registry(MERMAID_ICONS.as_ref().map_err(Clone::clone)?.clone()),
         pipeline: Some(merman::svg::SvgPipeline::resvg_safe()),
         ..Default::default()
     };

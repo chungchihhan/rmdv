@@ -85,22 +85,9 @@ action. This creates `~/.local/bin/rmdv`, pointing to the AppImage. Keep
     cargo build --release
     ./target/release/rmdv path/to/file.md
 
-Requires Rust 1.95+ (the local Merman renderer trial). On Windows, build with `cargo build --release
+Requires Rust 1.95+. On Windows, build with `cargo build --release
 --no-default-features`; PDF text extraction is currently available on macOS and
 Linux only.
-
-This checkout trials Merman 0.9.1 for native Mermaid rendering. Open
-`tests/fixtures/merman_trial.md` to compare diagram families and light/dark
-themes. Dagre is the default flowchart layout; select ELK with
-`%%{init: {"layout": "elk"}}%%`. Bundled `aws:` and `logos:` icon packs work
-offline (see `assets/mermaid-icons/NOTICES.md` for attribution). ELK includes
-an EPL-2.0 dependency. Mermaid math labels are not enabled; standalone
-LaTeX blocks still use `iced_math`. Export a sample through the same SVG/RGBA
-path with `cargo run --example merman_smoke -- /tmp/rmdv-merman`.
-
-Click a diagram to open a rounded, theme-matched preview modal. Pinch to zoom
-and drag to pan. The bottom-right width slider adjusts and saves the main
-reading column width; keyboard shortcuts and reading statistics sit above it.
 
 ## CLI / agent control
 
@@ -204,7 +191,7 @@ Rust, with [Iced](https://iced.rs/) for the GUI (pure native widgets, no webview
 | GUI | [iced](https://iced.rs/) |
 | Markdown | [pulldown-cmark](https://github.com/raphlinus/pulldown-cmark) |
 | Syntax highlighting | [tree-sitter](https://tree-sitter.github.io/) + per-language grammars (rust, python, js, ts, go, c, cpp, java, sql, bash, json, html, md, yaml, toml) |
-| Mermaid diagrams | [merman](https://crates.io/crates/merman) (local trial); DOT uses [layout-rs](https://crates.io/crates/layout-rs) |
+| Mermaid diagrams | [merman](https://crates.io/crates/merman) + [layout-rs](https://crates.io/crates/layout-rs) |
 | LaTeX math | [iced_math](https://crates.io/crates/iced_math) (pure-Rust layout engine) |
 | SVG rasterization | [resvg](https://github.com/RazrFalcon/resvg) |
 | PDF text extraction | [liteparse](https://crates.io/crates/liteparse) (PDFium) |
