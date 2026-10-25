@@ -1,6 +1,6 @@
 # rmdv — project status
 
-Last verified: 2026-10-19 (Asia/Taipei; local MDV-048 trial)
+Last verified: 2026-10-25 (Asia/Taipei; local MDV-048 follow-up)
 Stale after: 7 days
 Current checkout: `/Users/harry_chung/Developer/Personal/rmdv` (owner's fork).
 Trial base: `main@09d6394`; work branch: `codex/merman-renderer` (MDV-048).
@@ -31,8 +31,13 @@ manual evidence before mutation.
 
 Local owner-requested trial: [`MDV-048`](docs/plans/active/MDV-048-merman-renderer-trial.md)
 replaces the Mermaid renderer with Merman 0.9.1. It raises the declared Rust
-minimum to 1.95; local rustc is 1.98.1. This is a local branch trial with no owner
-visual acceptance yet. No installed `rmdv` command was found at trial start.
+minimum to 1.95; local rustc is 1.98.1. ELK is enabled alongside default Dagre,
+and AWS/logos icon packs are embedded for offline rendering. The owner accepted
+this renderer trial on 2026-10-25 and requested retaining it instead of
+Mermaid.js. [PR #80](https://github.com/minchenlee/rmdv/pull/80) is closed.
+Preview modal, pinch/pan gestures and the reading-width control are now ported
+from that branch; acceptance of the combined build remains pending. No installed
+`rmdv` command was found at trial start.
 
 ## Human decisions / blockers
 
@@ -53,13 +58,22 @@ visual acceptance yet. No installed `rmdv` command was found at trial start.
 
 ## Next safe actions
 
-1. Inspect the MDV-048 release build with `tests/fixtures/merman_trial.md`
-   in a native window with light/dark themes and diagram zoom.
-2. Decide whether to keep the Merman trial after owner visual acceptance.
+1. Inspect the combined Merman build: modal, pinch/pan, width slider,
+   theme colors, footer order and restart persistence.
+2. Review the local combined diff before committing or proposing a replacement PR.
 
 ## Verification state
 
 ### Verified now
+
+- Combined Merman + modal/width UI port: locked release build, formatting and
+  diff checks passed on 2026-10-25. Native combined-build acceptance is pending;
+  the owner authorized commit, push and a new upstream PR.
+
+- 2026-10-25 MDV-048 follow-up: release build, formatting and diff checks
+  passed. A focused Merman probe loaded 3,414 icon/alias entries and rendered
+  ELK with AWS/logos through the resvg-safe SVG pipeline. Full tests and native
+  visual acceptance were not repeated. This follow-up is included in the owner-authorized PR submission.
 
 - MDV-048 local trial: 627 tests passed, 2 ignored (`cargo test --locked
   --lib --tests`); `cargo check --locked`, formatting and diff checks passed.

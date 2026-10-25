@@ -8,8 +8,9 @@ Owner request: try Merman as this checkout's native Mermaid renderer.
 - Keep the existing blocking-worker, cache, SVG/RGBA, DOT, and math boundaries.
 - Use Merman's resvg-safe pipeline and preserve application palette defaults
   and user init directives.
-- Enable all diagram families, SVG, and Cytoscape; omit optional ELK and
-  Mermaid math-label support in this trial. Standalone LaTeX stays unchanged.
+- Enable all diagram families, SVG, Cytoscape, and optional ELK. Bundle
+  AWS Labs and Iconify logos packs for offline icons. Mermaid math-label
+  support remains disabled; standalone LaTeX stays unchanged.
 - Update the declared Rust minimum to 1.95, as required by Merman.
 
 ## Acceptance
@@ -73,3 +74,56 @@ and the actual SVG border colors: `#33363c` for One Dark and `#e3e3e3` for One
 Light. All 627 tests passed (2 ignored), cargo check, formatting and diff checks
 passed, and regenerated light/dark PNGs were visually inspected. The updated
 release executable rebuilt successfully; native-window acceptance remains pending.
+
+## ELK and offline icon follow-up (2026-10-25)
+
+Owner requested ELK and AWS icon support on this trial branch. Dagre remains
+the default; `%%{init: {"layout": "elk"}}%%` selects ELK. Cargo locks the optional
+ELK adapter/layered implementation to 0.9.2 while Merman remains pinned to 0.9.1.
+The ELK translation's EPL-2.0 text is retained with the third-party notices.
+
+Bundled AWS Labs artwork and Iconify logos are registered lazily once, without
+network or browser runtime dependencies. AWS architecture aliases are included.
+Three AWS names with punctuation are normalized to hyphens, and unreferenced
+duplicate XML IDs in Snowball Edge are removed; artwork geometry/colors remain
+unchanged. Upstream provenance and icon licenses are in
+`assets/mermaid-icons/NOTICES.md`.
+
+A focused native Rust probe admitted 3,414 icon/alias entries and rendered the
+ELK fixture containing both AWS and logos icons through Merman's resvg-safe SVG
+pipeline. Formatting and diff checks passed. Full tests and native visual
+acceptance were not repeated; the owner will inspect the local build manually.
+The fixture is appended to `tests/fixtures/merman_trial.md`.
+
+Final `cargo build --release --bin rmdv --locked` passed after the icon-pack
+normalization. The executable is `target/release/rmdv`; existing import and
+`block` future-compatibility warnings remain. Changes are local and uncommitted.
+
+## Retained renderer and UI port (2026-10-25)
+
+The owner accepted the Merman rendering result, asked to close Mermaid.js
+PR #80, and requested moving the remaining UI work to this branch. The PR is
+closed. Ported only `src/app` preview/width controls and `src/prefs.rs` from
+`codex/mermaid-js-integration@4aa032b`; renderer, Cargo/build plumbing, JavaScript
+workers and native WebKit helper were not copied.
+
+Retained UI: fixed rounded opaque theme modal with translucent scrim, close
+button/outside click, diagram pinch zoom and drag pan, palette-aware width
+slider bounded by available reader space, saved preference, and shortcut-left /
+reading-statistics-right footer row. The viewer's MIT notice is retained.
+Existing local ELK/icon edits and unrelated untracked prototype/runtime files
+are preserved. Combined native visual acceptance is pending. No commit or push
+was requested for this port.
+
+Combined `cargo build --release --bin rmdv --locked`, formatting and diff
+checks passed. Automated suites were not rerun, following the owner’s manual
+validation preference; native UI acceptance remains pending.
+
+## Upstream submission authority (2026-10-25)
+
+The owner requested a new PR for the combined Merman/ELK/icons and UI work,
+authorizing the commit and fork push required to submit it. Earlier statements
+about local-only/uncommitted scope describe the prior trial stage. No merge,
+release or publication is authorized. The final locked release build and
+format/diff checks passed; the full automated suite was last run on the initial
+Merman trial, not on this combined follow-up.

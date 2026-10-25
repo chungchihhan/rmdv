@@ -69,3 +69,19 @@ rendering.
 ```mermaid
 this is not valid mermaid
 ```
+
+## AWS icons with ELK
+
+Dagre remains the default. This block selects ELK with an init directive.
+Icon packs are bundled; rendering does not fetch icons from the network.
+
+```mermaid
+%%{init: {"layout": "elk"}}%%
+flowchart TB
+    Users[Users] --> ALB
+    ALB@{ icon: "logos:aws-elb", label: "Load Balancer", pos: "b", h: 64 }
+    ALB --> EC2
+    EC2@{ icon: "logos:aws-ec2", label: "EC2 instance", pos: "b", h: 48 }
+    EC2 --> Lambda
+    Lambda@{ icon: "aws:arch-aws-lambda", label: "Lambda", pos: "b", h: 48 }
+```

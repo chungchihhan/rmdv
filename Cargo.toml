@@ -41,8 +41,8 @@ tree-sitter-md = "0.3"
 tree-sitter-yaml = "0.7"
 tree-sitter-toml-ng = "0.7"
 # Native SVG trial: all diagram families, with Cytoscape for architecture/mindmap.
-# ELK and Mermaid math-label rendering are not enabled in this trial.
-merman = { version = "=0.9.1", default-features = false, features = ["all-diagrams", "svg", "layout-cytoscape"] }
+# ELK is available via source config; Mermaid math labels remain disabled.
+merman = { version = "=0.9.1", default-features = false, features = ["all-diagrams", "svg", "layout-cytoscape", "layout-elk"] }
 layout-rs = "0.1"
 iced_math = "0.5"
 iced_selection = "0.5"

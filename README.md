@@ -91,9 +91,16 @@ Linux only.
 
 This checkout trials Merman 0.9.1 for native Mermaid rendering. Open
 `tests/fixtures/merman_trial.md` to compare diagram families and light/dark
-themes. Optional ELK layout and Mermaid math labels are not enabled; standalone
+themes. Dagre is the default flowchart layout; select ELK with
+`%%{init: {"layout": "elk"}}%%`. Bundled `aws:` and `logos:` icon packs work
+offline (see `assets/mermaid-icons/NOTICES.md` for attribution). ELK includes
+an EPL-2.0 dependency. Mermaid math labels are not enabled; standalone
 LaTeX blocks still use `iced_math`. Export a sample through the same SVG/RGBA
 path with `cargo run --example merman_smoke -- /tmp/rmdv-merman`.
+
+Click a diagram to open a rounded, theme-matched preview modal. Pinch to zoom
+and drag to pan. The bottom-right width slider adjusts and saves the main
+reading column width; keyboard shortcuts and reading statistics sit above it.
 
 ## CLI / agent control
 
