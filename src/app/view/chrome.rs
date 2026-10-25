@@ -93,11 +93,73 @@ pub(in crate::app) fn status_footer<'a>(words: usize, pal: Palette) -> Element<'
             },
             ..Default::default()
         });
-    // Float bottom-right over the reader; content scrolls underneath.
-    container(pill)
+    pill.into()
+}
+
+/// A floating control for the main document's maximum reading width.
+pub(in crate::app) fn reading_width_slider<'a>(
+    width: f32,
+    available_width: f32,
+    pal: Palette,
+) -> Element<'a, Message> {
+    let maximum = available_width
+        .floor()
+        .clamp(1.0, crate::prefs::READING_WIDTH_MAX);
+    let minimum = crate::prefs::READING_WIDTH_MIN.min(maximum);
+    let width = width.min(maximum);
+    let control = irow![
+        text(format!("Width {:.0} px", width))
+            .size(12)
+            .color(pal.muted),
+        iced::widget::slider(minimum..=maximum, width, Message::SetReadingWidth)
+            .step(1.0_f32)
+            .on_release(Message::SaveReadingWidth)
+            .width(140)
+            .style(move |_, status| {
+                use iced::widget::slider;
+                slider::Style {
+                    rail: slider::Rail {
+                        backgrounds: (pal.accent.into(), pal.ink(0.18).into()),
+                        width: 4.0,
+                        border: Border {
+                            radius: theme::radius::PILL.into(),
+                            ..Default::default()
+                        },
+                    },
+                    handle: slider::Handle {
+                        shape: slider::HandleShape::Circle { radius: 7.0 },
+                        background: match status {
+                            slider::Status::Active => pal.accent.into(),
+                            _ => pal.fg.into(),
+                        },
+                        border_width: 1.0,
+                        border_color: pal.border_strong(),
+                    },
+                }
+            }),
+    ]
+    .spacing(12)
+    .align_y(iced::Alignment::Center);
+    let control = container(control)
+        .padding([8, 12])
+        .style(move |_| container::Style {
+            background: Some(pal.popover().into()),
+            border: Border {
+                color: pal.border(),
+                width: 1.0,
+                radius: theme::radius::MD.into(),
+            },
+            ..Default::default()
+        });
+    container(control)
         .width(Length::Fill)
         .height(Length::Fill)
-        .padding([10, 14])
+        .padding(Padding {
+            top: 0.0,
+            right: 14.0,
+            bottom: 12.0,
+            left: 0.0,
+        })
         .align_x(iced::alignment::Horizontal::Right)
         .align_y(iced::alignment::Vertical::Bottom)
         .into()
