@@ -45,3 +45,7 @@ The executable is `target/release/rmdv`. No automated suite was run.
 
 The owner authorized committing and pushing this combined work in a replacement
 upstream PR on 2026-10-25. Earlier local-only wording describes the trial stage.
+
+Submitted in [PR #82](https://github.com/minchenlee/rmdv/pull/82) from
+`chungchihhan:codex/merman-renderer` to `minchenlee:main` on 2026-10-25.
+The PR is open; combined native acceptance and upstream merge remain pending.

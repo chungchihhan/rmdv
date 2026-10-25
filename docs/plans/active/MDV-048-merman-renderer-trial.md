@@ -127,3 +127,7 @@ about local-only/uncommitted scope describe the prior trial stage. No merge,
 release or publication is authorized. The final locked release build and
 format/diff checks passed; the full automated suite was last run on the initial
 Merman trial, not on this combined follow-up.
+
+Submitted in [PR #82](https://github.com/minchenlee/rmdv/pull/82) from
+`chungchihhan:codex/merman-renderer` to `minchenlee:main` on 2026-10-25.
+The PR is open; combined native acceptance and upstream merge remain pending.

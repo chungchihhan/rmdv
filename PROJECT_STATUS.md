@@ -33,7 +33,8 @@ Local owner-requested trial: [`MDV-048`](docs/plans/active/MDV-048-merman-render
 replaces the Mermaid renderer with Merman 0.9.1. It raises the declared Rust
 minimum to 1.95; local rustc is 1.98.1. ELK is enabled alongside default Dagre,
 and AWS/logos icon packs are embedded for offline rendering. The owner accepted
-this renderer trial on 2026-10-25 and requested retaining it instead of
+this renderer trial on 2026-10-25; [PR #82](https://github.com/minchenlee/rmdv/pull/82)
+submits it upstream. The owner requested retaining it instead of
 Mermaid.js. [PR #80](https://github.com/minchenlee/rmdv/pull/80) is closed.
 Preview modal, pinch/pan gestures and the reading-width control are now ported
 from that branch; acceptance of the combined build remains pending. No installed
@@ -68,7 +69,7 @@ from that branch; acceptance of the combined build remains pending. No installed
 
 - Combined Merman + modal/width UI port: locked release build, formatting and
   diff checks passed on 2026-10-25. Native combined-build acceptance is pending;
-  the owner authorized commit, push and a new upstream PR.
+  submitted in [PR #82](https://github.com/minchenlee/rmdv/pull/82).
 
 - 2026-10-25 MDV-048 follow-up: release build, formatting and diff checks
   passed. A focused Merman probe loaded 3,414 icon/alias entries and rendered
