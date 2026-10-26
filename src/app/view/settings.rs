@@ -22,10 +22,12 @@ pub(in crate::app) fn settings_page<'a>(
     page = page.push(
         irow![
             container(text("Settings").size(22).color(pal.fg)).width(Length::Fill),
-            iced::widget::tooltip(
+            action_tip(
                 ghost_lu(ic::X, pal).on_press(Message::CloseSettings),
-                text("Esc").size(11).color(pal.muted),
+                "Close Settings",
+                Some("Esc"),
                 iced::widget::tooltip::Position::Bottom,
+                pal,
             ),
         ]
         .align_y(iced::Alignment::Center),
@@ -61,6 +63,7 @@ pub(in crate::app) fn settings_page<'a>(
             index,
             app.settings_cursor == index,
             settings_row_body(app, row, pal),
+            switch_toggle(row),
             pal,
         ));
     }
@@ -111,23 +114,28 @@ fn section_title(row: SettingsRow) -> &'static str {
         | SettingsRow::Glass
         | SettingsRow::GlassOpacity
         | SettingsRow::FontSize
-        | SettingsRow::LineSpacing => "Appearance",
-        SettingsRow::Footer | SettingsRow::HiddenFiles | SettingsRow::MindmapAutocenter => {
-            "Reading"
-        }
+        | SettingsRow::LineSpacing
+        | SettingsRow::Toolbar => "Appearance",
+        SettingsRow::Footer
+        | SettingsRow::HiddenFiles
+        | SettingsRow::MindmapAutocenter
+        | SettingsRow::MindmapScrollPans => "Reading",
         SettingsRow::AutoFocus | SettingsRow::Cli => "Agent & CLI",
         SettingsRow::ThemesFolder | SettingsRow::PrefsFile => "Advanced",
     }
 }
 
 /// One row: hover moves the keyboard cursor here; the cursor row is filled.
+/// A press anywhere on a switch row toggles it, as Space does; the switch
+/// itself takes its own press, so a press on it toggles once.
 fn settings_row<'a>(
     index: usize,
     cursor: bool,
     body: Element<'a, Message>,
+    toggle: Option<Message>,
     pal: Palette,
 ) -> Element<'a, Message> {
-    mouse_area(
+    let row = mouse_area(
         container(body)
             .id(App::settings_row_id(index))
             .width(Length::Fill)
@@ -141,8 +149,24 @@ fn settings_row<'a>(
                 ..Default::default()
             }),
     )
-    .on_enter(Message::SettingsCursor(index))
-    .into()
+    .on_enter(Message::SettingsCursor(index));
+    match toggle {
+        Some(toggle) => row.on_press(toggle).into(),
+        None => row.into(),
+    }
+}
+
+/// The message a switch row's switch sends; `None` for other rows.
+fn switch_toggle(row: SettingsRow) -> Option<Message> {
+    Some(match row {
+        SettingsRow::SoftSyntax => Message::ToggleSoftSyntax,
+        SettingsRow::Footer => Message::ToggleFooter,
+        SettingsRow::HiddenFiles => Message::ToggleHidden,
+        SettingsRow::MindmapAutocenter => Message::ToggleMindmapAutocenter,
+        SettingsRow::MindmapScrollPans => Message::ToggleMindmapScrollPans,
+        SettingsRow::AutoFocus => Message::ToggleAutoFocusOnNav,
+        _ => return None,
+    })
 }
 
 /// Label and one-line hint on the left, the control on the right.
@@ -233,6 +257,25 @@ fn settings_row_body<'a>(app: &'a App, row: SettingsRow, pal: Palette) -> Elemen
             line_spacing_control(app.line_spacing, pal),
             pal,
         ),
+        SettingsRow::Toolbar => labeled(
+            "Toolbar",
+            "Show it when the pointer reaches the top edge, or always.".into(),
+            segmented(
+                [
+                    (crate::prefs::ToolbarMode::OnHover, "On hover"),
+                    (crate::prefs::ToolbarMode::Always, "Always"),
+                ]
+                .map(|(mode, label)| {
+                    (
+                        label,
+                        app.prefs.toolbar == mode,
+                        Message::SetToolbarMode(mode),
+                    )
+                }),
+                pal,
+            ),
+            pal,
+        ),
         SettingsRow::Footer => labeled(
             "Status footer",
             "Word count and reading time below the document.".into(),
@@ -251,6 +294,16 @@ fn settings_row_body<'a>(app: &'a App, row: SettingsRow, pal: Palette) -> Elemen
             switch(
                 app.mindmap_autocenter,
                 Message::ToggleMindmapAutocenter,
+                pal,
+            ),
+            pal,
+        ),
+        SettingsRow::MindmapScrollPans => labeled(
+            "Scroll pans the mind map",
+            "Off: scrolling zooms. On: it pans; pinch or ⌘+scroll zooms.".into(),
+            switch(
+                app.prefs.mindmap_scroll_pans,
+                Message::ToggleMindmapScrollPans,
                 pal,
             ),
             pal,

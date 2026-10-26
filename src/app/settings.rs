@@ -13,9 +13,11 @@ pub enum SettingsRow {
     GlassOpacity,
     FontSize,
     LineSpacing,
+    Toolbar,
     Footer,
     HiddenFiles,
     MindmapAutocenter,
+    MindmapScrollPans,
     AutoFocus,
     Cli,
     ThemesFolder,
@@ -34,9 +36,11 @@ impl SettingsRow {
         rows.extend([
             FontSize,
             LineSpacing,
+            Toolbar,
             Footer,
             HiddenFiles,
             MindmapAutocenter,
+            MindmapScrollPans,
             AutoFocus,
         ]);
         if crate::cli_install::install_path().is_some() {
@@ -116,9 +120,11 @@ impl App {
             SettingsRow::Glass => Message::SetGlass(self.prefs.glass.next()),
             SettingsRow::FontSize => Message::FontSizeReset,
             SettingsRow::LineSpacing => Message::SetLineSpacing(crate::theme::LineSpacing::Default),
+            SettingsRow::Toolbar => Message::SetToolbarMode(self.prefs.toolbar.toggled()),
             SettingsRow::Footer => Message::ToggleFooter,
             SettingsRow::HiddenFiles => Message::ToggleHidden,
             SettingsRow::MindmapAutocenter => Message::ToggleMindmapAutocenter,
+            SettingsRow::MindmapScrollPans => Message::ToggleMindmapScrollPans,
             SettingsRow::AutoFocus => Message::ToggleAutoFocusOnNav,
             SettingsRow::Cli if crate::cli_install::should_offer() => Message::InstallCli,
             SettingsRow::Cli => return Task::none(),
@@ -164,12 +170,24 @@ impl App {
                 let next = self.line_spacing.step(dir);
                 (next != self.line_spacing).then_some(Message::SetLineSpacing(next))
             }
+            SettingsRow::Toolbar => {
+                let next = if forward {
+                    crate::prefs::ToolbarMode::Always
+                } else {
+                    crate::prefs::ToolbarMode::OnHover
+                };
+                (next != self.prefs.toolbar).then_some(Message::SetToolbarMode(next))
+            }
             SettingsRow::SoftSyntax => switch(self.prefs.soft_syntax, Message::ToggleSoftSyntax),
             SettingsRow::Footer => switch(self.show_footer, Message::ToggleFooter),
             SettingsRow::HiddenFiles => switch(self.show_hidden, Message::ToggleHidden),
             SettingsRow::MindmapAutocenter => {
                 switch(self.mindmap_autocenter, Message::ToggleMindmapAutocenter)
             }
+            SettingsRow::MindmapScrollPans => switch(
+                self.prefs.mindmap_scroll_pans,
+                Message::ToggleMindmapScrollPans,
+            ),
             SettingsRow::AutoFocus => {
                 switch(self.prefs.auto_focus_on_nav, Message::ToggleAutoFocusOnNav)
             }
@@ -207,6 +225,17 @@ impl App {
         Task::batch([self.measure_window_heights(), preview_measure])
     }
 
+    pub(super) fn set_toolbar_mode(&mut self, mode: crate::prefs::ToolbarMode) -> Task<Message> {
+        if self.prefs.toolbar == mode {
+            return Task::none();
+        }
+        self.prefs.toolbar = mode;
+        self.save_prefs();
+        // The reader moves in the widget tree (under the toolbar or beside
+        // its hover band), which resets its scroll state.
+        self.restore_body_scroll()
+    }
+
     pub(super) fn set_glass_opacity(&mut self, opacity: f32) -> Task<Message> {
         // Snap to the slider step so stored values stay on round percents.
         let snapped = (opacity / GLASS_OPACITY_STEP).round() * GLASS_OPACITY_STEP;
@@ -222,11 +251,11 @@ impl App {
     /// Relaunch rmdv with the current file (or folder), then close this window.
     pub(super) fn restart_app(&mut self) -> Task<Message> {
         if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
         let exe = match std::env::current_exe() {
             Ok(exe) => exe,
-            Err(error) => return self.show_toast(format!("Couldn't restart rmdv: {error}")),
+            Err(error) => return self.show_error_toast(format!("Couldn't restart rmdv: {error}")),
         };
         let reopen = self.file.clone().or_else(|| self.workspace.clone());
         let argv = relaunch_argv(&exe, reopen.as_deref());
@@ -242,7 +271,7 @@ impl App {
             .stderr(std::process::Stdio::null())
             .spawn();
         if let Err(error) = spawned {
-            return self.show_toast(format!("Couldn't restart rmdv: {error}"));
+            return self.show_error_toast(format!("Couldn't restart rmdv: {error}"));
         }
         let checkpoint = self.checkpoint_active_quick_slot();
         self.persist_quick_slots_now();
@@ -265,7 +294,7 @@ impl App {
         }
         match Self::reveal_file_in_finder(&path) {
             Ok(()) => Task::none(),
-            Err(error) => self.show_toast(error),
+            Err(error) => self.show_error_toast(error),
         }
     }
 }

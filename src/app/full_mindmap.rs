@@ -25,6 +25,7 @@ impl App {
             panel_step: 0,
             panel_drag: None,
             pending_open: None,
+            link_nav: None,
             pending_preview_settle: None,
             pending_preview: None,
             pending_workspace_load: None,
@@ -952,6 +953,17 @@ impl App {
     /// it, and its error has a navigator-local home instead of `App::error`.
     pub(super) fn begin_full_mindmap_open(&mut self, path: PathBuf) -> Task<Message> {
         self.cancel_refresh_tracking();
+        // A preview link's heading belongs to an open of that link's file
+        // alone (a hidden-filter refresh reopens it through here).
+        if let Some(full) = self.full_mindmap.as_mut() {
+            if full
+                .link_nav
+                .as_ref()
+                .is_some_and(|(target, _)| *target != canonicalize_existing_path(path.clone()))
+            {
+                full.link_nav = None;
+            }
+        }
         if let Some(blocked) = self.block_file_open_if_dirty(&path) {
             return blocked;
         }
@@ -1104,7 +1116,7 @@ impl App {
             };
             self.quick_slots
                 .occupied(index)
-                .is_some_and(|slot| slot.relative_path == relative)
+                .is_some_and(|slot| slot.in_workspace(root) && slot.relative_path == relative)
         });
         if self.quick_slots.active.is_some() && !active_matches {
             // Manual canvas navigation is no longer viewing the active slot's
@@ -1307,12 +1319,7 @@ impl App {
                 .as_ref()
                 .is_some_and(|guard| {
                     self.quick_slot_restore_is_current(guard)
-                        && self
-                            .quick_slots_workspace_root()
-                            .and_then(|root| {
-                                crate::quick_slots::resolve_path(root, &guard.slot.relative_path)
-                            })
-                            .is_some_and(|target| target == path)
+                        && guard.slot.resolve().is_some_and(|target| target == path)
                 });
         if !keep_quick_slot_restore {
             // Source reparses for a different/stale identity must invalidate

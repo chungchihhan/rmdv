@@ -1,36 +1,65 @@
-//! Quick Slots: per-workspace slot persistence, activation, checkpointing, and restore.
+//! Quick Slots: one global bank of nine (MDV-048 P8b). A slot opens from any
+//! workspace: one from another workspace opens that workspace first. This
+//! module holds persistence, seeding, activation, checkpointing, and restore.
 
 use super::*;
 
 impl App {
+    /// The open workspace, where slots are assigned and checkpointed.
     pub(super) fn quick_slots_workspace_root(&self) -> Option<&std::path::Path> {
-        self.workspace
-            .as_deref()
-            .or(self.quick_slots_root.as_deref())
+        self.workspace.as_deref()
     }
 
-    pub(super) fn load_quick_slots_for_workspace(&mut self, root: &std::path::Path) {
-        let same = self.quick_slots_root.as_ref().is_some_and(|current| {
-            crate::quick_slots::workspace_key(current) == crate::quick_slots::workspace_key(root)
-        });
-        if !same {
-            self.invalidate_pending_quick_slot_restore();
-            self.persist_quick_slots_now();
-            self.quick_slots = self.prefs.quick_slots.bank(root);
-            self.quick_slots_root = Some(root.to_path_buf());
-            self.quick_slots_undo = None;
-            self.quick_slots_persist_pending = false;
+    /// Whether `slot` was assigned in the open workspace.
+    pub(super) fn quick_slot_in_workspace(&self, slot: &crate::quick_slots::QuickSlot) -> bool {
+        self.quick_slots_workspace_root()
+            .is_some_and(|root| slot.in_workspace(root))
+    }
+
+    /// Seed the global bank once from the most recently opened workspace
+    /// (the recent folders) that has slots. When none has, the bank stays
+    /// unseeded until the first workspace opens.
+    pub(super) fn seed_global_quick_slots(&mut self) {
+        let roots = self.recent.folders.clone();
+        self.seed_global_quick_slots_from(&roots, false);
+    }
+
+    /// Seed the global bank from the first of `roots` whose old bank holds a
+    /// slot. With `settle`, the bank counts as seeded even when none has.
+    /// A seeded bank is saved at once, so it is never seeded again.
+    fn seed_global_quick_slots_from(&mut self, roots: &[PathBuf], settle: bool) {
+        if self.prefs.global_quick_slots.is_some() {
+            return;
+        }
+        let seeded = crate::quick_slots::seed_global(
+            &self.prefs.quick_slots,
+            roots.iter().map(PathBuf::as_path),
+        );
+        let found = seeded.slots.iter().any(Option::is_some);
+        if !found && !settle {
+            return;
+        }
+        if found {
+            self.quick_slots = seeded;
+        }
+        self.prefs.global_quick_slots = Some(self.quick_slots.clone());
+        self.save_prefs();
+    }
+
+    /// The first workspace to open seeds a bank that launch left unseeded.
+    pub(super) fn seed_global_quick_slots_from_workspace(&mut self) {
+        if let Some(root) = self.workspace.clone() {
+            self.seed_global_quick_slots_from(&[root], true);
         }
     }
 
     pub(super) fn persist_quick_slots_now(&mut self) {
-        let Some(root) = self.quick_slots_root.clone() else {
-            return;
-        };
         self.quick_slots_persist_pending = false;
-        self.prefs
-            .quick_slots
-            .put_bank(&root, self.quick_slots.clone());
+        // Unseeded, nothing was assigned yet; the first workspace seeds it.
+        if self.prefs.global_quick_slots.is_none() {
+            return;
+        }
+        self.prefs.global_quick_slots = Some(self.quick_slots.clone());
         self.save_prefs();
     }
 
@@ -234,7 +263,7 @@ impl App {
         let owns = self
             .quick_slots
             .occupied(index)
-            .is_some_and(|slot| slot.relative_path == relative);
+            .is_some_and(|slot| slot.in_workspace(root) && slot.relative_path == relative);
         if !owns {
             return Task::none();
         }
@@ -261,8 +290,7 @@ impl App {
         index: usize,
     ) -> Option<(crate::quick_slots::QuickSlot, PathBuf)> {
         let slot = self.quick_slots.occupied(index)?.clone();
-        let root = self.quick_slots_workspace_root()?;
-        let path = crate::quick_slots::resolve_path(root, &slot.relative_path)?;
+        let path = slot.resolve()?;
         Some((slot, path))
     }
 
@@ -319,10 +347,14 @@ impl App {
             .context
             .mindmap_selection
             .map(crate::ast::BlockId)
-            .filter(|id| self.ast.iter().any(|(block_id, _)| block_id == id));
+            .filter(|id| {
+                *id == crate::mindmap::DOC_ROOT
+                    || self.ast.iter().any(|(block_id, _)| block_id == id)
+            });
         self.mindmap_panel_shown = self.mindmap_selected;
         self.mindmap_panel_open = slot.context.mindmap_panel_open;
         self.finish_pending_quick_slot_restore();
+        self.history.arriving = None;
         self.quick_slot_body_restore = Some(slot.context.body_position);
         if path == self.file.as_deref().unwrap_or(path) {
             let max = self
@@ -341,15 +373,18 @@ impl App {
     }
 
     pub(super) fn begin_quick_slot_activation(&mut self, index: usize) -> Task<Message> {
+        // The newest slot press wins over one still waiting for its
+        // workspace; a press of another workspace's slot waits again below.
+        self.pending_quick_slot_switch = None;
         let Some(slot) = self.quick_slots.occupied(index).cloned() else {
             return self.show_toast(format!("Quick Slot {} is empty", index + 1));
         };
-        let Some(root) = self.quick_slots_workspace_root() else {
-            return self.show_toast(format!("Quick Slot {} is missing", index + 1));
-        };
-        let Some(path) = crate::quick_slots::resolve_path(root, &slot.relative_path) else {
+        if !self.quick_slot_in_workspace(&slot) {
+            return self.begin_quick_slot_workspace_switch(index, slot);
+        }
+        let Some(path) = slot.resolve() else {
             if self.dirty {
-                return self.show_toast(self.unsaved_edits_open_message());
+                return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
             }
             self.invalidate_pending_quick_slot_restore();
             self.quick_slots.active = Some(index);
@@ -369,7 +404,7 @@ impl App {
             return Task::none();
         }
         if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
         if !path.is_file() {
             self.invalidate_pending_quick_slot_restore();
@@ -444,8 +479,70 @@ impl App {
         }
     }
 
+    /// Slot `index` is from another workspace: open that workspace the way
+    /// Open Folder does, but without showing the sidebar, then activate the
+    /// slot there
+    /// ([`Self::resume_quick_slot_switch`]). A slot whose workspace or file
+    /// is gone shows as missing, and nothing opens.
+    fn begin_quick_slot_workspace_switch(
+        &mut self,
+        index: usize,
+        slot: crate::quick_slots::QuickSlot,
+    ) -> Task<Message> {
+        let root = PathBuf::from(&slot.root);
+        let present = root.is_dir() && slot.resolve().is_some_and(|path| path.is_file());
+        if self.dirty {
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
+        }
+        if !present {
+            self.invalidate_pending_quick_slot_restore();
+            self.quick_slots.active = Some(index);
+            self.persist_quick_slots_now();
+            return self.show_toast(format!(
+                "Quick Slot {} is missing: {}",
+                index + 1,
+                slot.relative_path
+            ));
+        }
+        let checkpoint = self.checkpoint_active_quick_slot();
+        self.invalidate_pending_quick_slot_restore();
+        self.pending_quick_slot_switch = Some(PendingQuickSlotSwitch { index, slot });
+        // The switch keeps the sidebar as it is.
+        let open = self.open_workspace(root, false);
+        Task::batch([checkpoint, open])
+    }
+
+    /// After every update: a slot waiting for its workspace activates once
+    /// that workspace is open. It is dropped when another workspace opened
+    /// instead, the slot changed meanwhile, or a later slot press,
+    /// assignment, clear, or close superseded it; it keeps waiting while
+    /// Full Mindmap still indexes its workspace.
+    pub(super) fn resume_quick_slot_switch(&mut self) -> Task<Message> {
+        let Some(pending) = self.pending_quick_slot_switch.as_ref() else {
+            return Task::none();
+        };
+        if !self.quick_slot_in_workspace(&pending.slot) {
+            let loading = self
+                .full_mindmap
+                .as_ref()
+                .and_then(|full| full.pending_workspace_load.as_ref())
+                .is_some_and(|load| pending.slot.in_workspace(&load.path));
+            if !loading {
+                self.pending_quick_slot_switch = None;
+            }
+            return Task::none();
+        }
+        let Some(pending) = self.pending_quick_slot_switch.take() else {
+            return Task::none();
+        };
+        if self.quick_slots.occupied(pending.index) != Some(&pending.slot) {
+            return Task::none();
+        }
+        self.begin_quick_slot_activation(pending.index)
+    }
+
     pub(super) fn assign_quick_slot(&mut self, index: usize) -> Task<Message> {
-        self.assign_quick_slot_checked(index, false)
+        self.assign_quick_slot_checked(index, None, false)
     }
 
     /// Apply the assignment the open confirmation asked about. Every guard
@@ -454,26 +551,77 @@ impl App {
         let Some(pending) = self.quick_slot_replace.take() else {
             return Task::none();
         };
-        self.assign_quick_slot_checked(pending.index, true)
+        self.assign_quick_slot_checked(pending.index, pending.path, true)
     }
 
+    /// Put workspace file `path` (from the file tree's context menu) in the
+    /// first free slot. With every slot full, ask to replace the last one,
+    /// as assigning to an occupied slot does. A file already in a slot stays
+    /// where it is.
+    pub(super) fn assign_quick_slot_path(&mut self, path: PathBuf) -> Task<Message> {
+        let Some(root) = self.quick_slots_workspace_root() else {
+            return self.show_toast("Open a workspace before assigning Quick Slots".into());
+        };
+        let Some(relative_path) = crate::quick_slots::relative_path(root, &path) else {
+            return self
+                .show_toast("Quick Slots only store files inside the active workspace".into());
+        };
+        let holds = |slot: &crate::quick_slots::QuickSlot| {
+            slot.in_workspace(root)
+                && crate::quick_slots::normalize_relative_path(&slot.relative_path)
+                    .is_some_and(|slot_path| slot_path == relative_path)
+        };
+        let slots = 0..crate::quick_slots::SLOT_COUNT;
+        if let Some(index) = slots
+            .clone()
+            .find(|&i| self.quick_slots.occupied(i).is_some_and(holds))
+        {
+            let name = path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or(relative_path);
+            return self.show_toast(format!("{name} is already in Quick Slot {}", index + 1));
+        }
+        let index = slots
+            .clone()
+            .find(|&i| self.quick_slots.occupied(i).is_none())
+            .unwrap_or(crate::quick_slots::SLOT_COUNT - 1);
+        self.assign_quick_slot_checked(index, Some(path), false)
+    }
+
+    /// Assign slot `index`: the current reading context, or `target` when
+    /// given. A target that is not the open document gets the default
+    /// context (read from the top) and does not become the active slot.
     fn assign_quick_slot_checked(
         &mut self,
         index: usize,
+        target: Option<PathBuf>,
         replace_confirmed: bool,
     ) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         if index >= crate::quick_slots::SLOT_COUNT {
             return Task::none();
         }
         if self.full_mindmap.is_none() && self.workspace.is_none() {
             return self.show_toast("Open a workspace before assigning Quick Slots".into());
         }
-        if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
-        }
-        let Some((path, context)) = self.current_quick_slot_context() else {
-            return self.show_toast("Open a file before assigning a Quick Slot".into());
+        let current = self
+            .current_quick_slot_context()
+            .filter(|(path, _)| target.as_ref().map_or(true, |target| target == path));
+        let (path, context, is_current) = match (current, target.clone()) {
+            (Some((path, context)), _) => (path, context, true),
+            (None, Some(path)) => (path, crate::quick_slots::SlotContext::default(), false),
+            (None, None) => {
+                if self.dirty {
+                    return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
+                }
+                return self.show_toast("Open a file before assigning a Quick Slot".into());
+            }
         };
+        // The open document's context includes unsaved edits' positions.
+        if is_current && self.dirty {
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
+        }
         let Some(root) = self.quick_slots_workspace_root() else {
             return self.show_toast("Open a workspace before assigning Quick Slots".into());
         };
@@ -483,33 +631,85 @@ impl App {
         };
         if !replace_confirmed {
             if let Some(current) = self.quick_slots.occupied(index) {
-                let same_file = crate::quick_slots::normalize_relative_path(&current.relative_path)
-                    .is_some_and(|slot_path| slot_path == relative_path);
+                let same_file = current.in_workspace(root)
+                    && crate::quick_slots::normalize_relative_path(&current.relative_path)
+                        .is_some_and(|slot_path| slot_path == relative_path);
                 if !same_file {
                     self.quick_slot_replace = Some(QuickSlotReplace {
                         index,
                         current: current.relative_path.clone(),
+                        current_workspace: (!current.in_workspace(root))
+                            .then(|| current.workspace_name()),
                         incoming: relative_path,
+                        path: target,
                     });
                     return Task::none();
                 }
             }
         }
         let slot = crate::quick_slots::QuickSlot {
+            root: crate::quick_slots::workspace_key(root),
             relative_path,
             context: context.normalized(),
         };
         self.invalidate_pending_quick_slot_restore();
         self.quick_slots.set(index, slot);
-        self.quick_slots.active = Some(index);
+        if is_current {
+            self.quick_slots.active = Some(index);
+        } else if self.quick_slots.active == Some(index) {
+            // The active slot no longer holds the open document.
+            self.quick_slots.active = None;
+        }
         self.quick_slots_undo = None;
         self.persist_quick_slots_now();
         self.show_toast(format!("Quick Slot {} assigned", index + 1))
     }
 
+    /// The context menu of slot `index`'s chip (MDV-048 P6). A slot in use
+    /// offers Open, Replace with Current File (the assign flow, with its
+    /// confirmation), and Clear; an empty slot offers Assign Current File.
+    /// Clear All is always there. Each item shows the chord that does the
+    /// same thing.
+    pub(super) fn open_quick_slot_context_menu(&mut self, index: usize) -> Task<Message> {
+        const OPEN: [&str; crate::quick_slots::SLOT_COUNT] =
+            ["⌘1", "⌘2", "⌘3", "⌘4", "⌘5", "⌘6", "⌘7", "⌘8", "⌘9"];
+        const ASSIGN: [&str; crate::quick_slots::SLOT_COUNT] = [
+            "⌥⌘1", "⌥⌘2", "⌥⌘3", "⌥⌘4", "⌥⌘5", "⌥⌘6", "⌥⌘7", "⌥⌘8", "⌥⌘9",
+        ];
+        if index >= crate::quick_slots::SLOT_COUNT {
+            return Task::none();
+        }
+        let current = self.current_quick_slot_context().map(|(path, _)| path);
+        let holds_current = match (self.quick_slots.occupied(index), current.as_ref()) {
+            (Some(slot), Some(current)) => slot.resolve().is_some_and(|path| path == *current),
+            _ => false,
+        };
+        let assign =
+            (current.is_some() && !holds_current).then_some(Message::QuickSlotAssign(index));
+        let slot = if self.quick_slots.occupied(index).is_some() {
+            vec![
+                MenuEntry::item("Open", Message::QuickSlotActivate(index))
+                    .shortcut(Some(OPEN[index])),
+                menu_item("Replace with Current File", assign).shortcut(Some(ASSIGN[index])),
+                MenuEntry::item("Clear", Message::QuickSlotClear(index)),
+            ]
+        } else {
+            vec![menu_item("Assign Current File", assign).shortcut(Some(ASSIGN[index]))]
+        };
+        let any =
+            (0..crate::quick_slots::SLOT_COUNT).any(|i| self.quick_slots.occupied(i).is_some());
+        let all = vec![menu_item(
+            "Clear All",
+            any.then_some(Message::QuickSlotClearAll),
+        )];
+        self.open_context_menu(menu_sections(vec![slot, all]), None);
+        Task::none()
+    }
+
     pub(super) fn clear_quick_slot(&mut self, index: usize) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
         let Some(slot) = self.quick_slots.clear(index) else {
             return self.show_toast(format!("Quick Slot {} is empty", index + 1));
@@ -531,8 +731,9 @@ impl App {
     }
 
     pub(super) fn clear_all_quick_slots(&mut self) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
         let removed = self.quick_slots.clear_all();
         if removed.is_empty() {
@@ -559,6 +760,7 @@ impl App {
     }
 
     pub(super) fn undo_quick_slot_clear(&mut self) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         let Some(undo) = self.quick_slots_undo.take() else {
             return self.show_toast("Nothing to undo".into());
         };
@@ -573,11 +775,12 @@ impl App {
     }
 
     pub(super) fn close_active_quick_slot(&mut self) -> Task<Message> {
+        self.pending_quick_slot_switch = None;
         let Some(active) = self.quick_slots.active else {
             return self.show_toast("No active Quick Slot".into());
         };
         if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
         let checkpoint = self.checkpoint_active_quick_slot();
         self.invalidate_pending_quick_slot_restore();
@@ -602,18 +805,9 @@ impl App {
 
     pub(super) fn close_quick_slot_window(&mut self) -> Task<Message> {
         if self.dirty {
-            return self.show_toast(self.unsaved_edits_open_message());
+            return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
         }
-        let checkpoint = self.checkpoint_active_quick_slot();
-        // The checkpoint mutates the in-memory slot synchronously. Persist it
-        // before returning the close task so the debounce cannot lose the
-        // latest reading position when the process exits immediately.
-        self.persist_quick_slots_now();
-        self.invalidate_pending_quick_slot_restore();
-        Task::batch([
-            checkpoint,
-            iced::window::latest().and_then(iced::window::close),
-        ])
+        self.close_window_now(None)
     }
 
     pub(super) fn apply_pending_quick_slot_restore(&mut self) -> Task<Message> {
@@ -626,11 +820,7 @@ impl App {
         }
         let index = pending.index;
         let slot = pending.slot.clone();
-        let Some(root) = self.quick_slots_workspace_root() else {
-            self.invalidate_pending_quick_slot_restore();
-            return Task::none();
-        };
-        let Some(path) = crate::quick_slots::resolve_path(root, &slot.relative_path) else {
+        let Some(path) = slot.resolve() else {
             self.invalidate_pending_quick_slot_restore();
             return Task::none();
         };

@@ -34,9 +34,34 @@ pub mod ic {
     pub const PANEL_LEFT: char = '\u{e12a}';
     /// Lucide "panel-left-close" — collapse the left sidebar.
     pub const PANEL_LEFT_CLOSE: char = '\u{e21c}';
+    /// Lucide "panel-right-open" / "panel-right-close" — show or hide a
+    /// right-hand panel.
+    pub const PANEL_RIGHT_OPEN: char = '\u{e434}';
+    pub const PANEL_RIGHT_CLOSE: char = '\u{e432}';
+    /// Lucide "folder-up" — go to the parent folder.
+    pub const FOLDER_UP: char = '\u{e33d}';
     pub const COPY: char = '\u{e09e}';
     /// Lucide "maximize" — used for diagram hover-zoom affordance.
     pub const ZOOM: char = '\u{e1a1}';
     /// Lucide "keyboard" — floating shortcuts-cheatsheet button.
     pub const KEYBOARD: char = '\u{e284}';
+    /// Lucide "save" — write the file.
+    pub const SAVE: char = '\u{e14d}';
+    /// Lucide "network" — Full Mindmap Mode.
+    pub const NETWORK: char = '\u{e125}';
+    /// Lucide "book-open" — the Read view.
+    pub const BOOK_OPEN: char = '\u{e05f}';
+    /// Lucide "pencil-line" — the Edit view.
+    pub const PENCIL_LINE: char = '\u{e4f0}';
+    /// Lucide "git-fork" — the document Mind Map view.
+    pub const GIT_FORK: char = '\u{e28d}';
+    /// Lucide "plus" / "minus" — mind map Zoom In / Zoom Out.
+    pub const PLUS: char = '\u{e13d}';
+    pub const MINUS: char = '\u{e11c}';
+    /// Lucide "scan" — mind map Zoom to Fit.
+    pub const SCAN: char = '\u{e257}';
+    /// Lucide "list-ordered" — the Quick Slots popover.
+    pub const LIST_ORDERED: char = '\u{e1d1}';
+    /// Lucide "panel-left-open" — show the left sidebar.
+    pub const PANEL_LEFT_OPEN: char = '\u{e21d}';
 }

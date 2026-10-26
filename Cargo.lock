@@ -2330,6 +2330,7 @@ name = "iced_selection"
 version = "0.5.0"
 dependencies = [
  "iced_widget",
+ "objc2-core-foundation",
  "unicode-segmentation",
 ]
 

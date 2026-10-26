@@ -15,8 +15,20 @@ pub(in crate::app) fn folder_picker_overlay<'a>(
         let mut crumb_row = iced::widget::Row::new()
             .spacing(2)
             .align_y(iced::Alignment::Center);
-        crumb_row = crumb_row.push(ghost_lu(ic::HOME, pal).on_press(Message::PickerHome));
-        crumb_row = crumb_row.push(ghost_lu(ic::ARROW_UP, pal).on_press(Message::PickerParent));
+        crumb_row = crumb_row.push(action_tip(
+            ghost_lu(ic::HOME, pal).on_press(Message::PickerHome),
+            "Home Folder",
+            None,
+            iced::widget::tooltip::Position::Bottom,
+            pal,
+        ));
+        crumb_row = crumb_row.push(action_tip(
+            ghost_lu(ic::ARROW_UP, pal).on_press(Message::PickerParent),
+            "Parent Folder",
+            Some("←"),
+            iced::widget::tooltip::Position::Bottom,
+            pal,
+        ));
         crumb_row = crumb_row.push(Space::new().width(8));
         for (label, path) in crumbs.iter() {
             crumb_row = crumb_row.push(text("/").color(pal.subtle).size(12));
@@ -72,21 +84,9 @@ pub(in crate::app) fn folder_picker_overlay<'a>(
                 .padding(Padding::from([7, 12]))
                 .width(Length::Fill)
                 .height(Length::Fixed(32.0))
-                .style(move |_, status| button::Style {
-                    background: match (is_sel, status) {
-                        (true, _) => Some(Background::Color(pal.hover())),
-                        (_, button::Status::Hovered) => Some(Background::Color(pal.hover())),
-                        _ => None,
-                    },
-                    text_color: pal.fg,
-                    border: Border {
-                        radius: theme::radius::SM.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
+                .style(list_row_style(is_sel, pal))
                 .on_press(on_press);
-                list = list.push(row);
+                list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
             }
         }
         let body = scrollable(list)
@@ -111,7 +111,7 @@ pub(in crate::app) fn file_finder_overlay<'a>(
     selected: usize,
     pal: Palette,
 ) -> Element<'a, Message> {
-    let input = container(
+    let input = overlay_query_row(
         text_input("Find file… (fuzzy)", query)
             .id(App::overlay_input_id())
             .on_input(Message::OverlayQueryChanged)
@@ -126,13 +126,16 @@ pub(in crate::app) fn file_finder_overlay<'a>(
                 value: pal.fg,
                 selection: pal.selection,
             }),
+        query,
+        pal,
     );
 
     let mut list = Column::new().spacing(0).padding(Padding::from([6, 8]));
+    let more = file_finder_more_label(files.len());
     if files.is_empty() {
         list = list.push(container(text("No matches").color(pal.subtle).size(13)).padding(14));
     } else {
-        for (i, (p, rel, _)) in files.into_iter().enumerate().take(80) {
+        for (i, (p, rel, _)) in files.into_iter().enumerate().take(FILE_FINDER_ROW_CAP) {
             let is_sel = i == selected;
             let path_clone = p.clone();
             let parent = std::path::Path::new(&rel)
@@ -153,22 +156,15 @@ pub(in crate::app) fn file_finder_overlay<'a>(
                 .padding(Padding::from([7, 12]))
                 .width(Length::Fill)
                 .height(Length::Fixed(32.0))
-                .style(move |_, status| button::Style {
-                    background: match (is_sel, status) {
-                        (true, _) => Some(Background::Color(pal.hover())),
-                        (_, button::Status::Hovered) => Some(Background::Color(pal.hover())),
-                        _ => None,
-                    },
-                    text_color: pal.fg,
-                    border: Border {
-                        radius: theme::radius::SM.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
+                .style(list_row_style(is_sel, pal))
                 .on_press(Message::OpenFileFinderPath(path_clone));
-            list = list.push(row);
+            let row = mouse_area(row).on_right_press(Message::FileFinderContextMenu(p));
+            list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
         }
+    }
+    if let Some(more) = more {
+        list = list
+            .push(container(text(more).size(12).color(pal.subtle)).padding(Padding::from([8, 12])));
     }
     let body = scrollable(list)
         .id(App::overlay_scroll_id())
@@ -187,6 +183,21 @@ pub(in crate::app) fn file_finder_overlay<'a>(
     overlay_frame(column![input, divider, body].into(), pal, 600.0, 460.0)
 }
 
+/// Line under a capped file-finder list; `None` when every result shows.
+/// Past `FILE_FINDER_RESULT_CAP` the hidden count is a lower bound.
+pub(in crate::app) fn file_finder_more_label(total: usize) -> Option<String> {
+    let hidden = total.saturating_sub(FILE_FINDER_ROW_CAP);
+    if hidden == 0 {
+        return None;
+    }
+    let plus = if total >= FILE_FINDER_RESULT_CAP {
+        "+"
+    } else {
+        ""
+    };
+    Some(format!("{hidden}{plus} more — keep typing to narrow"))
+}
+
 pub(in crate::app) const QUICK_SLOT_SHORTCUT_HINTS: &[(&str, &str)] = &[
     ("⌘1–9", "Activate slots 1 to 9"),
     (QUICK_SLOT_ASSIGN_HINT, "Assign current file to slot"),
@@ -196,90 +207,162 @@ pub(in crate::app) const QUICK_SLOT_SHORTCUT_HINTS: &[(&str, &str)] = &[
     ("⌘⇧W", "Close window"),
 ];
 
-/// Static, read-only keyboard cheatsheet. Grouped by category, no search, no
-/// cursor. Esc or backdrop click dismisses (handled by `overlay_frame`).
-pub(in crate::app) fn shortcuts_overlay<'a>(pal: Palette) -> Element<'a, Message> {
-    // (group title, [(keys, action)]). Hand-authored so we can group by category
-    // and include non-command bindings (arrows, Space) the palette omits.
-    let groups: [(&str, &[(&str, &str)]); 7] = [
+/// One shortcut-sheet row: the keys, what they do, and the action a click
+/// on the row runs, when one exists.
+#[derive(Debug, Clone)]
+pub(in crate::app) struct SheetRow {
+    pub(in crate::app) keys: &'static str,
+    pub(in crate::app) label: &'static str,
+    pub(in crate::app) action: Option<Message>,
+}
+
+fn sheet_row(keys: &'static str, label: &'static str) -> SheetRow {
+    SheetRow {
+        keys,
+        label,
+        action: None,
+    }
+}
+
+fn sheet_action(keys: &'static str, label: &'static str, action: Message) -> SheetRow {
+    SheetRow {
+        keys,
+        label,
+        action: Some(action),
+    }
+}
+
+/// The shortcut sheet's rows by group. Hand-authored so we can group by
+/// category and include non-command bindings (arrows, Space) the palette
+/// omits; a test checks it against the palette's shortcuts and the key map.
+/// A row runs an action on click only where the keys do one thing
+/// everywhere; context-bound keys (arrows, Esc, the mindmap panel) do not.
+pub(in crate::app) fn shortcut_sheet_groups() -> Vec<(&'static str, Vec<SheetRow>)> {
+    vec![
+        (
+            "General",
+            vec![
+                sheet_action("⌘⇧P", "Command Palette", Message::OpenCommandPalette),
+                sheet_action("⌘,", "Open Settings", Message::OpenSettings),
+                sheet_row("⌘/", "Show Shortcuts"),
+            ],
+        ),
         (
             "File",
-            &[
-                ("⌘O", "Open Folder"),
-                ("⌘R", "Refresh File / Folder"),
-                ("⌘⌥R", "Reveal File in Finder"),
-                ("⌘⌥C", "Copy Focused File Path"),
-                ("⌘P", "Find File in Workspace"),
-                ("⌘S", "Save"),
+            vec![
+                sheet_action("⌘O", "Open Folder", Message::OpenFolderPicker),
+                sheet_action("⌘R", "Refresh File / Folder", Message::Refresh),
+                sheet_action("⌘⌥R", "Reveal File in Finder", Message::RevealFileInFinder),
+                sheet_action("⌘⌥C", "Copy Focused File Path", Message::CopyFilePath),
+                sheet_action("⌘P", "Find File in Workspace", Message::OpenFileFinder),
+                sheet_action("⌘S", "Save", Message::SaveFile),
             ],
         ),
         (
             "Navigation",
-            &[
-                ("⌘F", "Find in Document"),
-                ("⌘⇧F", "Search All Files"),
-                ("⌘A ⌘C", "Copy Whole Document"),
-                ("Home / g", "Reader top (outside Zen)"),
-                ("End / G", "Reader bottom (outside Zen)"),
-                ("↑ ↓", "Move outline / tree selection"),
-                ("Enter", "Jump to selection"),
+            vec![
+                sheet_row("⌘[ ⌘]", "Go Back / Forward"),
+                sheet_action("⌘F", "Find in Document", Message::ToggleSearch),
+                sheet_action("⌘⇧F", "Search All Files", Message::OpenVaultSearch),
+                sheet_row("⌘A ⌘C", "Copy Whole Document"),
+                sheet_action("Home / g", "Reader top (outside Zen)", Message::ScrollToTop),
+                sheet_action(
+                    "End / G",
+                    "Reader bottom (outside Zen)",
+                    Message::ScrollToBottom,
+                ),
+                sheet_row("j k", "Scroll down / up"),
+                sheet_row("Space ⇧Space", "Page down / up"),
+                sheet_row("↑ ↓", "Move outline / tree selection"),
+                sheet_row("← →", "Files / Outline tab"),
+                sheet_row("Enter", "Jump to selection"),
             ],
         ),
         (
             "View",
-            &[
-                ("⌘B", "Toggle Sidebar"),
-                ("⌘E", "Toggle Zen Edit"),
-                ("Esc", "Exit Zen Edit"),
-                ("⌘T", "Cycle Theme"),
-                ("⌘⇧.", "Toggle Hidden Files"),
-                ("⌘+ ⌘-", "Reader Font Size Up / Down"),
-                ("⌘0", "Reset Reader Font Size"),
-                ("⌘⇧P", "Command Palette"),
+            vec![
+                sheet_action("⌘B", "Toggle Sidebar", Message::ToggleSidebar),
+                sheet_action("⌘E", "Toggle Zen Edit", Message::ToggleViewMode),
+                sheet_row("Esc", "Exit Zen Edit"),
+                sheet_action("⌘T", "Cycle Theme", Message::ToggleTheme),
+                sheet_action("⌘⇧.", "Toggle Hidden Files", Message::ToggleHidden),
+                sheet_row("⌘+ ⌘-", "Reader Font Size Up / Down"),
+                sheet_action("⌘0", "Reset Reader Font Size", Message::FontSizeReset),
             ],
         ),
         (
             "Edit",
-            &[
-                ("⌘← ⌘→", "Zen line start / end"),
-                ("⌘↑ ⌘↓", "Zen document start / end"),
-                ("⌘S", "Save"),
+            vec![
+                sheet_row("⌘← ⌘→", "Zen line start / end"),
+                sheet_row("⌘↑ ⌘↓", "Zen document start / end"),
+                sheet_row("⌘Z ⌘⇧Z", "Zen undo / redo"),
             ],
         ),
         (
             "Mindmap",
-            &[
-                ("⌘M", "Toggle Mindmap"),
-                ("⌘K 0–6", "Show Through Node Level"),
-                ("⌘⌥B", "Toggle Panel"),
-                ("⌘⌥W", "Cycle Panel Width"),
-                ("= −", "Zoom Graph In / Out"),
-                ("0", "Reset Graph Zoom (100%)"),
-                ("← ↑ → ↓", "Navigate nodes"),
-                ("Space", "Fold / unfold node"),
+            vec![
+                sheet_action("⌘M", "Toggle Mindmap", Message::ToggleMindmap),
+                sheet_action("⌘⇧M", "Full Mindmap Mode", Message::ToggleFullMindmap),
+                sheet_row("⌘K 0–6", "Show Through Node Level"),
+                sheet_row("⌘⌥B", "Toggle Panel"),
+                sheet_row("⌘⌥W", "Cycle Panel Width"),
+                sheet_row("= −", "Zoom Graph In / Out"),
+                sheet_row("0", "Reset Graph Zoom (100%)"),
+                sheet_row("← ↑ → ↓", "Navigate nodes"),
+                sheet_row("Space", "Fold / unfold node"),
             ],
         ),
-        ("Quick Slots", QUICK_SLOT_SHORTCUT_HINTS),
-        ("Help", &[("⌘/", "Show Shortcuts")]),
-    ];
+        (
+            "Quick Slots",
+            QUICK_SLOT_SHORTCUT_HINTS
+                .iter()
+                .map(|&(keys, label)| sheet_row(keys, label))
+                .collect(),
+        ),
+    ]
+}
+
+/// A palette command label split into its name and its shortcut, which
+/// follows two spaces ("Toggle Sidebar  ⌘B").
+pub(in crate::app) fn split_command_label(
+    label: &'static str,
+) -> (&'static str, Option<&'static str>) {
+    match label.split_once("  ") {
+        Some((name, keys)) => (name, Some(keys)),
+        None => (label, None),
+    }
+}
+
+/// The shortcut sheet's id, for tests.
+pub(in crate::app) const SHORTCUTS_SHEET_ID: &str = "shortcuts-sheet";
+/// The sheet's close button.
+pub(in crate::app) const SHORTCUTS_CLOSE_ID: &str = "shortcuts-close";
+
+/// Keyboard cheatsheet, grouped by category, no search, no cursor. Esc, the
+/// X button, or a backdrop click dismisses it; a row with an action runs it.
+pub(in crate::app) fn shortcuts_overlay<'a>(pal: Palette) -> Element<'a, Message> {
+    let mut groups = shortcut_sheet_groups().into_iter();
+    let mut next = || groups.next().expect("seven sheet groups");
+    let (general, file, navigation, view, edit, mindmap, slots) =
+        (next(), next(), next(), next(), next(), next(), next());
 
     // Three balanced columns so the sheet is compact and nothing clips:
-    // File + Quick Slots | Navigation + Mindmap | View + Edit + Help.
+    // General + File + Quick Slots | Navigation + Edit | View + Mindmap.
     let columns = [
-        vec![groups[0], groups[5]],
-        vec![groups[1], groups[4]],
-        vec![groups[2], groups[3], groups[6]],
+        vec![general, file, slots],
+        vec![navigation, edit],
+        vec![view, mindmap],
     ];
 
     let mut cols = irow![].spacing(24);
     for col_groups in columns {
-        let mut col = Column::new().spacing(2).width(Length::Fixed(300.0));
-        for (gi, (title, rows)) in col_groups.iter().enumerate() {
-            let top = if gi == 0 { 0.0 } else { 18.0 };
+        let mut col = Column::new().width(Length::Fixed(300.0));
+        for (gi, (title, rows)) in col_groups.into_iter().enumerate() {
+            let top = if gi == 0 { 0.0 } else { 16.0 };
             let mut header_font = iced::Font::with_name("Inter");
             header_font.weight = iced::font::Weight::Semibold;
             col = col.push(
-                container(text(*title).size(11).color(pal.muted).font(header_font)).padding(
+                container(text(title).size(11).color(pal.muted).font(header_font)).padding(
                     Padding {
                         top,
                         bottom: 5.0,
@@ -288,24 +371,34 @@ pub(in crate::app) fn shortcuts_overlay<'a>(pal: Palette) -> Element<'a, Message
                     },
                 ),
             );
-            for (keys, action) in rows.iter() {
-                let row = irow![
-                    container(key_caps(keys, pal)).width(Length::Fixed(118.0)),
-                    text(*action).size(13).color(pal.fg),
-                ]
-                .spacing(12)
-                .align_y(iced::Alignment::Center);
-                col = col.push(container(row).padding(Padding::from([4, 2])));
+            for row in rows {
+                col = col.push(sheet_row_view(row, pal));
             }
         }
         cols = cols.push(col);
     }
 
-    let card = container(cols).padding(Padding::from([34, 40]));
+    // The X sits in the card's top-right corner, over the padding.
+    let close = container(action_tip(
+        ghost_lu(ic::X, pal).on_press(Message::CloseOverlay),
+        "Close",
+        Some("Esc"),
+        iced::widget::tooltip::Position::Left,
+        pal,
+    ))
+    .id(SHORTCUTS_CLOSE_ID);
+    let card = stack![
+        container(cols).padding(Padding::from([34, 40])),
+        container(close)
+            .width(Length::Fill)
+            .padding(Padding::from([6, 6]))
+            .align_x(iced::alignment::Horizontal::Right),
+    ];
 
     // Dedicated frame: vertically centered (equal top/bottom margin). Scrim
     // darkness matches the command palette (`overlay_frame`).
     let panel = container(card)
+        .id(SHORTCUTS_SHEET_ID)
         .max_width(1060.0)
         .max_height(630.0)
         .style(move |_| container::Style {
@@ -319,23 +412,48 @@ pub(in crate::app) fn shortcuts_overlay<'a>(pal: Palette) -> Element<'a, Message
             ..Default::default()
         });
 
-    let scrim = mouse_area(
-        container(Space::new().width(Length::Fill).height(Length::Fill))
-            .style(|_| container::Style {
-                background: Some(Background::Color(theme::shadow::SCRIM)),
-                ..Default::default()
-            })
-            .width(Length::Fill)
-            .height(Length::Fill),
-    )
-    .on_press(Message::CloseOverlay);
+    let scrim = modal_scrim(Message::CloseOverlay);
 
-    let centered = container(panel)
+    // Opaque: a click on the sheet itself must not reach the scrim.
+    let centered = container(iced::widget::opaque(panel))
         .padding(Padding::from([60, 40]))
         .center_x(Length::Fill)
         .center_y(Length::Fill);
 
     stack![scrim, centered].into()
+}
+
+/// One sheet row, 28 px tall. A row with an action is a button that
+/// closes the sheet and runs it; the others only read.
+fn sheet_row_view<'a>(row: SheetRow, pal: Palette) -> Element<'a, Message> {
+    let content = irow![
+        container(key_caps(row.keys, pal)).width(Length::Fixed(118.0)),
+        text(row.label).size(13).color(pal.fg),
+    ]
+    .spacing(12)
+    .align_y(iced::Alignment::Center);
+    let padding = Padding::from([2, 2]);
+    match row.action {
+        Some(action) => button(content)
+            .padding(padding)
+            .width(Length::Fill)
+            .style(move |_, status| button::Style {
+                background: match status {
+                    button::Status::Hovered => Some(Background::Color(pal.hover())),
+                    button::Status::Pressed => Some(Background::Color(pal.active())),
+                    _ => None,
+                },
+                text_color: pal.fg,
+                border: Border {
+                    radius: theme::radius::SM.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .on_press(Message::ShortcutSheetRun(Box::new(action)))
+            .into(),
+        None => container(content).padding(padding).into(),
+    }
 }
 
 /// Split a shortcut string into key-cap labels. Space-separated combos;
@@ -371,22 +489,39 @@ pub(in crate::app) fn key_cap_labels(keys: &str) -> Vec<String> {
 /// Render a shortcut string as a row of key caps (see `key_cap_labels`).
 /// Single glyphs get square caps; longer labels get wider caps.
 pub(in crate::app) fn key_caps<'a>(keys: &str, pal: Palette) -> Element<'a, Message> {
-    let mut row = irow![].spacing(4).align_y(iced::Alignment::Center);
-    for cap in key_cap_labels(keys) {
-        let multi = cap.chars().count() > 1;
-        let cap_text = text(cap).size(12).color(pal.fg).font(editor_font());
-        // Square (24x24) for single glyphs; wider but same height for words.
+    key_caps_sized(keys, pal, SHEET_KEY_CAP)
+}
+
+/// The shortcut sheet's key-cap height.
+const SHEET_KEY_CAP: f32 = 24.0;
+/// The Command Palette's smaller key caps, which fit its 32 px rows.
+const PALETTE_KEY_CAP: f32 = 18.0;
+
+/// [`key_caps`] at a cap height of `cap` px.
+pub(in crate::app) fn key_caps_sized<'a>(
+    keys: &str,
+    pal: Palette,
+    cap: f32,
+) -> Element<'a, Message> {
+    let mut row = irow![].spacing(cap / 6.0).align_y(iced::Alignment::Center);
+    for label in key_cap_labels(keys) {
+        let multi = label.chars().count() > 1;
+        let cap_text = text(label)
+            .size(cap / 2.0)
+            .color(pal.fg)
+            .font(editor_font());
+        // Square for single glyphs; wider but the same height for words.
         let w = if multi {
             Length::Shrink
         } else {
-            Length::Fixed(24.0)
+            Length::Fixed(cap)
         };
         row = row.push(
             container(cap_text)
                 .width(w)
-                .height(Length::Fixed(24.0))
+                .height(Length::Fixed(cap))
                 .padding(if multi {
-                    Padding::from([0, 8])
+                    Padding::from([0.0, cap / 3.0])
                 } else {
                     Padding::ZERO
                 })
@@ -406,13 +541,56 @@ pub(in crate::app) fn key_caps<'a>(keys: &str, pal: Palette) -> Element<'a, Mess
     row.into()
 }
 
+/// The clear button's id in the palette and finder query fields.
+pub(in crate::app) const OVERLAY_QUERY_CLEAR_ID: &str = "overlay-query-clear";
+/// The clear button's id in the vault page's query field.
+pub(in crate::app) const VAULT_QUERY_CLEAR_ID: &str = "vault-query-clear";
+
+/// A query field's clear button, shown only while the field holds text.
+pub(in crate::app) fn query_clear_button<'a>(
+    query: &str,
+    id: &'static str,
+    on_press: Message,
+    pal: Palette,
+) -> Option<Element<'a, Message>> {
+    (!query.is_empty()).then(|| {
+        container(action_tip(
+            ghost_lu(ic::X, pal).on_press(on_press),
+            "Clear",
+            None,
+            iced::widget::tooltip::Position::Bottom,
+            pal,
+        ))
+        .id(id)
+        .into()
+    })
+}
+
+/// An overlay's query field with its clear button at the right end.
+fn overlay_query_row<'a>(
+    field: iced::widget::TextInput<'a, Message>,
+    query: &str,
+    pal: Palette,
+) -> Element<'a, Message> {
+    let mut row = irow![field].align_y(iced::Alignment::Center);
+    if let Some(clear) = query_clear_button(
+        query,
+        OVERLAY_QUERY_CLEAR_ID,
+        Message::OverlayQueryClear,
+        pal,
+    ) {
+        row = row.push(clear).push(Space::new().width(8));
+    }
+    container(row).into()
+}
+
 pub(in crate::app) fn command_overlay<'a>(
     query: &'a str,
     cmds: Vec<(&'static str, Message, i32)>,
     selected: usize,
     pal: Palette,
 ) -> Element<'a, Message> {
-    let input = container(
+    let input = overlay_query_row(
         text_input("Run a command…", query)
             .id(App::overlay_input_id())
             .on_input(Message::OverlayQueryChanged)
@@ -427,33 +605,32 @@ pub(in crate::app) fn command_overlay<'a>(
                 value: pal.fg,
                 selection: pal.selection,
             }),
+        query,
+        pal,
     );
 
     let mut list = Column::new().spacing(0).padding(Padding::from([6, 8]));
     if cmds.is_empty() {
         list = list.push(container(text("No commands").color(pal.subtle).size(13)).padding(14));
     } else {
-        for (i, (label, msg, _)) in cmds.into_iter().enumerate() {
+        for (i, (label, _, _)) in cmds.into_iter().enumerate() {
             let is_sel = i == selected;
-            let row = button(text(label).size(13).color(pal.fg))
+            // The name on the left, the shortcut as key caps on the right.
+            let (name, keys) = split_command_label(label);
+            let mut content =
+                irow![text(name).size(13).color(pal.fg)].align_y(iced::Alignment::Center);
+            if let Some(keys) = keys {
+                content = content
+                    .push(Space::new().width(Length::Fill))
+                    .push(key_caps_sized(keys, pal, PALETTE_KEY_CAP));
+            }
+            let row = button(content)
                 .padding(Padding::from([7, 12]))
                 .width(Length::Fill)
                 .height(Length::Fixed(32.0))
-                .style(move |_, status| button::Style {
-                    background: match (is_sel, status) {
-                        (true, _) => Some(Background::Color(pal.hover())),
-                        (_, button::Status::Hovered) => Some(Background::Color(pal.hover())),
-                        _ => None,
-                    },
-                    text_color: pal.fg,
-                    border: Border {
-                        radius: theme::radius::SM.into(),
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                })
-                .on_press(msg);
-            list = list.push(row);
+                .style(list_row_style(is_sel, pal))
+                .on_press(Message::OverlayPick(i));
+            list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
         }
     }
 
@@ -532,7 +709,6 @@ pub(in crate::app) fn theme_overlay<'a>(
             ..Default::default()
         });
         let label = t.label().to_string();
-        let msg = t.message();
         let marker: Element<'a, Message> = if is_current {
             icon::glyph(ic::CHECK, 12.0, pal.accent).into()
         } else {
@@ -552,21 +728,9 @@ pub(in crate::app) fn theme_overlay<'a>(
         )
         .padding(Padding::from([7, 12]))
         .width(Length::Fill)
-        .style(move |_, status| button::Style {
-            background: match (is_sel, status) {
-                (true, _) => Some(Background::Color(pal.hover())),
-                (_, button::Status::Hovered) => Some(Background::Color(pal.hover())),
-                _ => None,
-            },
-            text_color: pal.fg,
-            border: Border {
-                radius: theme::radius::SM.into(),
-                ..Default::default()
-            },
-            ..Default::default()
-        })
-        .on_press(msg);
-        list = list.push(row);
+        .style(list_row_style(is_sel, pal))
+        .on_press(Message::OverlayPick(i));
+        list = list.push(hover_row(row, is_sel, Message::OverlayHover(i)));
     }
 
     let body = scrollable(list)
@@ -621,7 +785,8 @@ pub(in crate::app) fn picker_hint_footer<'a>(pal: Palette) -> Element<'a, Messag
         Space::new().width(14),
         hint("␣", "descend / open"),
         Space::new().width(14),
-        hint("↵", "open"),
+        // A click on a folder row descends; a double-click opens it, as ↵.
+        hint("↵", "open / double-click"),
         Space::new().width(Length::Fill),
         hint("⎋", "close"),
     ]
@@ -674,6 +839,7 @@ pub(in crate::app) fn overlay_frame<'a>(
     max_w: f32,
     max_h: f32,
 ) -> Element<'a, Message> {
+    let content = stack![content, list_pointer_tracker()];
     let panel = container(content)
         .max_width(max_w)
         .max_height(max_h)
@@ -691,21 +857,13 @@ pub(in crate::app) fn overlay_frame<'a>(
             ..Default::default()
         });
 
-    let scrim = mouse_area(
-        container(Space::new().width(Length::Fill).height(Length::Fill))
-            .style(|_| container::Style {
-                background: Some(Background::Color(theme::shadow::SCRIM)),
-                ..Default::default()
-            })
-            .width(Length::Fill)
-            .height(Length::Fill),
-    )
-    .on_press(Message::CloseOverlay);
+    let scrim = modal_scrim(Message::CloseOverlay);
 
     // The panel is `Fill` tall up to `max_h`, so its box has a fixed height
     // and a fixed top while the result list filters. Centering that box (not
     // the content) keeps the input row still.
-    let centered = container(panel)
+    // Opaque: a click on blank panel space must not reach the scrim.
+    let centered = container(iced::widget::opaque(panel))
         .padding(Padding::from([40, 40]))
         .center_x(Length::Fill)
         .center_y(Length::Fill);
@@ -733,9 +891,13 @@ pub(in crate::app) fn quick_slot_replace_overlay<'a>(
         .size(15)
         .font(title_font)
         .color(pal.fg);
+    // A slot of another workspace names it, as the rail tooltip does.
+    let current = match pending.current_workspace.as_deref() {
+        Some(workspace) => format!("{} — {workspace}", file_name(&pending.current)),
+        None => file_name(&pending.current),
+    };
     let body = text(format!(
-        "Slot {slot} holds {}. Replace it with {}?",
-        file_name(&pending.current),
+        "Slot {slot} holds {current}. Replace it with {}?",
         file_name(&pending.incoming)
     ))
     .size(13)
@@ -779,17 +941,62 @@ pub(in crate::app) fn quick_slot_replace_overlay<'a>(
             shadow: theme::shadow::DIALOG,
             ..Default::default()
         });
-    let scrim = mouse_area(
-        container(Space::new().width(Length::Fill).height(Length::Fill))
-            .style(|_| container::Style {
-                background: Some(Background::Color(theme::shadow::SCRIM)),
-                ..Default::default()
-            })
-            .width(Length::Fill)
-            .height(Length::Fill),
-    )
-    .on_press(Message::QuickSlotReplaceCancel);
-    let centered = container(card)
+    let scrim = modal_scrim(Message::QuickSlotReplaceCancel);
+    let centered = container(iced::widget::opaque(card))
+        .padding(Padding::from([40, 40]))
+        .center_x(Length::Fill)
+        .center_y(Length::Fill);
+    stack![scrim, centered].into()
+}
+
+/// "Save changes before closing?" confirmation for the red close button and
+/// ⌘Q. Esc or a backdrop click cancels; Enter saves, then closes; ⌘D closes
+/// without saving.
+pub(in crate::app) fn close_confirm_overlay<'a>(
+    file: Option<&Path>,
+    pal: Palette,
+) -> Element<'a, Message> {
+    let name = file
+        .and_then(|path| path.file_name())
+        .and_then(|name| name.to_str())
+        .unwrap_or("this document");
+    let mut title_font = iced::Font::with_name("Inter");
+    title_font.weight = iced::font::Weight::Semibold;
+    let title = text(format!("Save changes to {name}?"))
+        .size(15)
+        .font(title_font)
+        .color(pal.fg);
+    let body = text("Your edits are lost if you close without saving.")
+        .size(13)
+        .color(pal.muted);
+    let actions = irow![
+        secondary_button("Don't Save", pal).on_press(Message::CloseConfirmDiscard),
+        Space::new().width(Length::Fill),
+        secondary_button("Cancel", pal).on_press(Message::CloseConfirmCancel),
+        primary_button("Save", pal).on_press(Message::CloseConfirmSave),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
+    let hints = hint_pills(
+        &[("Esc", "cancel"), ("⌘D", "don't save"), ("Enter", "save")],
+        pal,
+    );
+    let card = container(column![title, body, Space::new().height(8), actions, hints].spacing(8))
+        .padding(Padding::from([20, 22]))
+        .max_width(440.0)
+        .style(move |_| container::Style {
+            background: Some(pal.popover().into()),
+            border: Border {
+                color: pal.border(),
+                width: 1.0,
+                radius: theme::radius::LG.into(),
+            },
+            shadow: theme::shadow::DIALOG,
+            ..Default::default()
+        });
+    let scrim = modal_scrim(Message::CloseConfirmCancel);
+    // Opaque: a click on blank card space must not reach the scrim.
+    let centered = container(iced::widget::opaque(card))
         .padding(Padding::from([40, 40]))
         .center_x(Length::Fill)
         .center_y(Length::Fill);
