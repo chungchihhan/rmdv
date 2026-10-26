@@ -6,6 +6,7 @@
 use super::super::zoom_raster;
 use super::group3::{assert_tips, tips};
 use super::*;
+use crate::icon::ic;
 use crate::mindmap::ZoomCommand;
 use crate::zoom_viewer;
 use iced::Vector;
@@ -276,13 +277,7 @@ fn zoom_buttons_and_keys_drive_the_viewer() {
     let mut ui = PointerUi::new();
     assert_tips(
         &tips(&mut ui, &app),
-        &[
-            "Zoom to Fit",
-            "Zoom Out  −",
-            "Actual Size  0",
-            "Zoom In  =",
-            "Close  Esc",
-        ],
+        &["Zoom to Fit", "Zoom Out  −", "Zoom In  =", "Close  Esc"],
     );
     let at = Point::new(640.0, 400.0);
     redraw(&mut ui, &app, at);
@@ -291,20 +286,14 @@ fn zoom_buttons_and_keys_drive_the_viewer() {
     let (_, scale, _) = viewer(&mut ui, &app);
     assert!(near(scale, FIT * 1.25), "{scale}");
 
-    let actual = ui.text_bounds(&app, "100%").expect("the 100% button");
-    let messages = ui.click(&app, actual.center());
+    // No "100%" label: it never followed the live zoom. Actual Size stays
+    // on the `0` key and double-click.
     assert!(
-        has(&messages, |m| matches!(
-            m,
-            Message::ImageZoomCommand(ZoomCommand::Reset)
-        )),
-        "{messages:?}"
+        ui.text_bounds(&app, "100%").is_none(),
+        "the zoom island shows no percentage"
     );
-    assert!(
-        !closes(&messages),
-        "a button press is not a click beside the image"
-    );
-    apply(&mut app, messages);
+    let reset = image_zoom_key_message(&key("0"), Modifiers::default()).expect("0 resets");
+    let _ = app.update(reset);
     redraw(&mut ui, &app, at);
     let (_, scale, _) = viewer(&mut ui, &app);
     assert!(near(scale, 1.0), "{scale}");
@@ -314,8 +303,10 @@ fn zoom_buttons_and_keys_drive_the_viewer() {
 fn a_click_on_the_zoom_island_beside_its_buttons_keeps_the_viewer_open() {
     let app = diagram_viewer_app();
     let mut ui = PointerUi::new();
-    let label = ui.text_bounds(&app, "100%").expect("the 100% button");
-    // The 2 px gap left of the 100% button (its padding is 8 px), and the
+    let label = ui
+        .text_bounds(&app, &ic::PLUS.to_string())
+        .expect("the Zoom In button");
+    // The 2 px gap left of the Zoom In button (its padding is 8 px), and the
     // island's bottom padding under it (the island ends 16 px above the
     // window's bottom edge). Both are below the drawn image (y 92…708).
     let gap = Point::new(label.x - 9.0, label.center_y());
