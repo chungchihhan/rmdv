@@ -44,10 +44,112 @@ pub struct Prefs {
     /// Document Mindmap keeps the selected node in view while it moves.
     #[serde(default = "default_true")]
     pub mindmap_autocenter: bool,
-    /// Workspace-scoped Quick Slot banks live alongside the existing user
-    /// preferences, never inside a workspace tree.
+    /// Two-finger scroll and the mouse wheel pan the mind map instead of
+    /// zooming it (Settings → Scroll pans the mind map).
+    #[serde(default, deserialize_with = "lenient_off")]
+    pub mindmap_scroll_pans: bool,
+    /// The older workspace-scoped Quick Slot banks. Kept as they were and
+    /// no longer written, so a downgrade still finds them; the global bank
+    /// is seeded from one of them once.
     #[serde(default, deserialize_with = "lenient_quick_slots")]
     pub quick_slots: crate::quick_slots::QuickSlotsStore,
+    /// The global Quick Slot bank. `None` until it is seeded; each slot
+    /// names the workspace root it was assigned in.
+    #[serde(
+        default,
+        deserialize_with = "lenient_global_quick_slots",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub global_quick_slots: Option<crate::quick_slots::WorkspaceSlots>,
+    /// When the top toolbar shows (Settings → Toolbar).
+    #[serde(default, deserialize_with = "lenient_toolbar")]
+    pub toolbar: ToolbarMode,
+    /// Sidebar width set by dragging its divider.
+    #[serde(
+        default = "default_sidebar_width",
+        deserialize_with = "lenient_sidebar_width"
+    )]
+    pub sidebar_width: f32,
+    /// The statistic the status footer pill shows; a click cycles it.
+    #[serde(default, deserialize_with = "lenient_footer_stat")]
+    pub footer_stat: FooterStat,
+    /// The main window's size and position (and whether it was maximized),
+    /// saved after a resize or move settles and on close; restored on
+    /// launch. Full screen is not saved.
+    #[serde(
+        default,
+        deserialize_with = "lenient_window",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub window: Option<crate::window_frame::WindowFrame>,
+}
+
+/// A missing or malformed window frame falls back to none (the default
+/// launch frame) instead of failing the whole file.
+fn lenient_window<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::window_frame::WindowFrame>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(crate::window_frame::WindowFrame::from_json(&value))
+}
+
+/// The statistic the status footer pill shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FooterStat {
+    /// "N words · M min read", the original pill.
+    #[default]
+    WordsAndTime,
+    Words,
+    ReadingTime,
+    Characters,
+}
+
+impl FooterStat {
+    /// The statistic a click shows next.
+    pub fn next(self) -> Self {
+        match self {
+            FooterStat::WordsAndTime => FooterStat::Words,
+            FooterStat::Words => FooterStat::ReadingTime,
+            FooterStat::ReadingTime => FooterStat::Characters,
+            FooterStat::Characters => FooterStat::WordsAndTime,
+        }
+    }
+}
+
+/// An unknown footer statistic falls back to the default instead of failing
+/// the whole file.
+fn lenient_footer_stat<'de, D>(deserializer: D) -> Result<FooterStat, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
+/// When the top toolbar shows.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolbarMode {
+    /// Hidden until the pointer reaches the top edge of the window.
+    OnHover,
+    /// Always shown; the content sits below it. The default, so a new user
+    /// sees the toolbar.
+    #[default]
+    Always,
+}
+
+impl ToolbarMode {
+    /// The other mode.
+    pub fn toggled(self) -> Self {
+        match self {
+            ToolbarMode::OnHover => ToolbarMode::Always,
+            ToolbarMode::Always => ToolbarMode::OnHover,
+        }
+    }
 }
 
 pub const READING_WIDTH_MIN: f32 = 480.0;
@@ -74,6 +176,36 @@ where
 
 fn default_true() -> bool {
     true
+}
+
+fn default_sidebar_width() -> f32 {
+    SIDEBAR_WIDTH_DEFAULT
+}
+
+/// Sidebar width limits, shared with the divider drag.
+pub const SIDEBAR_WIDTH_DEFAULT: f32 = 280.0;
+pub const SIDEBAR_WIDTH_MIN: f32 = 160.0;
+pub const SIDEBAR_WIDTH_MAX: f32 = 600.0;
+
+/// A missing or malformed sidebar width falls back to the default; an
+/// out-of-range one is clamped. Neither fails the whole file.
+fn lenient_sidebar_width<'de, D>(deserializer: D) -> Result<f32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(clamp_sidebar_width(
+        value.as_f64().map_or(default_sidebar_width(), |v| v as f32),
+    ))
+}
+
+/// Keeps a sidebar width finite and inside the divider's range.
+pub fn clamp_sidebar_width(width: f32) -> f32 {
+    if width.is_finite() {
+        width.clamp(SIDEBAR_WIDTH_MIN, SIDEBAR_WIDTH_MAX)
+    } else {
+        default_sidebar_width()
+    }
 }
 
 fn default_glass_opacity() -> f32 {
@@ -129,6 +261,26 @@ where
     Ok(serde_json::from_value(value).unwrap_or_default())
 }
 
+/// An unknown toolbar mode falls back to the default (always shown) instead
+/// of failing the whole file.
+fn lenient_toolbar<'de, D>(deserializer: D) -> Result<ToolbarMode, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
+/// A malformed switch that defaults off stays off instead of failing the
+/// whole file.
+fn lenient_off<'de, D>(deserializer: D) -> Result<bool, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(value.as_bool().unwrap_or(false))
+}
+
 /// A malformed or newer-format Quick Slot store (e.g. after a downgrade) falls
 /// back to empty slots instead of failing the whole file and resetting every
 /// other preference.
@@ -140,6 +292,25 @@ where
 {
     let value = serde_json::Value::deserialize(deserializer)?;
     Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
+/// A malformed global bank becomes an empty one (it was seeded already, so
+/// it is not seeded again) instead of failing the whole file.
+fn lenient_global_quick_slots<'de, D>(
+    deserializer: D,
+) -> Result<Option<crate::quick_slots::WorkspaceSlots>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Ok(None);
+    }
+    Ok(Some(
+        serde_json::from_value::<crate::quick_slots::WorkspaceSlots>(value)
+            .unwrap_or_default()
+            .normalized_global(),
+    ))
 }
 
 impl Default for Prefs {
@@ -156,7 +327,13 @@ impl Default for Prefs {
             reading_width: default_reading_width(),
             show_hidden: false,
             mindmap_autocenter: true,
+            mindmap_scroll_pans: false,
             quick_slots: crate::quick_slots::QuickSlotsStore::default(),
+            global_quick_slots: None,
+            toolbar: ToolbarMode::Always,
+            sidebar_width: default_sidebar_width(),
+            footer_stat: FooterStat::default(),
+            window: None,
         }
     }
 }
@@ -193,6 +370,9 @@ pub fn load_from(path: &std::path::Path) -> Prefs {
         .and_then(|s| serde_json::from_str::<Prefs>(&s).ok())
         .map(|mut prefs| {
             prefs.quick_slots = prefs.quick_slots.normalized();
+            prefs.global_quick_slots = prefs
+                .global_quick_slots
+                .map(|bank| bank.normalized_global());
             prefs
         })
         .unwrap_or_default()
@@ -202,6 +382,9 @@ pub fn save_to(path: &std::path::Path, prefs: &Prefs) {
     let prefs = {
         let mut prefs = prefs.clone();
         prefs.quick_slots = prefs.quick_slots.normalized();
+        prefs.global_quick_slots = prefs
+            .global_quick_slots
+            .map(|bank| bank.normalized_global());
         prefs
     };
     let result = serde_json::to_string_pretty(&prefs)
@@ -298,6 +481,105 @@ mod tests {
         assert!(json.contains(r#""line_spacing":"compact""#), "{json}");
     }
 
+    #[test]
+    fn toolbar_mode_defaults_to_always_and_survives_bad_values() {
+        // A prefs file from before the setting existed: a new user sees the
+        // toolbar.
+        let prefs: Prefs = serde_json::from_str(r#"{"show_footer":false}"#).unwrap();
+        assert_eq!(prefs.toolbar, ToolbarMode::Always);
+        assert_eq!(Prefs::default().toolbar, ToolbarMode::Always);
+        assert_eq!(ToolbarMode::default(), ToolbarMode::Always);
+        // A saved choice still loads as saved.
+        let prefs: Prefs = serde_json::from_str(r#"{"toolbar":"on_hover"}"#).unwrap();
+        assert_eq!(prefs.toolbar, ToolbarMode::OnHover);
+        let prefs: Prefs = serde_json::from_str(r#"{"toolbar":"always"}"#).unwrap();
+        assert_eq!(prefs.toolbar, ToolbarMode::Always);
+        // An unknown or malformed value must not reset other preferences.
+        let prefs: Prefs =
+            serde_json::from_str(r#"{"toolbar":"floating","show_footer":false}"#).unwrap();
+        assert_eq!(prefs.toolbar, ToolbarMode::Always);
+        assert!(!prefs.show_footer);
+        let prefs: Prefs = serde_json::from_str(r#"{"toolbar":7,"show_footer":false}"#).unwrap();
+        assert_eq!(prefs.toolbar, ToolbarMode::Always);
+        assert!(!prefs.show_footer);
+        let json = serde_json::to_string(&Prefs {
+            toolbar: ToolbarMode::OnHover,
+            ..Prefs::default()
+        })
+        .unwrap();
+        assert!(json.contains(r#""toolbar":"on_hover""#), "{json}");
+    }
+
+    #[test]
+    fn mindmap_scroll_pans_defaults_off_and_survives_bad_values() {
+        // A prefs file from before the setting existed keeps today's zoom.
+        let prefs: Prefs = serde_json::from_str(r#"{"show_footer":false}"#).unwrap();
+        assert!(!prefs.mindmap_scroll_pans);
+        assert!(!Prefs::default().mindmap_scroll_pans);
+        let prefs: Prefs = serde_json::from_str(r#"{"mindmap_scroll_pans":true}"#).unwrap();
+        assert!(prefs.mindmap_scroll_pans);
+        // A malformed value must not reset other preferences.
+        for bad in [r#""yes""#, "1", "null", "{}"] {
+            let json = format!(r#"{{"mindmap_scroll_pans":{bad},"show_footer":false}}"#);
+            let prefs: Prefs = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{bad}: {e}"));
+            assert!(!prefs.mindmap_scroll_pans, "{bad}");
+            assert!(!prefs.show_footer, "{bad}");
+        }
+        let json = serde_json::to_string(&Prefs {
+            mindmap_scroll_pans: true,
+            ..Prefs::default()
+        })
+        .unwrap();
+        assert!(json.contains(r#""mindmap_scroll_pans":true"#), "{json}");
+    }
+
+    #[test]
+    fn the_window_frame_loads_leniently_and_round_trips() {
+        use crate::window_frame::WindowFrame;
+        // A prefs file from before the frame was saved.
+        let prefs: Prefs = serde_json::from_str(r#"{"show_footer":false}"#).unwrap();
+        assert_eq!(prefs.window, None);
+        assert_eq!(Prefs::default().window, None);
+        let prefs: Prefs = serde_json::from_str(
+            r#"{"window":{"width":900,"height":600,"x":40,"y":80,"maximized":true}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            prefs.window,
+            Some(WindowFrame {
+                width: 900.0,
+                height: 600.0,
+                x: Some(40.0),
+                y: Some(80.0),
+                maximized: true,
+            })
+        );
+        // A malformed frame must not reset other preferences.
+        for bad in [r#""big""#, "7", "null", r#"{"width":"x","height":600}"#] {
+            let json = format!(r#"{{"window":{bad},"show_footer":false}}"#);
+            let prefs: Prefs = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{bad}: {e}"));
+            assert_eq!(prefs.window, None, "{bad}");
+            assert!(!prefs.show_footer, "{bad}");
+        }
+        // No frame yet: nothing written. A frame round-trips.
+        let json = serde_json::to_string(&Prefs::default()).unwrap();
+        assert!(!json.contains(r#""window":"#), "{json}");
+        let frame = WindowFrame {
+            width: 1000.0,
+            height: 700.0,
+            x: Some(-20.0),
+            y: Some(30.0),
+            maximized: false,
+        };
+        let json = serde_json::to_string(&Prefs {
+            window: Some(frame),
+            ..Prefs::default()
+        })
+        .unwrap();
+        let prefs: Prefs = serde_json::from_str(&json).unwrap();
+        assert_eq!(prefs.window, Some(frame), "{json}");
+    }
+
     use crate::quick_slots::{QuickSlot, SlotContext, WorkspaceSlots};
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -313,6 +595,7 @@ mod tests {
         bank.set(
             0,
             QuickSlot {
+                root: String::new(),
                 relative_path: "notes/today.md".into(),
                 context: SlotContext::default(),
             },
@@ -327,6 +610,89 @@ mod tests {
             .bank(std::path::Path::new("/workspace"))
             .occupied(0)
             .is_some());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn malformed_global_quick_slots_keep_other_preferences_and_count_as_seeded() {
+        let prefs: Prefs = serde_json::from_str(
+            r#"{"show_footer":false,"global_quick_slots":42,"quick_slots":{"banks":{"/w":{"slots":[{"relative_path":"a.md"}]}}}}"#,
+        )
+        .expect("other preferences must still load");
+        assert!(!prefs.show_footer);
+        assert_eq!(
+            prefs.global_quick_slots,
+            Some(WorkspaceSlots::default()),
+            "a broken bank is empty, not seeded again"
+        );
+        assert!(prefs
+            .quick_slots
+            .bank(std::path::Path::new("/w"))
+            .occupied(0)
+            .is_some());
+        let absent: Prefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(absent.global_quick_slots, None, "absent: not seeded yet");
+        let null: Prefs = serde_json::from_str(r#"{"global_quick_slots":null}"#).unwrap();
+        assert_eq!(null.global_quick_slots, None);
+    }
+
+    #[test]
+    fn the_global_bank_round_trips_beside_the_untouched_old_banks() {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        let path = std::env::temp_dir().join(format!(
+            "rmdv-prefs-global-test-{}-{}.json",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut prefs = Prefs::default();
+        let mut old = WorkspaceSlots::default();
+        old.set(
+            0,
+            QuickSlot {
+                root: String::new(),
+                relative_path: "old.md".into(),
+                context: SlotContext::default(),
+            },
+        );
+        prefs
+            .quick_slots
+            .put_bank(std::path::Path::new("/old"), old);
+        let mut global = WorkspaceSlots::default();
+        global.set(
+            3,
+            QuickSlot {
+                root: "/work/notes".into(),
+                relative_path: "b.md".into(),
+                context: SlotContext::default(),
+            },
+        );
+        // A global slot without a workspace root cannot open; it is dropped.
+        global.set(
+            4,
+            QuickSlot {
+                root: String::new(),
+                relative_path: "lost.md".into(),
+                context: SlotContext::default(),
+            },
+        );
+        global.active = Some(3);
+        prefs.global_quick_slots = Some(global);
+        save_to(&path, &prefs);
+        let json = std::fs::read_to_string(&path).unwrap();
+        let loaded = load_from(&path);
+        let global = loaded.global_quick_slots.expect("saved global bank");
+        assert_eq!(
+            global.occupied(3).map(|slot| slot.root.as_str()),
+            Some("/work/notes")
+        );
+        assert_eq!(global.active, Some(3));
+        assert!(global.occupied(4).is_none(), "{json}");
+        assert_eq!(loaded.quick_slots, prefs.quick_slots, "old banks unchanged");
+        // The old banks keep their older shape: no root field.
+        let raw: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(raw["quick_slots"]["banks"]["/old"]["slots"][0]
+            .get("root")
+            .is_none());
         let _ = std::fs::remove_file(path);
     }
 }

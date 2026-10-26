@@ -625,6 +625,14 @@ impl Palette {
         }
     }
 
+    /// Tint behind a link under the pointer: the link color, faint.
+    pub fn link_hover(&self) -> Color {
+        Color {
+            a: if self.is_dark() { 0.16 } else { 0.12 },
+            ..self.accent
+        }
+    }
+
     /// Fill of keycaps and static chips.
     pub fn chip(&self) -> Color {
         self.ink(0.06)
@@ -839,8 +847,12 @@ pub mod shadow {
     pub const DIALOG: Shadow = drop(0.28, 14.0, 50.0);
     /// The shortcuts sheet, the highest surface.
     pub const SHEET: Shadow = drop(0.35, 18.0, 60.0);
+    /// Context menus: a small surface right under the pointer.
+    pub const MENU: Shadow = drop(0.26, 6.0, 20.0);
     /// Dims the document behind a modal overlay.
     pub const SCRIM: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.18);
+    /// The inner shade at a side where a wide table has more to scroll to.
+    pub const OVERFLOW_EDGE: Color = Color::from_rgba(0.0, 0.0, 0.0, 0.12);
 }
 
 pub fn palette_for(preset: ThemePreset) -> Palette {

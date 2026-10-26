@@ -1,7 +1,8 @@
-use crate::app::{ImageCache, ImageState, Message};
+use crate::app::{ImageCache, ImageState, Message, ReaderTarget};
 use crate::ast::{Block, BlockId, Inline, ListItem};
 use crate::diagram::{DiagramCache, DiagramState};
 use crate::keyed_body::{KeyedBody, RowKey};
+use crate::select_scope::TargetMark;
 use crate::theme::{Palette, Typography};
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
 use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout, Shell};
@@ -59,6 +60,7 @@ pub fn render<'a>(
     keyed_widget_generation: (u64, u64),
     recently_scrolled: bool,
     reading_width: ReadingWidth,
+    copied: Option<usize>,
 ) -> Element<'a, Message> {
     let img_ctx = ImgCtx {
         cache: image_cache,
@@ -66,6 +68,7 @@ pub fn render<'a>(
         diagram_cache,
         diagram_theme_id,
         recently_scrolled,
+        copied,
     };
     // Which blocks to materialize: the precomputed fold-aware window (body
     // view; built in `App::update`, never here), or the full fold-aware list
@@ -108,17 +111,22 @@ pub fn render<'a>(
             } else {
                 typ.heading_space_above(*level)
             };
-            render_heading_with_chevron(
-                *id,
-                b,
-                pal,
-                typ,
-                &hl.query,
-                local,
-                is_folded,
-                show_chev,
-                space_above,
+            let id = *id;
+            TargetMark::new(
+                move || ReaderTarget::Heading(id),
+                render_heading_with_chevron(
+                    id,
+                    b,
+                    pal,
+                    typ,
+                    &hl.query,
+                    local,
+                    is_folded,
+                    show_chev,
+                    space_above,
+                ),
             )
+            .into()
         } else {
             container(render_block(b, pal, typ, &hl.query, local, &img_ctx))
                 .id(block_anchor_id(*id))
@@ -144,6 +152,9 @@ pub fn render<'a>(
         .into()
 }
 
+/// Side of the square that a heading's fold chevron answers clicks in.
+const FOLD_CHEVRON_HIT: f32 = 24.0;
+
 pub(crate) fn render_heading_with_chevron<'a>(
     id: BlockId,
     b: &'a Block,
@@ -163,6 +174,7 @@ pub(crate) fn render_heading_with_chevron<'a>(
         diagram_cache: dcache,
         diagram_theme_id: 0,
         recently_scrolled: false,
+        copied: None,
     };
     let head = render_block(b, pal, typ, query, current_in_block, &img);
     let glyph = if folded {
@@ -175,20 +187,26 @@ pub(crate) fn render_heading_with_chevron<'a>(
     } else {
         iced::Color::TRANSPARENT
     };
+    // Only the chevron folds; the rest of the row is text to select.
     let chev = mouse_area(
-        container(crate::icon::glyph(glyph, 14.0, color)).padding(Padding::from([0, 4])),
+        container(crate::icon::glyph(glyph, 14.0, color))
+            .center_x(Length::Fixed(FOLD_CHEVRON_HIT))
+            .center_y(Length::Fixed(FOLD_CHEVRON_HIT)),
     )
     .interaction(iced::mouse::Interaction::Pointer)
     .on_press(Message::ToggleFold(id));
+    let action = if folded {
+        "Expand section"
+    } else {
+        "Collapse section"
+    };
+    let chev = crate::app::reader_tip(chev, action, tooltip::Position::Left, *pal);
     let chev_layer = container(chev)
         .width(Length::Fill)
         .height(Length::Fill)
         .align_x(iced::alignment::Horizontal::Right)
         .align_y(iced::alignment::Vertical::Center);
-    let head_clickable = mouse_area(container(head).width(Length::Fill))
-        .interaction(iced::mouse::Interaction::Pointer)
-        .on_press(Message::ToggleFold(id));
-    let stacked = stack![head_clickable, chev_layer];
+    let stacked = stack![container(head).width(Length::Fill), chev_layer];
     container(
         mouse_area(stacked)
             .on_enter(Message::HeadingHoverEnter(id))
@@ -225,7 +243,7 @@ pub fn data_view<'a>(
                 .line_height(iced::widget::text::LineHeight::Relative(1.55)),
         );
     }
-    container(rich_text_links(out, pal.selection))
+    container(rich_text_links(out, TextFills::of(pal)))
         .padding(Padding::from([28, 32]))
         .width(Length::Fill)
         .into()
@@ -248,7 +266,7 @@ pub fn data_view_owned(code: String, pal: &Palette, typ: &Typography) -> Element
                 .line_height(iced::widget::text::LineHeight::Relative(1.55)),
         );
     }
-    container(rich_text_links(out, pal.selection))
+    container(rich_text_links(out, TextFills::of(pal)))
         .padding(Padding::from([28, 32]))
         .width(Length::Fill)
         .into()
@@ -578,6 +596,9 @@ struct ImgCtx<'a> {
     diagram_cache: &'a DiagramCache,
     diagram_theme_id: u32,
     recently_scrolled: bool,
+    /// The key ([`copy_key`]) of the block whose copy button copied last,
+    /// while its check shows.
+    copied: Option<usize>,
 }
 
 fn render_block<'a>(
@@ -599,14 +620,14 @@ fn render_block<'a>(
     match b {
         Block::Heading { level, inlines, .. } => {
             let spans = inline_spans(inlines, pal, typ.heading_size(*level), &mut ctx);
-            rich_text_spaced(spans, crate::theme::HEADING_LINE_HEIGHT, pal.selection)
+            rich_text_spaced(spans, crate::theme::HEADING_LINE_HEIGHT, TextFills::of(pal))
         }
         Block::Paragraph(inlines) => {
             let spans = inline_spans(inlines, pal, typ.body_size, &mut ctx);
             rich_text_spaced(
                 spans,
                 paragraph_line_height(inlines, typ.line_height),
-                pal.selection,
+                TextFills::of(pal),
             )
         }
         Block::CodeBlock { code, spans, .. } => {
@@ -636,8 +657,14 @@ fn render_block<'a>(
                     &mut ctx,
                 );
             }
-            let body = container(rich_text_links(out, pal_c.selection))
-                .padding(Padding::from([10, 12]))
+            // The right padding keeps every line clear of the copy button.
+            let body = container(rich_text_links(out, TextFills::of(&pal_c)))
+                .padding(Padding {
+                    top: 10.0,
+                    right: COPY_BUTTON_CLEARANCE,
+                    bottom: 10.0,
+                    left: 12.0,
+                })
                 .style(move |_| container::Style {
                     background: Some(pal_c.code_bg.into()),
                     border: iced::Border {
@@ -648,28 +675,13 @@ fn render_block<'a>(
                     ..Default::default()
                 })
                 .width(Length::Fill);
-            let code_str = code.to_string();
-            let icon_glyph = crate::icon::glyph(crate::icon::ic::COPY, 13.0, pal_c.muted);
-            let copy_btn =
-                container(
-                    mouse_area(container(icon_glyph).padding(Padding::from([4, 6])).style(
-                        move |_| container::Style {
-                            background: Some(pal_c.code_bg.into()),
-                            border: iced::Border {
-                                color: pal_c.code_border,
-                                width: 1.0,
-                                radius: crate::theme::radius::SM.into(),
-                            },
-                            ..Default::default()
-                        },
-                    ))
-                    .interaction(iced::mouse::Interaction::Pointer)
-                    .on_press(Message::CopyCode(code_str)),
-                )
-                .padding(Padding::from([6, 8]))
-                .align_x(iced::alignment::Horizontal::Right)
-                .width(Length::Fill);
-            stack![body, copy_btn].into()
+            let copied = img.copied == Some(copy_key(code));
+            let copy_btn = copy_button(code, "Copy Code", copied, &pal_c);
+            TargetMark::new(
+                move || ReaderTarget::Code(code.clone()),
+                HoverReveal::new(body, copy_btn).pinned(copied),
+            )
+            .into()
         }
         Block::Blockquote(blocks) => {
             let inner = blocks.iter().fold(Column::new().spacing(8), |c, b| {
@@ -700,14 +712,33 @@ fn render_block<'a>(
         }
         Block::Diagram { source, hash, kind } => {
             if matches!(kind, crate::ast::DiagramKind::Math) {
-                render_math_block(*hash, source, pal, typ, img)
+                TargetMark::new(
+                    move || ReaderTarget::Math(source.clone()),
+                    render_math_block(*hash, source, pal, typ, img),
+                )
+                .into()
             } else {
-                render_diagram(*hash, source, pal, typ, img)
+                let hash = *hash;
+                TargetMark::new(
+                    move || ReaderTarget::Diagram(hash),
+                    render_diagram(hash, source, pal, typ, img),
+                )
+                .into()
             }
         }
         Block::List { ordered, items } => render_list(*ordered, items, pal, typ, &mut ctx, img),
         Block::Table { headers, rows } => render_table(headers, rows, pal, typ, &mut ctx),
-        Block::Image { url, alt } => render_image(url, alt, pal, img),
+        Block::Image { url, alt, link } => {
+            let current_file = img.current_file;
+            TargetMark::new(
+                move || ReaderTarget::Image {
+                    key: image_key(url, current_file),
+                    link: link.clone(),
+                },
+                render_image(url, alt, link.as_deref(), pal, img),
+            )
+            .into()
+        }
         Block::Rule => {
             let pal_r = *pal;
             container(Space::new().height(1.0))
@@ -801,7 +832,7 @@ fn for_text_runs<'a>(text_str: &'a str, mut visit: impl FnMut(&'a str, bool)) {
     }
 }
 
-use crate::selectable::{rich_text_links, rich_text_spaced};
+use crate::selectable::{rich_text_links, rich_text_spaced, TextFills};
 
 /// CJK body text reads best at about 1.75 em leading where Latin uses 1.5
 /// (Notion default), because ideographs fill the whole em box. The scale is
@@ -1084,19 +1115,31 @@ fn push_span<'a>(
 fn render_image<'a>(
     url: &'a str,
     alt: &'a str,
+    link: Option<&'a str>,
     pal: &Palette,
     img: &ImgCtx<'a>,
 ) -> Element<'a, Message> {
     use crate::app::{is_remote_url, resolve_image_path};
-    let placeholder = |msg: String| -> Element<'a, Message> { text(msg).color(pal.muted).into() };
+    // A badge's placeholder still follows its link.
+    let placeholder = |msg: String| -> Element<'a, Message> {
+        let shown: Element<'a, Message> = text(msg).color(pal.muted).into();
+        match link {
+            Some(link) => linked_image(shown, link, url),
+            None => shown,
+        }
+    };
+    let clickable = |image: Element<'a, Message>, key: String| match link {
+        Some(link) => linked_image(image, link, url),
+        None => zoomable(image, key),
+    };
     if is_remote_url(url) {
         match img.cache.get(url) {
-            Some(ImageState::Loaded(h)) => mouse_area(image_widget(h.clone()))
-                .on_press(Message::OpenImageZoom(url.to_string()))
-                .into(),
-            Some(ImageState::LoadedSvg { svg, .. }) => mouse_area(svg_widget(svg.clone()))
-                .on_press(Message::OpenImageZoom(url.to_string()))
-                .into(),
+            Some(ImageState::Loaded(h)) => {
+                clickable(image_widget(h.clone()).into(), url.to_string())
+            }
+            Some(ImageState::LoadedSvg { svg, .. }) => {
+                clickable(svg_widget(svg.clone()).into(), url.to_string())
+            }
             Some(ImageState::Failed) => placeholder(format!("[image failed: {alt} ({url})]")),
             _ => placeholder(format!("[loading: {alt} ({url})]")),
         }
@@ -1108,12 +1151,10 @@ fn render_image<'a>(
         };
         let key = p.to_string_lossy().into_owned();
         match img.cache.get(&key) {
-            Some(ImageState::Loaded(h)) => mouse_area(image_widget(h.clone()))
-                .on_press(Message::OpenImageZoom(key))
-                .into(),
-            Some(ImageState::LoadedSvg { svg, .. }) => mouse_area(svg_widget(svg.clone()))
-                .on_press(Message::OpenImageZoom(key))
-                .into(),
+            Some(ImageState::Loaded(h)) => clickable(image_widget(h.clone()).into(), key),
+            Some(ImageState::LoadedSvg { svg, .. }) => {
+                clickable(svg_widget(svg.clone()).into(), key)
+            }
             Some(ImageState::Failed) => placeholder(format!("[image missing: {alt} ({url})]")),
             Some(ImageState::Loading) => placeholder(format!("[loading: {alt} ({url})]")),
             // Not read ahead (an image added while editing, or a preview of
@@ -1124,24 +1165,67 @@ fn render_image<'a>(
                     .and_then(|e| e.to_str())
                     .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
                 if is_svg {
-                    mouse_area(svg_widget(iced::widget::svg::Handle::from_path(p)))
-                        .on_press(Message::OpenImageZoom(key))
-                        .into()
+                    clickable(
+                        svg_widget(iced::widget::svg::Handle::from_path(p)).into(),
+                        key,
+                    )
                 } else {
-                    mouse_area(image_widget(p))
-                        .on_press(Message::OpenImageZoom(key))
-                        .into()
+                    clickable(image_widget(p).into(), key)
                 }
             }
         }
     }
 }
 
+/// What the image viewer opens for an image written as `url`: the URL of
+/// a remote image, the resolved path of a local one (the image cache key).
+fn image_key(url: &str, current_file: Option<&Path>) -> String {
+    if crate::app::is_remote_url(url) {
+        return url.to_string();
+    }
+    crate::app::resolve_image_path(url, current_file)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| url.to_string())
+}
+
+/// An image wrapped in a link (a badge): a click follows the link instead
+/// of opening the image viewer, and the pointer shows the destination.
+fn linked_image<'a>(image: Element<'a, Message>, link: &str, url: &str) -> Element<'a, Message> {
+    let source = linked_image_source(link, url);
+    mouse_area(image)
+        .interaction(iced::mouse::Interaction::Pointer)
+        .on_press(Message::OpenLink(link.to_string()))
+        .on_enter(Message::LinkHovered(link.to_string(), source))
+        .on_exit(Message::LinkLeft(link.to_string(), source))
+        .into()
+}
+
+/// The hover source of a linked image: its link and picture, so it stays
+/// the same across rebuilds and reloads. The top bit keeps it apart from
+/// the reader text widgets' ids, which count up from 1.
+fn linked_image_source(link: &str, url: &str) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut h = DefaultHasher::new();
+    link.hash(&mut h);
+    url.hash(&mut h);
+    h.finish() | (1 << 63)
+}
+
+/// An image that opens the image viewer on click, with the zoom-in cursor
+/// that says so.
+fn zoomable<'a>(image: impl Into<Element<'a, Message>>, key: String) -> Element<'a, Message> {
+    mouse_area(image)
+        .interaction(iced::mouse::Interaction::ZoomIn)
+        .on_press(Message::OpenImageZoom(key))
+        .into()
+}
+
 /// Render a `Block::Diagram { kind: Math }`. Unlike mermaid/dot diagrams,
-/// display math reads as document content, not a figure — so no card, no
-/// border, no copy/zoom chrome. Just the centered formula on its own line.
+/// display math reads as document content, not a figure — so no card and
+/// no border. Just the centered formula on its own line, with a copy
+/// button at the right that shows while the pointer is over it.
 ///
-/// - `Ready` → centered image of the rendered SVG; click copies the LaTeX.
+/// - `Ready` → centered image of the rendered SVG; its button copies the LaTeX.
 /// - `Pending` / cache miss → faded centered source.
 /// - `Err(msg)` → centered source + a small error chip (tooltip carries detail).
 fn render_math_block<'a>(
@@ -1164,14 +1248,14 @@ fn render_math_block<'a>(
                 .width(Length::Fixed(logical_w))
                 .height(Length::Shrink)
                 .content_fit(iced::ContentFit::Contain);
-            // Click the formula → copy its LaTeX source (reuses CopyCode's
-            // clipboard write + "Copied" toast). Pointer cursor hints it.
-            let clickable = mouse_area(el)
-                .interaction(iced::mouse::Interaction::Pointer)
-                .on_press(Message::CopyCode(source.to_string()));
-            container(clickable)
+            // Equal side padding keeps the formula centered and clear of
+            // the copy button; a click on the formula itself does nothing.
+            let formula = container(el)
                 .center_x(Length::Fill)
-                .padding(Padding::from([4, 0]))
+                .padding(Padding::from([8.0, COPY_BUTTON_CLEARANCE]));
+            let copied = img.copied == Some(copy_key(source));
+            HoverReveal::new(formula, copy_button(source, "Copy Math", copied, pal))
+                .pinned(copied)
                 .into()
         }
         Some(DiagramState::Err(msg)) => {
@@ -1265,31 +1349,21 @@ fn render_diagram<'a>(
                     ..Default::default()
                 });
             // Whole-area click → zoom (mirrors image click-to-zoom UX).
-            let clickable = mouse_area(body)
-                .interaction(iced::mouse::Interaction::Pointer)
-                .on_press(Message::DiagramZoom(hash));
-
-            // Copy-source button only — whole-diagram click already opens
-            // the zoom modal. Matches the CodeBlock copy-button styling.
-            let copy_icon = container(crate::icon::glyph(crate::icon::ic::COPY, 13.0, pal_c.muted))
-                .padding(Padding::from([4, 6]))
-                .style(move |_| container::Style {
-                    background: Some(pal_c.code_bg.into()),
-                    border: iced::Border {
-                        color: pal_c.code_border,
-                        width: 1.0,
-                        radius: crate::theme::radius::SM.into(),
-                    },
-                    ..Default::default()
-                });
-            let copy_btn = mouse_area(copy_icon)
-                .interaction(iced::mouse::Interaction::Pointer)
-                .on_press(Message::CopyDiagramSource(hash));
-            let overlay = container(copy_btn)
-                .padding(Padding::from([6, 8]))
-                .align_x(iced::alignment::Horizontal::Right)
-                .width(Length::Fill);
-            stack![clickable, overlay].into()
+            let clickable = crate::app::reader_tip(
+                mouse_area(body)
+                    .interaction(iced::mouse::Interaction::Pointer)
+                    .on_press(Message::DiagramZoom(hash)),
+                "Click to enlarge",
+                tooltip::Position::FollowCursor,
+                pal_c,
+            );
+            let copied = img.copied == Some(copy_key(source));
+            HoverReveal::new(
+                clickable,
+                copy_button(source, "Copy Source", copied, &pal_c),
+            )
+            .pinned(copied)
+            .into()
         }
         Some(DiagramState::Err(msg)) => {
             let body = source_code_block(source, pal, typ, 1.0);
@@ -1396,30 +1470,62 @@ fn render_list<'a>(
 ) -> Element<'a, Message> {
     let mut col = Column::new().spacing(8);
     for (idx, it) in items.iter().enumerate() {
-        let bullet = match (ordered, it.task) {
-            (_, Some(true)) => "✓".to_string(),
-            (_, Some(false)) => "○".to_string(),
-            (true, _) => format!("{}.", idx + 1),
-            (false, _) => "•".to_string(),
+        let line = typ.body_size * typ.line_height;
+        let marker: Element<'a, Message> = match (ordered, it.task) {
+            (_, Some(checked)) => task_checkbox(checked, line, pal),
+            (ordered, None) => {
+                let bullet = if ordered {
+                    format!("{}.", idx + 1)
+                } else {
+                    "•".to_string()
+                };
+                text(bullet)
+                    .color(pal.accent)
+                    .size(typ.body_size)
+                    .line_height(iced::widget::text::LineHeight::Relative(typ.line_height))
+                    .into()
+            }
         };
         let inner = it.blocks.iter().fold(Column::new().spacing(6), |c, b| {
             c.push(render_block_inner(b, pal, typ, ctx, img))
         });
-        col = col.push(
-            row![
-                container(
-                    text(bullet)
-                        .color(pal.accent)
-                        .size(typ.body_size)
-                        .line_height(iced::widget::text::LineHeight::Relative(typ.line_height)),
-                )
-                .width(Length::Fixed(28.0)),
-                inner
-            ]
-            .spacing(6),
-        );
+        col = col.push(row![container(marker).width(Length::Fixed(28.0)), inner].spacing(6));
     }
     col.into()
+}
+
+/// Side of a task item's checkbox.
+const TASK_BOX: f32 = 14.0;
+
+/// A task item's checkbox, centered on the item's first line. The reader
+/// does not write the file, so it is read-only: a not-allowed cursor and a
+/// tooltip that says so.
+fn task_checkbox<'a>(checked: bool, line: f32, pal: &Palette) -> Element<'a, Message> {
+    let pal_c = *pal;
+    let mark: Element<'a, Message> = if checked {
+        crate::icon::glyph(crate::icon::ic::CHECK, 11.0, pal_c.accent_fg).into()
+    } else {
+        Space::new().into()
+    };
+    let face = container(mark)
+        .center_x(Length::Fixed(TASK_BOX))
+        .center_y(Length::Fixed(TASK_BOX))
+        .style(move |_| container::Style {
+            background: checked.then(|| pal_c.accent.into()),
+            border: iced::Border {
+                color: if checked { pal_c.accent } else { pal_c.muted },
+                width: 1.5,
+                radius: crate::theme::radius::XS.into(),
+            },
+            ..Default::default()
+        });
+    let cell = container(face).center_y(Length::Fixed(line));
+    crate::app::reader_tip(
+        mouse_area(cell).interaction(iced::mouse::Interaction::NotAllowed),
+        "Read-only",
+        tooltip::Position::Top,
+        pal_c,
+    )
 }
 
 fn render_block_inner<'a>(
@@ -1435,7 +1541,7 @@ fn render_block_inner<'a>(
             rich_text_spaced(
                 spans,
                 paragraph_line_height(inlines, typ.line_height),
-                pal.selection,
+                TextFills::of(pal),
             )
         }
         _ => render_block(b, pal, typ, ctx.query, ctx.current_in_block, img),
@@ -1472,7 +1578,7 @@ fn render_table<'a>(
                 },
                 ctx,
             );
-            rich_text_links(spans, pal.selection)
+            rich_text_links(spans, TextFills::of(pal))
         } else {
             text("").into()
         };
@@ -1483,7 +1589,7 @@ fn render_table<'a>(
         for column_index in 0..cols {
             let content: Element<'a, Message> = if let Some(cell) = row_cells.get(column_index) {
                 let spans = inline_spans(cell, pal, typ.body_size, ctx);
-                rich_text_links(spans, pal.selection)
+                rich_text_links(spans, TextFills::of(pal))
             } else {
                 text("").into()
             };
@@ -1512,15 +1618,67 @@ fn render_table<'a>(
     TableViewport {
         content: scroller.into(),
         viewport,
+        edges: (false, false),
+        shade: crate::theme::shadow::OVERFLOW_EDGE,
     }
     .into()
 }
 
 /// Wraps the table's horizontal scrollable and publishes the width it is
-/// offered, because `scrollable` hides that width from its child.
+/// offered, because `scrollable` hides that width from its child. It also
+/// shades each side the table overflows on, read from the scrollable's
+/// offset after every layout and event.
 struct TableViewport<'a, Message, Theme, Renderer> {
     content: Element<'a, Message, Theme, Renderer>,
     viewport: Rc<Cell<f32>>,
+    /// Whether more of the table lies past the left and right edges.
+    edges: (bool, bool),
+    shade: iced::Color,
+}
+
+/// Width of the shade at an edge a wide table overflows.
+const TABLE_EDGE_SHADE: f32 = 16.0;
+
+/// Whether a table scrolled `offset` px into `content` px, shown in
+/// `viewport` px, has more to see on the left and on the right.
+fn table_overflow(offset: f32, viewport: f32, content: f32) -> (bool, bool) {
+    // Half a pixel of slack: layout rounding never shows a shade.
+    (offset > 0.5, offset + viewport < content - 0.5)
+}
+
+/// Reads a scrollable's offset without visiting its content.
+struct OverflowProbe(Option<(bool, bool)>);
+
+impl Operation for OverflowProbe {
+    fn traverse(&mut self, _operate: &mut dyn FnMut(&mut dyn Operation)) {}
+
+    fn scrollable(
+        &mut self,
+        _id: Option<&iced::widget::Id>,
+        bounds: Rectangle,
+        content_bounds: Rectangle,
+        translation: Vector,
+        _state: &mut dyn iced::advanced::widget::operation::Scrollable,
+    ) {
+        self.0 = Some(table_overflow(
+            translation.x,
+            bounds.width,
+            content_bounds.width,
+        ));
+    }
+}
+
+impl<Message, Theme, Renderer> TableViewport<'_, Message, Theme, Renderer>
+where
+    Renderer: renderer::Renderer,
+{
+    fn probe_edges(&mut self, tree: &mut Tree, layout: Layout<'_>, renderer: &Renderer) {
+        let mut probe = OverflowProbe(None);
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, &mut probe);
+        self.edges = probe.0.unwrap_or((false, false));
+    }
 }
 
 impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -1555,7 +1713,9 @@ where
         limits: &layout::Limits,
     ) -> layout::Node {
         self.viewport.set(limits.max().width);
-        self.content.as_widget_mut().layout(tree, renderer, limits)
+        let node = self.content.as_widget_mut().layout(tree, renderer, limits);
+        self.probe_edges(tree, Layout::new(&node), renderer);
+        node
     }
 
     fn draw(
@@ -1571,6 +1731,52 @@ where
         self.content
             .as_widget()
             .draw(tree, renderer, theme, style, layout, cursor, viewport);
+        let (left, right) = self.edges;
+        #[cfg(test)]
+        draw_log::edges(left, right);
+        let bounds = layout.bounds();
+        let clear = iced::Color {
+            a: 0.0,
+            ..self.shade
+        };
+        // A nested layer does not inherit its parent's clip: clip to what
+        // the reader shows.
+        let Some(clip) = bounds.intersection(viewport).filter(|_| left || right) else {
+            return;
+        };
+        let width = TABLE_EDGE_SHADE.min(bounds.width / 2.0);
+        // An overflowing table draws in the scrollable's own layer, which
+        // composites after this one; the shade needs a layer above it.
+        renderer.with_layer(clip, |renderer| {
+            // Each shade runs from the edge (dark) inward (clear).
+            for (shown, x, angle) in [
+                (left, bounds.x, std::f32::consts::FRAC_PI_2),
+                (
+                    right,
+                    bounds.x + bounds.width - width,
+                    3.0 * std::f32::consts::FRAC_PI_2,
+                ),
+            ] {
+                if !shown {
+                    continue;
+                }
+                let gradient = iced::gradient::Linear::new(iced::Radians(angle))
+                    .add_stop(0.0, self.shade)
+                    .add_stop(1.0, clear);
+                renderer.fill_quad(
+                    renderer::Quad {
+                        bounds: Rectangle {
+                            x,
+                            y: bounds.y,
+                            width,
+                            height: bounds.height,
+                        },
+                        ..renderer::Quad::default()
+                    },
+                    Background::Gradient(gradient.into()),
+                );
+            }
+        });
     }
 
     fn update(
@@ -1587,6 +1793,10 @@ where
         self.content.as_widget_mut().update(
             tree, event, layout, cursor, renderer, clipboard, shell, viewport,
         );
+        // A scroll moves the offset without a new layout.
+        if let Event::Mouse(_) | Event::Touch(_) = event {
+            self.probe_edges(tree, layout, renderer);
+        }
     }
 
     fn mouse_interaction(
@@ -1638,6 +1848,304 @@ where
     fn from(w: TableViewport<'a, Message, Theme, Renderer>) -> Self {
         Element::new(w)
     }
+}
+
+/// A block with a control layered over it (a copy button) that is drawn
+/// only while the pointer is over the block, or while `pinned` (the check
+/// after a copy). The control is laid out and updated like a `Stack`
+/// layer either way, so it keeps its tooltip and widget state; a hover
+/// change asks for one redraw instead of a view rebuild.
+struct HoverReveal<'a> {
+    children: [Element<'a, Message>; 2],
+    pinned: bool,
+}
+
+#[derive(Default)]
+struct HoverRevealState {
+    hovered: bool,
+}
+
+impl<'a> HoverReveal<'a> {
+    fn new(
+        base: impl Into<Element<'a, Message>>,
+        control: impl Into<Element<'a, Message>>,
+    ) -> Self {
+        Self {
+            children: [base.into(), control.into()],
+            pinned: false,
+        }
+    }
+
+    fn pinned(mut self, pinned: bool) -> Self {
+        self.pinned = pinned;
+        self
+    }
+}
+
+impl Widget<Message, iced::Theme, iced::Renderer> for HoverReveal<'_> {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<HoverRevealState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(HoverRevealState::default())
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        self.children.iter().map(Tree::new).collect()
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(&self.children);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.children[0].as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        let [base, control] = &mut self.children;
+        let base = base
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits);
+        let size = base.size();
+        let control = control.as_widget_mut().layout(
+            &mut tree.children[1],
+            renderer,
+            &layout::Limits::new(Size::ZERO, size),
+        );
+        layout::Node::with_children(size, vec![base, control])
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        if let Event::Mouse(_) | Event::Window(_) = event {
+            let hovered = cursor.is_over(layout.bounds());
+            let state = tree.state.downcast_mut::<HoverRevealState>();
+            if state.hovered != hovered {
+                state.hovered = hovered;
+                shell.request_redraw();
+            }
+        }
+        let mut layouts = layout.children();
+        let (Some(base_layout), Some(control_layout)) = (layouts.next(), layouts.next()) else {
+            return;
+        };
+        let [base, control] = &mut self.children;
+        control.as_widget_mut().update(
+            &mut tree.children[1],
+            event,
+            control_layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+        if shell.is_event_captured() {
+            return;
+        }
+        // Over the control the block below sees a levitating cursor, as
+        // in a `Stack`: no text hover or selection under the button.
+        let over_control = control.as_widget().mouse_interaction(
+            &tree.children[1],
+            control_layout,
+            cursor,
+            viewport,
+            renderer,
+        ) != mouse::Interaction::None;
+        let cursor = if over_control && !cursor.is_levitating() {
+            cursor.levitate()
+        } else {
+            cursor
+        };
+        base.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            base_layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &iced::Renderer,
+    ) -> mouse::Interaction {
+        self.children
+            .iter()
+            .zip(&tree.children)
+            .zip(layout.children())
+            .rev()
+            .map(|((child, tree), layout)| {
+                child
+                    .as_widget()
+                    .mouse_interaction(tree, layout, cursor, viewport, renderer)
+            })
+            .find(|interaction| *interaction != mouse::Interaction::None)
+            .unwrap_or_default()
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        let mut layouts = layout.children();
+        let (Some(base_layout), Some(control_layout)) = (layouts.next(), layouts.next()) else {
+            return;
+        };
+        self.children[0].as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            base_layout,
+            cursor,
+            viewport,
+        );
+        let revealed = self.pinned || cursor.is_over(layout.bounds());
+        #[cfg(test)]
+        draw_log::reveal(revealed);
+        if revealed {
+            use iced::advanced::Renderer as _;
+            renderer.with_layer(*viewport, |renderer| {
+                self.children[1].as_widget().draw(
+                    &tree.children[1],
+                    renderer,
+                    theme,
+                    style,
+                    control_layout,
+                    cursor,
+                    viewport,
+                );
+            });
+        }
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &iced::Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        operation.traverse(&mut |operation| {
+            self.children
+                .iter_mut()
+                .zip(&mut tree.children)
+                .zip(layout.children())
+                .for_each(|((child, tree), layout)| {
+                    child
+                        .as_widget_mut()
+                        .operate(tree, layout, renderer, operation);
+                });
+        });
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &iced::Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, iced::Theme, iced::Renderer>> {
+        overlay::from_children(
+            &mut self.children,
+            tree,
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<HoverReveal<'a>> for Element<'a, Message> {
+    fn from(w: HoverReveal<'a>) -> Self {
+        Element::new(w)
+    }
+}
+
+/// Room the copy button keeps free at the right of a code block's text,
+/// so no line runs under it: the button (25 px) and its 8 px inset, plus
+/// a gap.
+const COPY_BUTTON_CLEARANCE: f32 = 40.0;
+
+/// Which block a copy button belongs to: the address of its source text
+/// in the document. Blocks with the same text stay apart; a reparse moves
+/// the text, which only ends a check early.
+pub(crate) fn copy_key(source: &str) -> usize {
+    source.as_ptr() as usize
+}
+
+/// The hover-revealed copy button at a block's top-right corner. It copies
+/// `source` and, while `copied`, shows a check instead of the copy icon.
+fn copy_button<'a>(
+    source: &str,
+    action: &'a str,
+    copied: bool,
+    pal: &Palette,
+) -> Element<'a, Message> {
+    let pal_c = *pal;
+    let (code, color) = if copied {
+        (crate::icon::ic::CHECK, pal_c.accent)
+    } else {
+        (crate::icon::ic::COPY, pal_c.muted)
+    };
+    let face = container(crate::icon::glyph(code, 13.0, color))
+        .padding(Padding::from([4, 6]))
+        .style(move |_| container::Style {
+            background: Some(pal_c.code_bg.into()),
+            border: iced::Border {
+                color: pal_c.code_border,
+                width: 1.0,
+                radius: crate::theme::radius::SM.into(),
+            },
+            ..Default::default()
+        });
+    container(crate::app::reader_tip(
+        mouse_area(face)
+            .interaction(iced::mouse::Interaction::Pointer)
+            .on_press(Message::CopyBlockSource(
+                source.to_string(),
+                copy_key(source),
+            )),
+        action,
+        tooltip::Position::Left,
+        pal_c,
+    ))
+    .padding(Padding::from([6, 8]))
+    .align_x(iced::alignment::Horizontal::Right)
+    .width(Length::Fill)
+    .into()
 }
 
 /// A table cell that switches between intrinsic measurement and the shared
@@ -2303,6 +2811,39 @@ pub fn style_color(s: crate::ast::HlStyle, pal: &Palette) -> iced::Color {
         Variable => sx.variable,
         Punctuation => sx.punctuation,
         Plain => pal.fg,
+    }
+}
+
+/// Test-only record of what the reader drew: whether each hover-revealed
+/// control (copy buttons) was drawn, and which overflow edges each wide
+/// table shaded. Drawing leaves no other trace a headless test can read.
+#[cfg(test)]
+pub(crate) mod draw_log {
+    use std::cell::RefCell;
+
+    thread_local! {
+        static REVEALS: RefCell<Vec<bool>> = const { RefCell::new(Vec::new()) };
+        static EDGES: RefCell<Vec<(bool, bool)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    pub(crate) fn reveal(drawn: bool) {
+        REVEALS.with(|log| log.borrow_mut().push(drawn));
+    }
+
+    /// One entry per hover-revealed control drawn since the last call:
+    /// whether its control was drawn.
+    pub(crate) fn take_reveals() -> Vec<bool> {
+        REVEALS.with(|log| std::mem::take(&mut *log.borrow_mut()))
+    }
+
+    pub(crate) fn edges(left: bool, right: bool) {
+        EDGES.with(|log| log.borrow_mut().push((left, right)));
+    }
+
+    /// One entry per table drawn since the last call: whether its left and
+    /// right edges were shaded.
+    pub(crate) fn take_edges() -> Vec<(bool, bool)> {
+        EDGES.with(|log| std::mem::take(&mut *log.borrow_mut()))
     }
 }
 

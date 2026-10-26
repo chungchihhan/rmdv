@@ -24,29 +24,48 @@ mod image_cache;
 use image_cache::IMAGE_CACHE_BYTE_BUDGET;
 pub use image_cache::{ImageCache, ImageState};
 
-const SIDEBAR_WIDTH: f32 = 280.0;
+const SIDEBAR_WIDTH: f32 = crate::prefs::SIDEBAR_WIDTH_DEFAULT;
 const QUICK_SLOTS_RAIL_GAP: f32 = 10.0;
 const QUICK_SLOTS_RAIL_REVEAL_DELAY_MS: u64 = 500;
 /// In-document search runs on every keystroke below this source size and is
 /// debounced above it, where one search no longer fits inside a frame.
 const SEARCH_DEBOUNCE_MIN_BYTES: usize = 1024 * 1024;
 const SEARCH_DEBOUNCE_MS: u64 = 80;
+/// Results the file finder keeps after fuzzy ranking.
+const FILE_FINDER_RESULT_CAP: usize = 200;
+/// Rows the file finder renders; keyboard selection stays within them.
+const FILE_FINDER_ROW_CAP: usize = 80;
+/// The Zen editor's line height, relative to its font size.
+const EDITOR_LINE_HEIGHT: f32 = 1.55;
 /// Radius of the reader panel's top-left corner next to the sidebar.
 const READER_CORNER_RADIUS: f32 = 24.0;
+/// Space above the first line of the reader.
+const READER_TOP_PAD: f32 = 56.0;
 const KEYBOARD_BUTTON_HEIGHT: f32 = 26.0; // 14px text at 1.3 line-height + 4px vertical padding on each side.
 const KEYBOARD_BUTTON_BOTTOM_PAD: f32 = 12.0;
 const KEYBOARD_BUTTON_FOOTER_BOTTOM_PAD: f32 = 44.0;
 const ZEN_EDITOR_OVERLAY_CLEARANCE: f32 = 2.0;
-/// Top padding of the body scrollable's content (`Padding::from([56, 32])` in
-/// `view`). Virt-window math works in body-relative px; every conversion from
-/// scrollable offsets must subtract this.
-const BODY_TOP_PAD: f32 = 56.0;
+/// Bottom padding of the body scrollable's content. Its top padding is
+/// `App::body_top_pad`.
+const BODY_BOTTOM_PAD: f32 = 56.0;
 const TREE_INDENT: f32 = 14.0;
 const SCROLLER_FADE_MS: u64 = 1200;
-const SIDEBAR_MIN: f32 = 160.0;
-const SIDEBAR_MAX: f32 = 600.0;
+/// How long a block's copy button shows its check after a copy.
+const COPY_FLASH: std::time::Duration = std::time::Duration::from_millis(1500);
+const SIDEBAR_MIN: f32 = crate::prefs::SIDEBAR_WIDTH_MIN;
+/// Scroll-spy: a heading this close below the reader's top line already
+/// counts as the current section (a jump lands it a few pixels low).
+const OUTLINE_SPY_SLACK: f32 = 4.0;
+const SIDEBAR_MAX: f32 = crate::prefs::SIDEBAR_WIDTH_MAX;
+/// A divider drag left of this x collapses the sidebar.
+const SIDEBAR_COLLAPSE_X: f32 = SIDEBAR_MIN / 2.0;
 const MIND_PANEL_DEFAULT: f32 = 380.0;
+/// Container id of the document mind map panel's text area.
+const MINDMAP_PANEL_TEXT_ID: &str = "mindmap-panel-text";
 const MIND_PANEL_MIN: f32 = 240.0;
+/// A dragged mind map panel stops at this fraction of the window width, so
+/// the canvas keeps room.
+const MIND_PANEL_MAX_FRAC: f32 = 0.8;
 /// Window-width fractions cycled by ⌘⌥W: 1/3, 1/2, 2/3.
 const MIND_PANEL_FRACS: [f32; 3] = [1.0 / 3.0, 0.5, 2.0 / 3.0];
 const MIND_PANEL_MAX_BLOCKS: usize = 80;
@@ -67,6 +86,17 @@ fn zen_editor_bottom_inset(footer_visible: bool) -> f32 {
     shortcut_bottom_pad + KEYBOARD_BUTTON_HEIGHT + ZEN_EDITOR_OVERLAY_CLEARANCE
 }
 
+/// Space above the raw editor's first line: it clears the hover toolbar's
+/// band, so reaching for the first line does not reveal the toolbar over it.
+/// Always mode lays the editor out below the toolbar, so the line stays put
+/// when the mode changes.
+fn zen_editor_top_inset(mode: crate::prefs::ToolbarMode) -> f32 {
+    match mode {
+        crate::prefs::ToolbarMode::OnHover => TOOLBAR_BAND_H,
+        crate::prefs::ToolbarMode::Always => TOOLBAR_BAND_H - TOOLBAR_H,
+    }
+}
+
 fn mindmap_panel_width_for_step(step: usize, window_size: Option<iced::Size>) -> f32 {
     window_size
         .map(|size| size.width * MIND_PANEL_FRACS[step % MIND_PANEL_FRACS.len()])
@@ -74,8 +104,17 @@ fn mindmap_panel_width_for_step(step: usize, window_size: Option<iced::Size>) ->
         .max(MIND_PANEL_MIN)
 }
 
-fn mindmap_panel_width_for_drag(origin: f32, anchor: f32, cursor_x: f32) -> f32 {
-    (origin + anchor - cursor_x).max(MIND_PANEL_MIN)
+fn mindmap_panel_width_for_drag(
+    origin: f32,
+    anchor: f32,
+    cursor_x: f32,
+    window_size: Option<iced::Size>,
+) -> f32 {
+    let max = window_size
+        .map(|size| size.width * MIND_PANEL_MAX_FRAC)
+        .unwrap_or(f32::INFINITY)
+        .max(MIND_PANEL_MIN);
+    (origin + anchor - cursor_x).clamp(MIND_PANEL_MIN, max)
 }
 
 fn editor_font() -> iced::Font {
@@ -87,21 +126,37 @@ fn editor_font() -> iced::Font {
     }
 }
 
+mod context_menu;
 mod dispatch;
+mod editor_menu;
 mod full_mindmap;
 mod full_mindmap_state;
 mod full_mindmap_view;
+mod gestures;
+mod history;
 mod ipc_handler;
+mod lifecycle;
+pub use lifecycle::{launch_window_settings, window_settings};
 pub(crate) mod keys;
+mod list_menus;
 mod loading;
+mod menu_bar;
 mod message;
+mod mindmap_menu;
 mod paths;
 mod preview_worker;
+mod reader_menu;
 mod scroll_tasks;
 mod settings;
+mod sidebar_peek;
 mod slots;
+mod toolbar;
+mod tree_menu;
+mod tree_ops;
 mod types;
 mod view;
+mod zoom_raster;
+use context_menu::*;
 use full_mindmap_state::*;
 
 pub use full_mindmap_state::{
@@ -121,13 +176,17 @@ pub use paths::{is_external_link, is_remote_url, line_for_fragment, resolve_imag
 use preview_worker::*;
 use scroll_tasks::*;
 use settings::*;
+#[cfg(test)]
+use tree_ops::take_trashed_for_tests;
 use types::*;
 pub use types::{
-    MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
-    PendingWatcherReload, SidebarTab, ThemeEntry, Toast, ToastAction, ViewMode, ZenRestoreState,
+    HistoryDir, MindmapDir, Overlay, PendingNav, PendingRefreshFile, PendingRefreshWorkspace,
+    PendingWatcherReload, ReaderHit, ReaderTarget, ScrollerFade, SidebarTab, ThemeEntry, Toast,
+    ToastAction, ToolbarView, ViewMode, ZenRestoreState,
 };
-pub(crate) use view::sleek_scrollable_style;
 use view::*;
+pub(crate) use view::{reader_tip, sleek_scrollable_style};
+use zoom_raster::*;
 
 fn quick_slots_rail_left_offset(sidebar_open: bool, sidebar_width: f32, full_mindmap: bool) -> f32 {
     if sidebar_open && !full_mindmap {
@@ -143,6 +202,8 @@ pub struct App {
     /// Whitespace-separated word count of `source`, refreshed on every parse
     /// so the footer never scans the whole document inside `view()`.
     source_words: usize,
+    /// Characters in `source`, for the footer pill.
+    source_chars: usize,
     pub ast: Vec<(BlockId, Block)>,
     pub theme_mode: ThemeMode,
     pub theme_preset: ThemePreset,
@@ -156,6 +217,12 @@ pub struct App {
     pub line_spacing: theme::LineSpacing,
     pub show_footer: bool,
     pub error: Option<String>,
+    /// The file or folder the error card's Reveal in Finder shows, with the
+    /// error text it belongs to; a different error hides the button.
+    error_path: Option<(String, PathBuf)>,
+    /// The path of the newest generic file load and its refresh generation,
+    /// so a failed read can name the file it tried to open.
+    generic_load: Option<(u64, PathBuf)>,
     pub query: String,
     pub matches: Matches,
     pub match_idx: usize,
@@ -187,14 +254,48 @@ pub struct App {
     pub sidebar_open: bool,
     pub sidebar_tab: SidebarTab,
     pub tree_cursor: usize,
+    /// The tree cursor's background shows only while the arrow keys move it;
+    /// a row click hides it, so hover and cursor never look like two rows.
+    pub tree_cursor_shown: bool,
     pub outline_cursor: usize,
     /// Heading outline, rebuilt in `load_ast_from_source` when the document
     /// changes. Cached so the Outline sidebar (rendered every frame) and arrow
     /// nav don't re-parse the whole source per event.
     pub outline_sections: Vec<crate::ipc::sections::Section>,
+    /// Scroll-spy: the reader block at the top line when the outline mark
+    /// was last computed. The mark is recomputed only when this changes, so
+    /// a scroll inside one block costs one binary search.
+    pub outline_spy_block: Option<usize>,
+    /// An outline row the user chose (click or Enter). It keeps the mark
+    /// while its heading is on screen below the top line, as at the end of
+    /// a document where a short last section cannot reach the top.
+    pub outline_hold: Option<usize>,
+    /// The pointer is over the outline list: the scroll-spy then leaves the
+    /// list where the user put it.
+    pub outline_hovered: bool,
     pub overlay: Overlay,
     pub overlay_query: String,
     pub overlay_selected: usize,
+    /// Pointer motion over the overlay lists and vault results; gates hover
+    /// selection on real motion.
+    list_pointer: ListPointer,
+    /// The open context menu; at most one at a time.
+    context_menu: Option<ContextMenu>,
+    /// The file tree row being renamed in place (MDV-048 P6).
+    tree_rename: Option<TreeRename>,
+    /// Folders made with New Folder. They stay in the tree while empty,
+    /// though the scan leaves empty folders out.
+    tree_new_folders: Vec<PathBuf>,
+    /// The last file tree row click, for telling a double click.
+    tree_last_click: Option<(PathBuf, std::time::Instant)>,
+    /// A double click on a file row gave the arrow keys, Space, and Enter
+    /// to the reader instead of the file tree, until the tree is used again.
+    reader_keys: bool,
+    /// Where the latest right press was, in window coordinates.
+    right_press_at: Option<iced::Point>,
+    /// The reader element under the latest right press, for the reader's
+    /// context menu of the same press.
+    reader_menu_target: Option<ReaderTarget>,
     /// Vault search results page (Zed-style) — full reader-area, not an overlay.
     /// Shown when `vault_open`; workspace-level, so it renders even with no file.
     pub vault_open: bool,
@@ -222,6 +323,8 @@ pub struct App {
     /// Keyboard cursor over `SettingsRow::visible()`.
     pub settings_cursor: usize,
     pub picker: Option<Picker>,
+    /// What the picker's last row click did; see `PickerClick`.
+    picker_click: PickerClick,
     /// Opt-in workspace navigator. Kept separate from the document's
     /// `ViewMode::Mindmap` state so entering/exiting it cannot disturb an open
     /// document mindmap or Zen editor.
@@ -243,10 +346,31 @@ pub struct App {
     /// Whether a settle timer is in flight. A burst of Moved/Resized events
     /// shares that one timer instead of starting its own.
     pub window_mode_settle_armed: bool,
+    /// The window frame's top-left corner, from `Opened` and `Moved`.
+    /// `None` where the platform reports no position (Wayland).
+    pub window_position: Option<iced::Point>,
+    /// Whether the window was maximized (zoomed) when its frame last
+    /// settled; a close uses it, since it cannot ask the window.
+    pub window_maximized: bool,
+    /// When the window last moved or resized. Its frame is saved once it
+    /// has been still for `WINDOW_FRAME_SETTLE`.
+    pub window_frame_changed_at: Option<std::time::Instant>,
+    /// Whether the frame's settle timer is in flight. A burst of moves and
+    /// resizes shares that one timer.
+    pub window_frame_settle_armed: bool,
     pub overlay_viewport: Option<iced::widget::scrollable::Viewport>,
     pub body_viewport: Option<iced::widget::scrollable::Viewport>,
     pub last_body_range: std::cell::Cell<(usize, usize)>,
     pub last_scroll_at: Option<std::time::Instant>,
+    /// The reader scrollbar's fade in and out, and its hover.
+    pub reader_scroller: ScrollerFade,
+    /// The copy number and block key ([`crate::render::copy_key`]) of the
+    /// block copy button that copied last, while it shows a check.
+    pub copy_flash: Option<(u64, usize)>,
+    pub copy_flash_seq: u64,
+    /// Pixels per tick while a reader selection drag is past the viewport
+    /// edge; `None` stops the tick.
+    pub reader_autoscroll: Option<f32>,
     pub sidebar_width: f32,
     pub sidebar_drag: Option<f32>,
     pub(crate) hl_cache: crate::highlight::HlCache,
@@ -277,6 +401,23 @@ pub struct App {
     /// again. Cleared wherever `editor` is replaced.
     pub editor_text: Option<String>,
     pub zen_restore: Option<ZenRestoreState>,
+    /// The pointer is in the toolbar's top band (Toolbar: On hover).
+    toolbar_hovered: bool,
+    /// The hover toolbar is shown: while hovered, and for a short delay after.
+    toolbar_revealed: bool,
+    /// Bumped on every band enter and leave; a hide delay that started under
+    /// an older generation does nothing.
+    toolbar_hover_generation: u64,
+    /// Where the hover band last sat in the widget tree (`App::toolbar_band_slot`).
+    toolbar_band_at: Option<ToolbarBandSlot>,
+    /// The hidden sidebar shows over the content, because the pointer came
+    /// to the left window edge (`App::sidebar_peek_hover`).
+    sidebar_peek: bool,
+    /// The pointer is over the peek.
+    sidebar_peek_hovered: bool,
+    /// Bumped on every peek enter and leave; a hide delay that started under
+    /// an older generation does nothing.
+    sidebar_peek_generation: u64,
     /// Last document text known to have been persisted successfully. `source`
     /// may contain an unsaved Zen edit after switching back to rendered mode.
     pub saved_source: String,
@@ -314,6 +455,24 @@ pub struct App {
     /// stream. Keeping them separate prevents a mode switch from replaying a
     /// gesture into the other graph.
     pub full_mindmap_native_pinch_log: f64,
+    /// The latest zoom button press for the document mind map and for Full
+    /// Mindmap. Each canvas keeps its own zoom; see
+    /// [`crate::mindmap::ZoomRequest`].
+    pub mindmap_zoom_request: crate::mindmap::ZoomRequest,
+    pub full_mindmap_zoom_request: crate::mindmap::ZoomRequest,
+    /// The image viewer's latest zoom button or key, and its own native
+    /// pinch stream; see [`crate::zoom_viewer`].
+    pub image_zoom_request: crate::mindmap::ZoomRequest,
+    pub image_zoom_pinch_log: f64,
+    /// Pinch and ⌘+scroll over the reader, collected into font steps.
+    pub(crate) reader_zoom: gestures::ZoomAccumulator,
+    /// The latest reader zoom flush that changed the font; its trailing
+    /// [`Message::ReaderZoomSave`] writes prefs.
+    reader_zoom_save: u64,
+    /// The sharper raster of the diagram open in the viewer, and the last
+    /// request id given out; see `zoom_raster`.
+    image_zoom_raster: Option<ZoomRaster>,
+    image_zoom_raster_seq: u64,
     /// Cached mindmap layout, lazily rebuilt from (ast, file, mindmap_collapsed).
     /// Every mutation of those inputs must invalidate it or atomically replace
     /// it with a layout built from the new state.
@@ -358,9 +517,8 @@ pub struct App {
     pub diagram_theme_id: u32,
     /// Pre-rasterized image::Handle of the diagram currently shown in the
     /// zoom overlay. `None` when overlay shows a normal raster/svg image.
-    /// Using image::Handle lets the zoom modal reuse iced's built-in
-    /// `image::viewer` for scroll-to-zoom + drag-to-pan + escape-to-close
-    /// parity with normal images. Handle clones are cheap (Arc inside).
+    /// Using image::Handle lets diagrams and images share one viewer
+    /// (`crate::zoom_viewer`). Handle clones are cheap (Arc inside).
     pub zoom_diagram: Option<iced::widget::image::Handle>,
     /// Line numbers (0-based) for each block in `ast`, parallel to `ast`.
     /// Built from `parser::parse`'s byte-offset return via `build_byte_to_line`.
@@ -404,15 +562,35 @@ pub struct App {
     pub(crate) nav_anchor: Option<usize>,
     /// User preferences (persisted to `~/.config/rmdv/prefs.json`).
     pub prefs: crate::prefs::Prefs,
-    /// The currently selected workspace bank. It is normalized to nine slots
-    /// at every workspace boundary and persisted back into `prefs.json`.
+    /// The global Quick Slot bank: nine slots for every workspace, each
+    /// naming the workspace root it was assigned in. Persisted into
+    /// `prefs.json` as `global_quick_slots`.
     pub quick_slots: crate::quick_slots::WorkspaceSlots,
-    quick_slots_root: Option<PathBuf>,
+    /// What the app pushed to the native menu bar last (MDV-048 P8).
+    menu_pushed: menu_bar::MenuPushed,
+    /// A slot from another workspace waits for that workspace to open
+    /// (MDV-048 P8b); it is then activated as a slot of this workspace.
+    pending_quick_slot_switch: Option<PendingQuickSlotSwitch>,
     quick_slots_undo: Option<crate::quick_slots::ClearUndo>,
     /// Open "replace slot?" confirmation; it owns the keyboard while set.
     quick_slot_replace: Option<QuickSlotReplace>,
+    /// Open "save before closing?" confirmation; it owns the keyboard while
+    /// set.
+    close_confirm: Option<CloseConfirm>,
+    /// A close that waits for this save (the text it writes) to succeed.
+    close_after_save: Option<CloseAfterSave>,
+    /// The window close was sent; no further close request applies.
+    window_closing: bool,
+    /// Files are being dragged over the window: the drop highlight shows.
+    drop_hover: bool,
+    /// Recent files and folders that still exist, for the welcome page.
+    recent: crate::recent::Recent,
+    /// Where the recent list is stored; tests use a private file.
+    recent_store: Option<PathBuf>,
     pub quick_slots_modifier_held: bool,
     quick_slots_rail_revealed: bool,
+    /// The toolbar's Quick Slots button pinned the rail as a popover.
+    quick_slots_pinned: bool,
     quick_slots_modifier_generation: u64,
     quick_slots_persist_generation: u64,
     quick_slots_persist_pending: bool,
@@ -420,6 +598,14 @@ pub struct App {
     pending_quick_slot_restore: Option<PendingQuickSlotRestore>,
     quick_slot_preview_restore_guard: Option<PendingQuickSlotRestore>,
     quick_slot_body_restore: Option<f32>,
+    /// Back and Forward navigation history.
+    history: NavHistory,
+    /// The link under the pointer; its destination shows bottom left.
+    hovered_link: Option<HoveredLink>,
+    /// Links handed to the OS, with whether they open in the background.
+    /// Tests record them here instead of launching a browser.
+    #[cfg(test)]
+    pub(super) external_opens: Vec<(String, bool)>,
     quick_slot_preview_restore: Option<f32>,
     quick_slots_persistence_path: Option<PathBuf>,
     watcher_generation: u64,
@@ -460,10 +646,11 @@ impl Default for App {
         let glass_capable = crate::macos_vibrancy::launch_transparent(prefs.glass);
         let font_scale = crate::prefs::clamp_font_scale(prefs.font_scale);
         let (show_hidden, mindmap_autocenter) = (prefs.show_hidden, prefs.mindmap_autocenter);
-        Self {
+        let mut app = Self {
             file: None,
             source: String::new(),
             source_words: 0,
+            source_chars: 0,
             ast: Vec::new(),
             theme_mode: mode,
             theme_preset: preset,
@@ -476,6 +663,8 @@ impl Default for App {
             line_spacing: prefs.line_spacing,
             show_footer: prefs.show_footer,
             error: None,
+            error_path: None,
+            generic_load: None,
             query: String::new(),
             matches: Matches::default(),
             match_idx: 0,
@@ -493,11 +682,20 @@ impl Default for App {
             sidebar_open: false,
             sidebar_tab: SidebarTab::Files,
             tree_cursor: 0,
+            tree_cursor_shown: false,
             outline_cursor: 0,
             outline_sections: Vec::new(),
             overlay: Overlay::None,
             overlay_query: String::new(),
             overlay_selected: 0,
+            list_pointer: ListPointer::default(),
+            context_menu: None,
+            tree_rename: None,
+            tree_new_folders: Vec::new(),
+            tree_last_click: None,
+            reader_keys: false,
+            right_press_at: None,
+            reader_menu_target: None,
             vault_open: false,
             vault_query: String::new(),
             vault_searched_query: None,
@@ -511,19 +709,31 @@ impl Default for App {
             settings_open: false,
             settings_cursor: 0,
             picker: None,
+            picker_click: PickerClick::Idle,
             full_mindmap: None,
             full_mindmap_request_seq: 0,
             tree_viewport: None,
             outline_viewport: None,
+            outline_spy_block: None,
+            outline_hold: None,
+            outline_hovered: false,
             window_size: None,
             window_fullscreen: false,
             window_mode_last_trigger: None,
             window_mode_settle_armed: false,
+            window_position: None,
+            window_maximized: false,
+            window_frame_changed_at: None,
+            window_frame_settle_armed: false,
             overlay_viewport: None,
             body_viewport: None,
             last_body_range: std::cell::Cell::new((0, 0)),
             last_scroll_at: None,
-            sidebar_width: SIDEBAR_WIDTH,
+            reader_scroller: ScrollerFade::default(),
+            copy_flash: None,
+            copy_flash_seq: 0,
+            reader_autoscroll: None,
+            sidebar_width: crate::prefs::clamp_sidebar_width(prefs.sidebar_width),
             sidebar_drag: None,
             hl_cache: crate::highlight::HlCache::default(),
             height_cache: crate::virt::HeightCache::default(),
@@ -545,6 +755,13 @@ impl Default for App {
             editor: None,
             editor_text: None,
             zen_restore: None,
+            toolbar_hovered: false,
+            toolbar_revealed: false,
+            toolbar_hover_generation: 0,
+            toolbar_band_at: None,
+            sidebar_peek: false,
+            sidebar_peek_hovered: false,
+            sidebar_peek_generation: 0,
             saved_source: String::new(),
             dirty: false,
             edit_history: crate::history::SnapshotStack::default(),
@@ -565,6 +782,14 @@ impl Default for App {
             mindmap_autocenter,
             mindmap_native_pinch_log: 0.0,
             full_mindmap_native_pinch_log: 0.0,
+            mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
+            full_mindmap_zoom_request: crate::mindmap::ZoomRequest::default(),
+            image_zoom_request: crate::mindmap::ZoomRequest::default(),
+            image_zoom_pinch_log: 0.0,
+            reader_zoom: gestures::ZoomAccumulator::default(),
+            reader_zoom_save: 0,
+            image_zoom_raster: None,
+            image_zoom_raster_seq: 0,
             mindmap_layout: std::cell::RefCell::new(None),
             mindmap_layout_generation: std::cell::Cell::new(0),
             mindmap_data_panel: std::cell::RefCell::new(None),
@@ -584,13 +809,39 @@ impl Default for App {
             pending_screenshot: None,
             virt_window: crate::virt::VirtWindow::default(),
             nav_anchor: None,
+            quick_slots: prefs.global_quick_slots.clone().unwrap_or_default(),
             prefs,
-            quick_slots: crate::quick_slots::WorkspaceSlots::default(),
-            quick_slots_root: None,
+            menu_pushed: menu_bar::MenuPushed::default(),
+            pending_quick_slot_switch: None,
             quick_slots_undo: None,
             quick_slot_replace: None,
+            close_confirm: None,
+            close_after_save: None,
+            window_closing: false,
+            drop_hover: false,
+            recent: {
+                #[cfg(not(test))]
+                {
+                    crate::recent::load().existing()
+                }
+                #[cfg(test)]
+                {
+                    crate::recent::Recent::default()
+                }
+            },
+            recent_store: {
+                #[cfg(not(test))]
+                {
+                    crate::recent::store_path()
+                }
+                #[cfg(test)]
+                {
+                    Some(test_quick_slots_persistence_path().with_extension("recent.json"))
+                }
+            },
             quick_slots_modifier_held: false,
             quick_slots_rail_revealed: false,
+            quick_slots_pinned: false,
             quick_slots_modifier_generation: 0,
             quick_slots_persist_generation: 0,
             quick_slots_persist_pending: false,
@@ -598,6 +849,10 @@ impl Default for App {
             pending_quick_slot_restore: None,
             quick_slot_preview_restore_guard: None,
             quick_slot_body_restore: None,
+            history: NavHistory::default(),
+            hovered_link: None,
+            #[cfg(test)]
+            external_opens: Vec::new(),
             quick_slot_preview_restore: None,
             quick_slots_persistence_path: {
                 #[cfg(test)]
@@ -615,7 +870,11 @@ impl Default for App {
             glass_capable,
             glass_window: None,
             glass_applied: None,
-        }
+        };
+        // Launch seeds the global Quick Slot bank once from the most
+        // recently opened workspace that has slots.
+        app.seed_global_quick_slots();
+        app
     }
 }
 
@@ -712,6 +971,37 @@ impl App {
         self.typography.body_size
     }
 
+    /// `steps` ⌘+ (positive) or ⌘− (negative) steps at once, each clamped
+    /// as [`Self::adjust_font_scale`] clamps it, with one typography rebuild.
+    /// It does not write prefs: a gesture flushes many times, and the caller
+    /// writes once when it pauses.
+    fn step_font_scale(&mut self, steps: i32) -> f32 {
+        let factor = if steps > 0 { 1.1 } else { 1.0 / 1.1 };
+        let mut scale = self.font_scale;
+        for _ in 0..steps.unsigned_abs() {
+            scale = crate::prefs::clamp_font_scale(scale * factor);
+        }
+        if scale != self.font_scale {
+            self.font_scale = scale;
+            self.rebuild_typography();
+            self.prefs.font_scale = self.font_scale;
+        }
+        self.typography.body_size
+    }
+
+    /// After a font size change: drop the measured heights, rebuild the
+    /// reader window, and show `toast`.
+    fn font_size_changed(&mut self, toast: String) -> Task<Message> {
+        self.height_cache.clear();
+        self.rebuild_virt_here();
+        let preview_measure = self.refresh_full_mindmap_preview_heights();
+        Task::batch([
+            self.measure_window_heights(),
+            preview_measure,
+            self.show_toast(toast),
+        ])
+    }
+
     /// Install a theme's palette. Every theme change goes through here so the
     /// Soft syntax option is never skipped.
     fn apply_palette(&mut self, palette: Palette) {
@@ -738,6 +1028,29 @@ impl App {
             crate::prefs::save_to(path, &self.prefs);
         } else {
             crate::prefs::save(&self.prefs);
+        }
+    }
+
+    /// The Quick Slots rail may show: no overlay, vault page, find bar, or
+    /// unsaved Zen edit takes the keys. The bank is global, so it shows with
+    /// no workspace open too (a slot opens its own workspace); only
+    /// assigning needs one.
+    fn quick_slots_rail_allowed(&self) -> bool {
+        quick_slots_rail_visible(
+            true,
+            self.overlay != Overlay::None,
+            self.vault_open,
+            self.search_open,
+            self.view_mode == ViewMode::Raw && self.editor.is_some(),
+            self.dirty,
+        )
+    }
+
+    /// Remember the sidebar width for the next launch; one write per drag.
+    fn save_sidebar_width(&mut self) {
+        if self.prefs.sidebar_width != self.sidebar_width {
+            self.prefs.sidebar_width = self.sidebar_width;
+            self.save_prefs();
         }
     }
 
@@ -844,7 +1157,9 @@ impl App {
         self.edit_history.clear();
         self.edit_redo.clear();
         self.view_mode = ViewMode::Raw;
-        Task::none()
+        // The editor handles keys only while focused; focus it so typing
+        // works right after ⌘E.
+        iced::widget::operation::focus(Self::editor_id())
     }
 
     fn leave_zen_edit_mode(&mut self, sync_editor: bool) {
@@ -909,7 +1224,7 @@ impl App {
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        Some(self.show_toast(format!(
+        Some(self.show_unsaved_edits_toast(format!(
             "unsaved edits in {name} \u{2014} press \u{2318}S to save before opening another file"
         )))
     }
@@ -946,6 +1261,7 @@ impl App {
         self.cancel_refresh_tracking();
         self.bump_file_refresh_generation();
         let generation = self.file_refresh_generation;
+        self.generic_load = Some((generation, path.clone()));
         Task::perform(load_file(path), move |result| Message::FileLoadCompleted {
             generation,
             result,
@@ -1000,17 +1316,18 @@ impl App {
         let pending_candidate = self.pending_quick_slot_restore.clone();
         let pending_slot_restore = pending_candidate.clone().filter(|pending| {
             self.quick_slot_restore_is_current(pending)
-                && self
-                    .quick_slots_workspace_root()
-                    .and_then(|root| {
-                        crate::quick_slots::resolve_path(root, &pending.slot.relative_path)
-                    })
-                    .is_some_and(|target| target == path)
+                && pending.slot.resolve().is_some_and(|target| target == path)
         });
         if pending_candidate.is_some() && pending_slot_restore.is_none() {
             self.invalidate_pending_quick_slot_restore();
         }
         let switching_file = self.file.as_deref() != Some(path.as_path());
+        // Read the stop being left before any state below changes.
+        let history_restore = if switching_file {
+            self.history_on_file_switch(&path)
+        } else {
+            None
+        };
         let refresh_full_mindmap_preview = self.full_mindmap.as_ref().is_some_and(|full| {
             matches!(
                 full.selected.as_ref(),
@@ -1018,7 +1335,7 @@ impl App {
             )
         });
         self.bump_file_refresh_generation();
-        crate::recent::add(&path);
+        self.remember_recent_file(&path);
         if switching_file && pending_slot_restore.is_none() {
             // Manual/file-finder navigation leaves the old slot checkpointed
             // but unslotted; only an explicit Quick Slot activation may make
@@ -1045,6 +1362,8 @@ impl App {
         self.file = Some(path.clone());
         self.dirty = false;
         self.outline_cursor = 0;
+        self.outline_spy_block = None;
+        self.outline_hold = None;
         self.is_data_doc = data_lang_for(self.file.as_deref()).is_some();
         self.reader_select_all = false;
         self.mindmap_collapsed.clear();
@@ -1086,6 +1405,9 @@ impl App {
             self.apply_quick_slot_restore_after_file(&path, pending.slot)
         });
         fetches.push(slot_restore);
+        if let Some(entry) = history_restore {
+            fetches.push(self.restore_history_after_file(entry));
+        }
         if refresh_full_mindmap_preview {
             let source = self.source_snapshot_for_preview();
             fetches.push(self.begin_full_mindmap_preview_source(path, source));
@@ -1101,19 +1423,24 @@ impl App {
         if root_changed {
             self.invalidate_pending_quick_slot_restore();
         }
+        let workspace_changed = self.workspace.as_ref().is_some_and(|current| {
+            crate::quick_slots::workspace_key(current) != crate::quick_slots::workspace_key(&path)
+        });
+        if workspace_changed {
+            self.clear_history();
+        }
         let _ = self.checkpoint_active_quick_slot();
         self.persist_quick_slots_now();
         self.workspace_files = snapshot.files;
         self.workspace_files_rev = self.workspace_files_rev.wrapping_add(1);
         self.workspace_sidebar_files = snapshot.sidebar_files;
         self.workspace_tree = Some(snapshot.root);
+        self.keep_new_folders_in_tree();
         self.workspace_snapshot_show_hidden = self.show_hidden;
         self.workspace_truncated = snapshot.listing_truncated;
         self.begin_workspace_epoch();
         self.workspace = Some(path);
-        if let Some(root) = self.workspace.clone() {
-            self.load_quick_slots_for_workspace(&root);
-        }
+        self.seed_global_quick_slots_from_workspace();
     }
 
     fn begin_workspace_epoch(&mut self) {
@@ -1175,6 +1502,7 @@ impl App {
         if !tree::graft_folder(root, &folder, snapshot.root) {
             return Task::none();
         }
+        self.keep_new_folders_in_tree();
         self.workspace_sidebar_files
             .replace_subtree(&folder, snapshot.sidebar_files);
         if !snapshot.files.is_empty() {
@@ -1260,6 +1588,15 @@ impl App {
         self.tree_cursor = self.tree_cursor.min(row_count.saturating_sub(1));
         self.reveal_current_file();
         self.error = None;
+        // A rename field lives in its row: a rescan that drops the row (the
+        // item was deleted or moved elsewhere) ends the rename.
+        if self
+            .tree_rename
+            .as_ref()
+            .is_some_and(|rename| !self.tree_rows().contains(&rename.path))
+        {
+            self.tree_rename = None;
+        }
     }
 
     fn begin_refresh_workspace_load(&mut self, path: PathBuf, id: u64) -> Task<Message> {
@@ -1449,23 +1786,110 @@ impl App {
         Task::batch(tasks)
     }
 
+    /// Open Folder: open `path` as the workspace. Outside Full Mindmap it
+    /// shows the sidebar when `open_sidebar` is set; a Quick Slot switch
+    /// keeps the sidebar as it is.
+    pub(super) fn open_workspace(&mut self, path: PathBuf, open_sidebar: bool) -> Task<Message> {
+        self.cancel_refresh_tracking();
+        // A workspace selected through Full Mindmap Mode should not
+        // silently alter the hidden sidebar's open/closed preference.
+        if self.full_mindmap.is_some() {
+            let exit_after_refresh = self.pending_ipc_file_open.is_some();
+            self.begin_full_mindmap_workspace_load(
+                path,
+                false,
+                None,
+                false,
+                false,
+                exit_after_refresh,
+            )
+        } else {
+            self.load_workspace(path, true, open_sidebar);
+            Task::none()
+        }
+    }
+
     fn set_workspace(&mut self, path: PathBuf, open_sidebar: bool) {
+        self.load_workspace(path, open_sidebar, open_sidebar);
+    }
+
+    /// Index `path` and show it as the workspace. A folder opened on purpose
+    /// (`remember`, not a file's implied parent) joins the recent folders.
+    fn load_workspace(&mut self, path: PathBuf, remember: bool, open_sidebar: bool) {
         let path = canonicalize_existing_path(path);
         match tree::build_workspace(&path, self.show_hidden) {
-            Ok(snapshot) => self.apply_workspace_snapshot(path, snapshot, open_sidebar),
+            Ok(snapshot) => {
+                if remember {
+                    self.remember_recent_folder(&path);
+                }
+                self.apply_workspace_snapshot(path, snapshot, open_sidebar)
+            }
             Err(error) => {
                 let message = format!("Couldn't index {}: {error}", path.display());
                 if let Some(full) = self.full_mindmap.as_mut() {
                     full.load_error = Some(message);
                 } else {
-                    self.error = Some(message);
+                    self.set_error_for(message, path);
                 }
             }
         }
     }
 
+    /// Show `message` on the error card with a Reveal in Finder for `path`.
+    fn set_error_for(&mut self, message: String, path: PathBuf) {
+        self.error_path = Some((message.clone(), path));
+        self.error = Some(message);
+    }
+
+    /// The path the error card can reveal: only while the error it was
+    /// recorded for is still the one shown.
+    fn error_reveal_path(&self) -> Option<&Path> {
+        self.error_path
+            .as_ref()
+            .filter(|(message, _)| self.error.as_ref() == Some(message))
+            .map(|(_, path)| path.as_path())
+    }
+
     fn show_toast(&mut self, text: String) -> Task<Message> {
         self.show_toast_with_action(text, None)
+    }
+
+    fn link_page(&self) -> LinkPage {
+        LinkPage {
+            file: self.file.clone(),
+            view_mode: self.view_mode,
+            full_mindmap: self.full_mindmap.is_some(),
+            overlay: self.overlay,
+            settings_open: self.settings_open,
+            vault_open: self.vault_open,
+            error: self.error.is_some(),
+        }
+    }
+
+    /// Hands a link target to the OS: a URL to the browser, a local file
+    /// to its default app. `background` keeps rmdv in front.
+    fn open_externally(&mut self, target: String, background: bool) {
+        #[cfg(test)]
+        {
+            self.external_opens.push((target, background));
+        }
+        #[cfg(not(test))]
+        {
+            #[cfg(target_os = "macos")]
+            if background {
+                if let Some(mut child) =
+                    background_open_command(&target).and_then(|mut c| c.spawn().ok())
+                {
+                    // Reap `open` when it exits; it returns at once.
+                    std::thread::spawn(move || {
+                        let _ = child.wait();
+                    });
+                    return;
+                }
+            }
+            let _ = background;
+            let _ = open::that_detached(&target);
+        }
     }
 
     fn show_cli_install_prompt(&mut self) -> Task<Message> {
@@ -1478,23 +1902,62 @@ impl App {
         )
     }
 
+    fn show_error_toast(&mut self, text: String) -> Task<Message> {
+        self.push_toast(text, None, true)
+    }
+
+    /// The dirty-guard toast: it names the unsaved file and offers Save.
+    fn show_unsaved_edits_toast(&mut self, text: String) -> Task<Message> {
+        self.show_toast_with_action(
+            text,
+            Some(ToastAction {
+                label: "Save".to_string(),
+                message: Message::SaveFile,
+            }),
+        )
+    }
+
     fn show_toast_with_action(
         &mut self,
         text: String,
         action: Option<ToastAction>,
     ) -> Task<Message> {
+        self.push_toast(text, action, false)
+    }
+
+    fn push_toast(
+        &mut self,
+        text: String,
+        action: Option<ToastAction>,
+        error: bool,
+    ) -> Task<Message> {
         self.toast_seq = self.toast_seq.wrapping_add(1);
         let id = self.toast_seq;
-        let duration = if action.is_some() {
-            std::time::Duration::from_secs(8)
-        } else {
-            std::time::Duration::from_millis(1500)
+        let toast = Toast {
+            id,
+            text,
+            action,
+            error,
         };
-        self.toast = Some(Toast { id, text, action });
+        let duration = toast_duration(&toast);
+        self.toast = Some(toast);
         Task::perform(
             async move { tokio::time::sleep(duration).await },
             move |_| Message::ToastExpire(id),
         )
+    }
+
+    /// How often `ScrollerTick` runs at `now`, or `None` while nothing
+    /// fades.
+    pub(crate) fn scroller_tick_interval(
+        &self,
+        now: std::time::Instant,
+    ) -> Option<std::time::Duration> {
+        let others = self.last_scroll_at.map(|_| SCROLLER_HOLD_TICK);
+        match (self.reader_scroller.next_tick(now), others) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        }
     }
 
     fn scroll_id() -> iced::widget::Id {
@@ -1509,6 +1972,12 @@ impl App {
     fn overlay_scroll_id() -> iced::widget::Id {
         iced::widget::Id::new("overlay")
     }
+    fn editor_id() -> iced::widget::Id {
+        iced::widget::Id::new("zen-editor")
+    }
+    fn toast_close_id() -> iced::widget::Id {
+        iced::widget::Id::new("toast-close")
+    }
     fn search_input_id() -> iced::widget::Id {
         iced::widget::Id::new("search-input")
     }
@@ -1520,6 +1989,12 @@ impl App {
     }
     fn vault_scroll_id() -> iced::widget::Id {
         iced::widget::Id::new("vault")
+    }
+    fn vault_search_button_id() -> iced::widget::Id {
+        iced::widget::Id::new("vault-search-button")
+    }
+    fn vault_close_button_id() -> iced::widget::Id {
+        iced::widget::Id::new("vault-close-button")
     }
     /// Stable id for the n-th visible match block, used to scroll to the cursor
     /// by measured bounds (blocks vary in height, so estimation can't track it).
@@ -1567,6 +2042,97 @@ impl App {
         )
     }
 
+    /// Scroll-spy: marks the outline section that holds the reader's top
+    /// line and, unless the pointer is over the outline, scrolls the outline
+    /// list to keep the mark in view. Runs in `update` on `BodyScrolled`,
+    /// never in `view`; `jumping` is true while a heading jump is landing.
+    fn update_outline_spy(&mut self, jumping: bool) -> Task<Message> {
+        if self.outline_sections.is_empty() || self.view_mode != ViewMode::Rendered {
+            return Task::none();
+        }
+        let offset = self.body_offset();
+        let Some(dpos) = self.virt_window.display_pos_at(offset + OUTLINE_SPY_SLACK) else {
+            return Task::none();
+        };
+        let block = self.virt_window.display[dpos];
+        if self.outline_spy_block == Some(block) && self.outline_hold.is_none() {
+            return Task::none();
+        }
+        self.outline_spy_block = Some(block);
+        let Some(&top_line) = self.block_lines.get(block) else {
+            return Task::none();
+        };
+        let at_top = self
+            .outline_sections
+            .partition_point(|section| section.line <= top_line)
+            .checked_sub(1);
+        let mark = match self.outline_hold {
+            Some(held) if jumping => Some(held),
+            Some(held) if at_top.is_none_or(|top| held > top) && self.heading_on_screen(held) => {
+                Some(held)
+            }
+            _ => {
+                self.outline_hold = None;
+                at_top
+            }
+        };
+        let Some(mark) = mark else {
+            return Task::none();
+        };
+        if mark == self.outline_cursor {
+            return Task::none();
+        }
+        self.outline_cursor = mark;
+        if self.outline_shown() && !self.outline_hovered {
+            self.scroll_outline_to_cursor()
+        } else {
+            Task::none()
+        }
+    }
+
+    /// The outline list is on screen: the sidebar, open or peeking, shows
+    /// its Outline tab.
+    fn outline_shown(&self) -> bool {
+        (self.sidebar_open || self.sidebar_peek)
+            && self.workspace.is_some()
+            && self.sidebar_tab == SidebarTab::Outline
+            && self.full_mindmap.is_none()
+    }
+
+    /// Runs after every update. A list that left the screen (the sidebar
+    /// hidden, another tab, Zen, Full Mindmap) reports no pointer exit, so
+    /// it is no longer hovered. A list shown again is a new scrollable whose
+    /// last viewport is stale, so it scrolls to the marked section, which
+    /// the spy kept moving while it was hidden.
+    pub(super) fn sync_outline_shown(&mut self, was_shown: bool) -> Option<Task<Message>> {
+        if !self.outline_shown() {
+            self.outline_hovered = false;
+            return None;
+        }
+        if was_shown {
+            return None;
+        }
+        self.outline_viewport = None;
+        Some(self.scroll_outline_to_cursor())
+    }
+
+    /// True when outline section `index`'s heading lies inside the reader's
+    /// viewport.
+    fn heading_on_screen(&self, index: usize) -> bool {
+        let Some(section) = self.outline_sections.get(index) else {
+            return false;
+        };
+        let Some(block) = crate::ipc::lines::block_for_line(section.line, &self.block_lines) else {
+            return false;
+        };
+        let Some(dpos) = self.virt_window.display_pos(block) else {
+            return false;
+        };
+        let top = self.virt_window.block_top(dpos);
+        let offset = self.body_offset();
+        top >= offset - 1.0 && top < offset + self.body_viewport_h()
+    }
+
     fn scroll_outline_to_cursor(&self) -> Task<Message> {
         const ROW_H: f32 = SIDEBAR_ROW_H;
         let total = self.outline_sections.len();
@@ -1597,8 +2163,9 @@ impl App {
     /// filtered list length this update (`OverlayMove` does, every arrow key).
     fn scroll_overlay_to_cursor_with_len(&self, len: usize) -> Task<Message> {
         let (total, row_h) = match self.overlay {
-            // FileFinder renders at most 80 rows; scroll math matches.
-            Overlay::FileFinder => (len.min(80), 32.0),
+            // FileFinder renders at most FILE_FINDER_ROW_CAP rows; scroll
+            // math matches.
+            Overlay::FileFinder => (len.min(FILE_FINDER_ROW_CAP), 32.0),
             Overlay::Command | Overlay::ThemePicker => (len, 32.0),
             Overlay::FolderPicker => (len, 33.0),
             Overlay::None | Overlay::ImageZoom | Overlay::Shortcuts => (0, 32.0),
@@ -1621,6 +2188,8 @@ impl App {
         crate::native_pinch::install();
         // Finder delivers document opens through AppKit rather than argv.
         crate::macos_open::install();
+        // ⌘Q with unsaved edits asks first, as the red close button does.
+        crate::macos_quit::install();
         let mut app = Self::default();
         let mut errs = Vec::new();
         let mut combined = crate::theme_load::bundled().clone();
@@ -1715,11 +2284,15 @@ impl App {
         }
     }
 
+    /// Window title. The native title text stays hidden; the string still
+    /// names the window in Mission Control and the Window menu, so it carries
+    /// a bullet while the file has unsaved edits.
     pub fn title(&self) -> String {
         match &self.file {
             Some(p) => format!(
-                "rmdv — {}",
-                p.file_name().and_then(|n| n.to_str()).unwrap_or("?")
+                "rmdv — {}{}",
+                p.file_name().and_then(|n| n.to_str()).unwrap_or("?"),
+                if self.dirty { " •" } else { "" }
             ),
             None => "rmdv".into(),
         }
@@ -1735,7 +2308,7 @@ impl App {
         }
     }
 
-    fn glass_opacity(&self) -> f32 {
+    pub(in crate::app) fn glass_opacity(&self) -> f32 {
         crate::macos_vibrancy::clamp_opacity(self.prefs.glass_opacity)
     }
 
@@ -1792,7 +2365,7 @@ impl App {
     /// The palette for the sidebar column. With sidebar glass, the sidebar
     /// paints no fill (the ground behind it carries the tint); with
     /// whole-window glass it paints its own translucent tint.
-    fn chrome_palette(&self) -> Palette {
+    pub(in crate::app) fn chrome_palette(&self) -> Palette {
         let mut pal = self.palette;
         match self.glass() {
             Glass::Off => {}
@@ -1866,11 +2439,23 @@ impl App {
         Task::done(Message::RestoreBodySnap(rel.clamp(0.0, 1.0)))
     }
 
+    /// Top padding of the body scrollable's content. Virt-window math works
+    /// in body-relative px; every conversion from scrollable offsets must
+    /// subtract this. Always mode reserves the toolbar's height above the
+    /// reader, so the text starts at the same height in both modes.
+    fn body_top_pad(&self) -> f32 {
+        match self.prefs.toolbar {
+            crate::prefs::ToolbarMode::OnHover => READER_TOP_PAD,
+            crate::prefs::ToolbarMode::Always => READER_TOP_PAD - TOOLBAR_H,
+        }
+    }
+
     /// Body-relative scroll offset (px past the top of the rendered column).
     fn body_offset(&self) -> f32 {
+        let pad = self.body_top_pad();
         self.body_viewport
             .as_ref()
-            .map(|v| (v.absolute_offset().y - BODY_TOP_PAD).max(0.0))
+            .map(|v| (v.absolute_offset().y - pad).max(0.0))
             .unwrap_or(0.0)
     }
 
@@ -1978,6 +2563,12 @@ impl App {
         let Some(idx) = crate::ipc::lines::block_for_line(line, &self.block_lines) else {
             return Task::none();
         };
+        self.scroll_to_block_top(idx)
+    }
+
+    /// Shows the Reader with the heading at `idx` at the top. Any other
+    /// block is a no-op.
+    fn scroll_to_block_top(&mut self, idx: usize) -> Task<Message> {
         let Some((id, Block::Heading { .. })) = self.ast.get(idx) else {
             return Task::none();
         };
@@ -2093,6 +2684,13 @@ impl App {
         }
     }
 
+    /// Whether a press ends the whole-document selection now.
+    /// Not while a context menu is open: the press that closes the menu,
+    /// or chooses Copy in it, goes no further.
+    pub(super) fn select_all_clear_listens(&self) -> bool {
+        self.reader_select_all && self.context_menu.is_none()
+    }
+
     /// Plain text to copy while the whole document is selected.
     pub(crate) fn select_all_text(&self) -> Option<String> {
         (self.reader_select_all && self.reader_shows_document())
@@ -2123,6 +2721,7 @@ impl App {
         // `mindmap_collapsed` writes in FileLoaded happen before this call.
         self.invalidate_mindmap_layout();
         self.source_words = self.source.split_whitespace().count();
+        self.source_chars = self.source.chars().count();
         if let Some(ast) = self.synthesize_data_ast() {
             self.ast = ast;
             // Data docs are one synthesized block at line 1; reset block_lines
@@ -2304,9 +2903,12 @@ impl App {
 
     fn open_overlay(&mut self, kind: Overlay) {
         self.overlay = kind;
+        self.quick_slots_pinned = false;
         self.overlay_query.clear();
         self.overlay_selected = 0;
         self.overlay_viewport = None;
+        self.list_pointer = ListPointer::default();
+        self.picker_click = PickerClick::Idle;
         if kind == Overlay::FolderPicker {
             let start = self.workspace.clone().or_else(|| {
                 self.file
@@ -2322,7 +2924,16 @@ impl App {
     fn mindmap_panel_range(&self, target: BlockId) -> Option<(usize, usize, bool)> {
         let mut start = None;
         let mut natural_end = self.ast.len();
-        for (i, (id, b)) in self.ast.iter().enumerate() {
+        if target == crate::mindmap::DOC_ROOT {
+            // The root shows the document from its top, within the same caps.
+            start = Some(0).filter(|_| !self.ast.is_empty());
+        }
+        let blocks = self
+            .ast
+            .iter()
+            .enumerate()
+            .take_while(|_| target != crate::mindmap::DOC_ROOT);
+        for (i, (id, b)) in blocks {
             if start.is_none() {
                 if *id == target && matches!(b, Block::Heading { .. }) {
                     start = Some(i);
@@ -2351,6 +2962,19 @@ impl App {
     /// subtree and render it through the shared data code-block view. The pretty
     /// string is cached in `mindmap_data_panel` so it is computed at most once
     /// per selection change (mirrors the markdown panel's settle behavior).
+    /// Padded panel text. The right side clears the panel's close button,
+    /// which floats over the top-right corner.
+    fn mindmap_panel_text_area(content: Element<'_, Message>) -> Element<'_, Message> {
+        container(container(content).id(iced::widget::Id::new(MINDMAP_PANEL_TEXT_ID)))
+            .padding(Padding {
+                top: 24.0,
+                right: 40.0,
+                bottom: 24.0,
+                left: 24.0,
+            })
+            .into()
+    }
+
     fn mindmap_data_panel_view(
         &self,
         pal: &Palette,
@@ -2394,7 +3018,7 @@ impl App {
             .into(),
         };
 
-        let scrolled = scrollable(container(content).padding(Padding::from([24, 24])))
+        let scrolled = scrollable(Self::mindmap_panel_text_area(content))
             .height(Length::Shrink)
             .direction(slim_scroll_direction())
             .style(move |_, status| sleek_scrollable_style(status, pal_c, recently_scrolled));
@@ -2424,7 +3048,7 @@ impl App {
         let pal_c = *pal;
         let content: Element<'_, Message> = match self.mindmap_panel_shown {
             None => container(
-                text("Click a leaf heading to see its content")
+                text("Click a heading to see its content")
                     .color(pal.muted)
                     .size(13),
             )
@@ -2449,6 +3073,7 @@ impl App {
                         (0, 0),
                         recently_scrolled,
                         crate::render::ReadingWidth::Fill,
+                        self.copy_flash.map(|(_, key)| key),
                     ));
                     if truncated {
                         col = col.push(
@@ -2471,7 +3096,7 @@ impl App {
         // overflows. The scrollable measures the inner column's natural height:
         // a Fill-height wrapper would clamp to the viewport and kill scrolling,
         // so instead we anchor the column and let the outer container center it.
-        let scrolled = scrollable(container(content).padding(Padding::from([24, 24])))
+        let scrolled = scrollable(Self::mindmap_panel_text_area(content))
             .height(Length::Shrink)
             .direction(slim_scroll_direction())
             .style(move |_, status| sleek_scrollable_style(status, pal_c, recently_scrolled));
@@ -2514,6 +3139,8 @@ impl App {
             ("Reveal File in Finder  ⌘⌥R", Message::RevealFileInFinder),
             ("Copy Focused File Path  ⌘⌥C", Message::CopyFilePath),
             ("Find File in Workspace…  ⌘P", Message::OpenFileFinder),
+            ("Go Back  ⌘[", Message::HistoryGo(HistoryDir::Back)),
+            ("Go Forward  ⌘]", Message::HistoryGo(HistoryDir::Forward)),
             ("Toggle Sidebar  ⌘B", Message::ToggleSidebar),
             ("Toggle Hidden Files  ⌘⇧.", Message::ToggleHidden),
             ("Find in Document  ⌘F", Message::ToggleSearch),
@@ -2531,6 +3158,10 @@ impl App {
             (
                 "Toggle Mindmap Auto-Center",
                 Message::ToggleMindmapAutocenter,
+            ),
+            (
+                "Toggle Mindmap Scroll to Pan",
+                Message::ToggleMindmapScrollPans,
             ),
             ("Cycle Theme  ⌘T", Message::ToggleTheme),
             ("Pick Theme…", Message::OpenThemePicker),
@@ -2601,7 +3232,7 @@ impl App {
             })
             .collect();
         scored.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.1.cmp(&b.1)));
-        scored.truncate(200);
+        scored.truncate(FILE_FINDER_RESULT_CAP);
         self.file_finder_memo.replace(Some(FileFinderMemo {
             query: self.overlay_query.clone(),
             root: root.cloned(),
@@ -2617,7 +3248,9 @@ impl App {
             .command_items()
             .into_iter()
             .filter_map(|(label, msg)| {
-                let s = picker::fuzzy_score(&self.overlay_query, label)?;
+                // Typing matches the command's name; its shortcut only shows.
+                let (name, _) = split_command_label(label);
+                let s = picker::fuzzy_score(&self.overlay_query, name)?;
                 Some((label, msg, s))
             })
             .collect();
@@ -2681,7 +3314,9 @@ impl App {
             return Some(path.clone());
         }
 
+        // A hidden tree cursor is not a visible target: the open file is.
         let files_sidebar_active = self.sidebar_open
+            && self.tree_cursor_shown
             && self.workspace.is_some()
             && self.sidebar_tab == SidebarTab::Files
             && self.full_mindmap.is_none();
@@ -2700,34 +3335,54 @@ impl App {
         self.file.clone()
     }
 
+    /// What the keyboard handler needs to know about the app: which
+    /// surface owns the keys. [`key_message`] maps a key on it.
+    fn key_context(&self) -> KeyContext {
+        let full_mindmap = self.full_mindmap.is_some();
+        let focused = self.search_open && !full_mindmap;
+        let overlay_open = self.overlay != Overlay::None;
+        let vault_open = self.vault_open && !full_mindmap;
+        let editing = self.view_mode == ViewMode::Raw && self.editor.is_some() && !full_mindmap;
+        KeyContext {
+            focused,
+            overlay_open,
+            tree_active: self.tree_keys_active(),
+            outline_active: self.sidebar_open
+                && self.sidebar_tab == SidebarTab::Outline
+                && !full_mindmap,
+            sidebar_open: self.sidebar_open && !full_mindmap,
+            editing,
+            fold_chord: self.fold_chord_pending && !full_mindmap,
+            mindmap: self.view_mode == ViewMode::Mindmap && !full_mindmap,
+            vault_open,
+            full_mindmap,
+            quick_slots_allowed: quick_slots_shortcuts_enabled(
+                overlay_open,
+                vault_open,
+                focused,
+                editing,
+                self.dirty,
+            ),
+            settings_open: self.settings_open,
+            slot_replace_open: self.quick_slot_replace.is_some(),
+            select_all: self.reader_select_all,
+            close_confirm_open: self.close_confirm.is_some(),
+            image_zoom_open: self.overlay == Overlay::ImageZoom,
+            menu_open: self.context_menu.is_some(),
+            renaming: self.tree_rename.is_some(),
+            slots_popover: self.quick_slots_pinned && self.quick_slots_rail_allowed(),
+        }
+    }
+
     pub fn subscription(&self) -> iced::Subscription<Message> {
         let dnd = iced::event::listen_with(|ev, _status, _id| match ev {
-            iced::Event::Window(iced::window::Event::FileDropped(path)) => {
-                Some(Message::Open(path))
-            }
+            iced::Event::Window(event) => file_drag_message(event),
             _ => None,
         });
         let watcher = crate::watch::watch_subscription(self.file.clone()).map(Message::FileChanged);
         let theme_watcher =
             crate::theme_watch::watch_subscription().map(|()| Message::ThemeFilesChanged);
         let full_mindmap = self.full_mindmap.is_some();
-        let focused = self.search_open && !full_mindmap;
-        let overlay_open = self.overlay != Overlay::None;
-        let sidebar_open = self.sidebar_open && !full_mindmap;
-        let outline_active =
-            self.sidebar_open && self.sidebar_tab == SidebarTab::Outline && !full_mindmap;
-        let tree_active = self.sidebar_open
-            && self.workspace.is_some()
-            && self.sidebar_tab == SidebarTab::Files
-            && !full_mindmap;
-        let editing = self.view_mode == ViewMode::Raw && self.editor.is_some() && !full_mindmap;
-        let fold_chord = self.fold_chord_pending && !full_mindmap;
-        let mindmap = self.view_mode == ViewMode::Mindmap && !full_mindmap;
-        let vault_open = self.vault_open && !full_mindmap;
-        let settings_open = self.settings_open;
-        let quick_slots_allowed =
-            quick_slots_shortcuts_enabled(overlay_open, vault_open, focused, editing, self.dirty);
-        let slot_replace_open = self.quick_slot_replace.is_some();
         let keys = iced::event::listen_with(|ev, status, _id| {
             let is_keyboard = matches!(
                 &ev,
@@ -2750,407 +3405,31 @@ impl App {
             let reader_copied = crate::selectable::copied_by_reader(&ev, status);
             Some((ev, reader_copied))
         })
-        // Std tuples hash only up to 12 fields, so the modal flag nests.
-        .with((
-            (
-                focused,
-                overlay_open,
-                tree_active,
-                outline_active,
-                sidebar_open,
-                editing,
-                fold_chord,
-                mindmap,
-                vault_open,
-                full_mindmap,
-                quick_slots_allowed,
-                settings_open,
-            ),
-            (slot_replace_open, self.reader_select_all),
-        ))
-        .map(
-            |(
-                (
-                    (
-                        focused,
-                        overlay_open,
-                        tree_active,
-                        outline_active,
-                        sidebar_open,
-                        editing,
-                        fold_chord,
-                        mindmap,
-                        vault_open,
-                        full_mindmap,
-                        quick_slots_allowed,
-                        settings_open,
-                    ),
-                    (slot_replace_open, select_all),
-                ),
-                (ev, reader_copied),
-            )| {
-                use iced::keyboard::{key::Named, Event as KEv, Key};
-                if reader_copied && !select_all {
-                    return Message::Noop;
-                }
-                if let iced::Event::Keyboard(KEv::ModifiersChanged(modifiers)) = ev {
-                    return Message::QuickSlotsModifier(quick_slots_primary_modifier(modifiers));
-                }
-                let (key, modified_key, physical, mods, released) = match ev {
-                    iced::Event::Keyboard(KEv::KeyPressed {
-                        key,
-                        modified_key,
-                        physical_key,
-                        modifiers,
-                        ..
-                    }) => (key, modified_key, physical_key, modifiers, false),
-                    iced::Event::Keyboard(KEv::KeyReleased {
-                        key,
-                        modified_key,
-                        physical_key,
-                        modifiers,
-                        ..
-                    }) => (key, modified_key, physical_key, modifiers, true),
-                    _ => return Message::Noop,
-                };
-                if is_primary_modifier_key(&key) {
-                    return Message::QuickSlotsModifier(!released);
-                }
-                // The replace-slot confirmation owns the keyboard: nothing
-                // reaches the surfaces underneath it.
-                if slot_replace_open {
-                    return if released {
-                        Message::Noop
-                    } else {
-                        quick_slot_replace_key_message(&key)
-                    };
-                }
-                // A non-Latin input source reports e.g. "ㄖ" for the B key;
-                // match shortcuts on the physical key's Latin character.
-                let key = latin_shortcut_key(key, physical, mods);
-                let modified_key = latin_shortcut_key(modified_key, physical, mods);
-                let cmd = mods.command() || mods.control();
-                // Quick Slot chords are physical-key based so alternate
-                // layouts cannot turn a digit/arrow into a different action.
-                // Never steal overlay/editor/vault input.
-                if !released {
-                    // A pending ⌘K fold chord owns the next key, so ⌘K then
-                    // ⌘1 still folds instead of activating slot 1.
-                    let surface_allowed =
-                        !overlay_open && !vault_open && !settings_open && !focused && !fold_chord;
-                    if let Some(message) = quick_slot_physical_message(
-                        physical,
-                        mods,
-                        quick_slots_allowed,
-                        editing,
-                        surface_allowed,
-                    ) {
-                        return message;
-                    }
-                }
-                if released {
-                    return Message::Noop;
-                }
-                if is_settings_key(&key, mods) && !overlay_open {
-                    return Message::ToggleSettings;
-                }
-                // The Settings page owns the keyboard like the vault page. A
-                // few global commands still pass; they change state the page
-                // shows, so it stays current.
-                if settings_open && !overlay_open {
-                    if let Key::Character(c) = &key {
-                        return match c.as_str() {
-                            "p" if cmd && mods.shift() => Message::OpenCommandPalette,
-                            "P" if cmd => Message::OpenCommandPalette,
-                            "b" if cmd => Message::ToggleSidebar,
-                            "t" if cmd => Message::ToggleTheme,
-                            "." if cmd && mods.shift() => Message::ToggleHidden,
-                            ">" if cmd => Message::ToggleHidden,
-                            _ => reader_font_size_shortcut(&modified_key, mods)
-                                .unwrap_or(Message::Noop),
-                        };
-                    }
-                    return match key {
-                        Key::Named(Named::Escape) => Message::CloseSettings,
-                        Key::Named(Named::ArrowDown) => Message::SettingsMove(1),
-                        Key::Named(Named::ArrowUp) => Message::SettingsMove(-1),
-                        Key::Named(Named::ArrowLeft) => Message::SettingsStep(-1),
-                        Key::Named(Named::ArrowRight) => Message::SettingsStep(1),
-                        Key::Named(Named::Space) | Key::Named(Named::Enter) => {
-                            Message::SettingsActivate
-                        }
-                        _ => Message::Noop,
-                    };
-                }
-                if reader_font_shortcuts_enabled(
-                    full_mindmap,
-                    mindmap,
-                    overlay_open,
-                    focused,
-                    fold_chord,
-                ) {
-                    if let Some(message) = reader_font_size_shortcut(&modified_key, mods) {
-                        return message;
-                    }
-                }
-                // Keep the full navigator's activation separate from document
-                // ⌘M. Physical matching handles layouts that emit a shifted
-                // character differently on macOS.
-                if cmd && mods.shift() {
-                    use iced::keyboard::key::{Code, Physical};
-                    if let Physical::Code(Code::KeyM) = physical {
-                        return Message::ToggleFullMindmap;
-                    }
-                }
-                if is_shortcuts_key(&key, physical, mods) {
-                    return Message::ToggleShortcuts;
-                }
-                if is_refresh_key(&key, physical, mods) {
-                    return Message::Refresh;
-                }
-                if is_reveal_file_key(&key, physical, mods) {
-                    return Message::RevealFileInFinder;
-                }
-                if is_copy_file_path_key(&key, physical, mods) {
-                    return Message::CopyFilePath;
-                }
-                // ⌘⌥B: alt+letter on macOS swaps the logical char, so match the
-                // physical KeyB code instead of the produced character.
-                if cmd && mods.alt() {
-                    use iced::keyboard::key::{Code, Physical};
-                    if let Physical::Code(Code::KeyB) = physical {
-                        return if full_mindmap {
-                            Message::FullMindmapTogglePanel
-                        } else {
-                            Message::ToggleMindmapPanel
-                        };
-                    }
-                    if let Physical::Code(Code::KeyW) = physical {
-                        if full_mindmap {
-                            return Message::FullMindmapCyclePanelWidth;
-                        }
-                        if mindmap {
-                            return Message::MindmapCyclePanelWidth;
-                        }
-                    }
-                }
-                if fold_chord {
-                    if let Some(message) = fold_level_shortcut(&key) {
-                        return message;
-                    }
-                    return Message::FoldChordCancel;
-                }
-                let reader_has_keyboard = !editing
-                    && !focused
-                    && !overlay_open
-                    && !mindmap
-                    && !full_mindmap
-                    && !vault_open
-                    && !settings_open;
-                if let Some(message) =
-                    reader_select_all_key(&key, mods, reader_has_keyboard, select_all)
-                {
-                    return message;
-                }
-                if let Key::Character(c) = &key {
-                    // Full Mindmap owns the window but retains the useful
-                    // global/fallback commands. Other document-only chords do
-                    // nothing while its surface is visible.
-                    if full_mindmap {
-                        return match c.as_str() {
-                            "p" if cmd && mods.shift() => Message::OpenCommandPalette,
-                            "P" if cmd => Message::OpenCommandPalette,
-                            "p" if cmd => Message::OpenFileFinder,
-                            "o" if cmd => Message::OpenFolderPicker,
-                            "." if cmd && mods.shift() => Message::ToggleHidden,
-                            ">" if cmd => Message::ToggleHidden,
-                            "t" if cmd => Message::ToggleTheme,
-                            "s" if cmd => Message::SaveFile,
-                            _ => Message::Noop,
-                        };
-                    }
-                    // Vault search page owns the screen: only ⌘⇧F (re-open,
-                    // idempotent) passes; every other ⌘-shortcut would mutate
-                    // state under the page, so swallow it.
-                    if vault_open {
-                        if (c.as_str() == "f" || c.as_str() == "F") && cmd && mods.shift() {
-                            return Message::OpenVaultSearch;
-                        }
-                        return Message::Noop;
-                    }
-                    match c.as_str() {
-                        "p" if cmd && mods.shift() => return Message::OpenCommandPalette,
-                        "P" if cmd => return Message::OpenCommandPalette,
-                        "p" if cmd => return Message::OpenFileFinder,
-                        "k" if cmd && !editing => return Message::FoldChordStart,
-                        "o" if cmd => return Message::OpenFolderPicker,
-                        "b" if cmd => return Message::ToggleSidebar,
-                        // ⌘⇧. — toggle hidden files. Match both '.' and '>'
-                        // since shift+. produces '>' on many layouts.
-                        "." if cmd && mods.shift() => return Message::ToggleHidden,
-                        ">" if cmd => return Message::ToggleHidden,
-                        // ⌘⇧F — vault-wide search. Match both 'f'+shift and the
-                        // capital 'F' some layouts emit; ordered before ⌘F.
-                        "f" | "F" if cmd && mods.shift() => return Message::OpenVaultSearch,
-                        "f" if cmd => return Message::ToggleSearch,
-                        "t" if cmd => return Message::ToggleTheme,
-                        "e" if cmd => return Message::ToggleViewMode,
-                        "m" if cmd => return Message::ToggleMindmap,
-                        "c" if cmd && !editing && !overlay_open => return Message::HintSelection,
-                        "s" if cmd => return Message::SaveFile,
-                        "z" if cmd && editing && mods.shift() => return Message::EditorRedo,
-                        "z" if cmd && editing => return Message::EditorUndo,
-                        "y" if cmd && editing => return Message::EditorRedo,
-                        _ => {}
-                    }
-                }
-                // Vault search page owns Esc/arrows/Enter while open. The query
-                // text_input keeps focus but doesn't consume these, so they're
-                // handled here at the app key layer (like the overlay did).
-                if vault_open {
-                    return match key {
-                        Key::Named(Named::Escape) => Message::VaultClose,
-                        Key::Named(Named::ArrowDown) => Message::VaultMove(1),
-                        Key::Named(Named::ArrowUp) => Message::VaultMove(-1),
-                        Key::Named(Named::Enter) => Message::VaultEnter,
-                        _ => Message::Noop,
-                    };
-                }
-                if matches!(&key, Key::Named(Named::Escape)) {
-                    if overlay_open {
-                        return Message::CloseOverlay;
-                    }
-                    if focused {
-                        return Message::ToggleSearch;
-                    }
-                    if editing {
-                        return Message::ToggleViewMode;
-                    }
-                }
-                if overlay_open {
-                    return match key {
-                        Key::Named(Named::ArrowDown) => Message::OverlayMove(1),
-                        Key::Named(Named::ArrowUp) => Message::OverlayMove(-1),
-                        Key::Named(Named::Enter) => Message::OverlayConfirm,
-                        Key::Named(Named::Space) => Message::OverlayDescend,
-                        Key::Named(Named::ArrowRight) => Message::OverlayDescend,
-                        Key::Named(Named::ArrowLeft) => Message::PickerParent,
-                        _ => Message::Noop,
-                    };
-                }
-                if full_mindmap {
-                    return match key {
-                        Key::Named(Named::Escape) => Message::ExitFullMindmap,
-                        Key::Named(Named::ArrowDown) => {
-                            Message::FullMindmapNavigate(MindmapDir::Down)
-                        }
-                        Key::Named(Named::ArrowUp) => Message::FullMindmapNavigate(MindmapDir::Up),
-                        Key::Named(Named::ArrowLeft) => {
-                            Message::FullMindmapNavigate(MindmapDir::Left)
-                        }
-                        Key::Named(Named::ArrowRight) => {
-                            Message::FullMindmapNavigate(MindmapDir::Right)
-                        }
-                        Key::Named(Named::Space) => full_mindmap_space_message(),
-                        Key::Named(Named::Enter) if cmd => Message::FullMindmapActivate,
-                        Key::Named(Named::Enter) => Message::FullMindmapActivate,
-                        Key::Named(Named::Home) if cmd => Message::FullMindmapSelectRoot,
-                        Key::Named(Named::Home) => Message::FullMindmapSelectRoot,
-                        _ => Message::Noop,
-                    };
-                }
-                if focused {
-                    if matches!(&key, Key::Named(Named::Enter)) {
-                        return if mods.shift() {
-                            Message::PrevMatch
-                        } else {
-                            Message::NextMatch
-                        };
-                    }
-                    return Message::Noop;
-                }
-                if editing {
-                    return Message::Noop;
-                }
-                let m: Option<Message> = match key {
-                    // Sidebar wins arrow keys when open: keyboard file nav
-                    // takes priority over mindmap node nav (handled below).
-                    Key::Named(Named::ArrowDown)
-                        if mindmap && !overlay_open && !tree_active && !outline_active =>
-                    {
-                        Some(Message::MindmapNavigate(MindmapDir::Down))
-                    }
-                    Key::Named(Named::ArrowUp)
-                        if mindmap && !overlay_open && !tree_active && !outline_active =>
-                    {
-                        Some(Message::MindmapNavigate(MindmapDir::Up))
-                    }
-                    Key::Named(Named::ArrowLeft)
-                        if mindmap && !overlay_open && !tree_active && !outline_active =>
-                    {
-                        Some(Message::MindmapNavigate(MindmapDir::Left))
-                    }
-                    Key::Named(Named::ArrowRight)
-                        if mindmap && !overlay_open && !tree_active && !outline_active =>
-                    {
-                        Some(Message::MindmapNavigate(MindmapDir::Right))
-                    }
-                    Key::Named(Named::Space)
-                        if mindmap && !overlay_open && !tree_active && !outline_active =>
-                    {
-                        Some(Message::MindmapToggleSelected)
-                    }
-                    Key::Named(Named::ArrowDown) if tree_active => Some(Message::TreeMove(1)),
-                    Key::Named(Named::ArrowUp) if tree_active => Some(Message::TreeMove(-1)),
-                    Key::Named(Named::ArrowDown) if outline_active => Some(Message::OutlineMove(1)),
-                    Key::Named(Named::ArrowUp) if outline_active => Some(Message::OutlineMove(-1)),
-                    Key::Named(Named::ArrowLeft) if sidebar_open => {
-                        Some(Message::SetSidebarTab(SidebarTab::Files))
-                    }
-                    Key::Named(Named::ArrowRight) if sidebar_open => {
-                        Some(Message::SetSidebarTab(SidebarTab::Outline))
-                    }
-                    Key::Named(Named::Enter) if tree_active => Some(Message::TreeActivate),
-                    Key::Named(Named::Space) if tree_active => Some(Message::TreeActivate),
-                    Key::Named(Named::Enter) if outline_active => Some(Message::OutlineActivate),
-                    Key::Named(Named::Space) if outline_active => Some(Message::OutlineActivate),
-                    Key::Named(Named::ArrowDown) if mods.command() => Some(Message::ScrollToBottom),
-                    Key::Named(Named::ArrowUp) if mods.command() => Some(Message::ScrollToTop),
-                    Key::Named(Named::ArrowDown) => Some(Message::ScrollBy(40.0)),
-                    Key::Named(Named::ArrowUp) => Some(Message::ScrollBy(-40.0)),
-                    Key::Named(Named::Space) if mods.shift() => Some(Message::ScrollBy(-400.0)),
-                    Key::Named(Named::Space) => Some(Message::ScrollBy(400.0)),
-                    Key::Named(Named::PageDown) => Some(Message::ScrollBy(400.0)),
-                    Key::Named(Named::PageUp) => Some(Message::ScrollBy(-400.0)),
-                    Key::Named(Named::Home) => Some(Message::ScrollToTop),
-                    Key::Named(Named::End) => Some(Message::ScrollToBottom),
-                    Key::Character(c) => match c.as_str() {
-                        "j" => Some(Message::ScrollBy(40.0)),
-                        "k" => Some(Message::ScrollBy(-40.0)),
-                        "g" => Some(Message::ScrollToTop),
-                        "G" => Some(Message::ScrollToBottom),
-                        _ => None,
-                    },
+        .with(self.key_context())
+        .map(|(context, (ev, reader_copied))| key_message(context, ev, reader_copied));
+        let scroller = match self.scroller_tick_interval(std::time::Instant::now()) {
+            Some(every) => iced::time::every(every).map(|_| Message::ScrollerTick),
+            None => iced::Subscription::none(),
+        };
+        // While a reader selection drag is past the viewport edge: a tick
+        // that scrolls, and a release anywhere that stops it. Nothing runs
+        // otherwise, so an idle reader does not redraw.
+        let reader_autoscroll = if self.reader_autoscroll.is_some() {
+            iced::Subscription::batch([
+                iced::time::every(std::time::Duration::from_millis(16))
+                    .map(|_| Message::ReaderAutoScrollTick),
+                iced::event::listen_with(|ev, _status, _id| match ev {
+                    iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
+                        iced::mouse::Button::Left,
+                    )) => Some(Message::ReaderAutoScroll(None)),
                     _ => None,
-                };
-                m.unwrap_or(Message::Noop)
-            },
-        );
-        let scroller = if self.last_scroll_at.is_some() {
-            iced::time::every(std::time::Duration::from_millis(150)).map(|_| Message::ScrollerTick)
+                }),
+            ])
         } else {
             iced::Subscription::none()
         };
         let drag = if self.sidebar_drag.is_some() && !full_mindmap {
-            iced::event::listen_with(|ev, _status, _id| match ev {
-                iced::Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
-                    Some(Message::SidebarDragMove(position.x))
-                }
-                iced::Event::Mouse(iced::mouse::Event::ButtonReleased(
-                    iced::mouse::Button::Left,
-                )) => Some(Message::SidebarDragEnd),
-                _ => None,
-            })
+            iced::event::listen_with(|ev, _status, _id| sidebar_drag_message(&ev))
         } else {
             iced::Subscription::none()
         };
@@ -3187,44 +3466,60 @@ impl App {
         } else {
             iced::Subscription::none()
         };
+        // The mouse side buttons. The closure returns `None` for every
+        // other event, so it adds no messages and no redraws.
+        let mouse_history = iced::event::listen_with(|ev, _status, _id| mouse_history_message(&ev));
         let ipc = iced::Subscription::run(ipc_subscription_stream);
         let native_pinch = crate::native_pinch::subscription().map(Message::MindmapNativePinch);
+        let native_swipe = crate::native_swipe::subscription().map(|swipe| {
+            Message::NativeSwipe(match swipe {
+                crate::native_swipe::Swipe::Back => HistoryDir::Back,
+                crate::native_swipe::Swipe::Forward => HistoryDir::Forward,
+            })
+        });
         let macos_open = crate::macos_open::subscription().map(Message::OpenFileFinderPath);
+        let macos_quit = crate::macos_quit::subscription().map(|()| Message::QuitRequested);
+        let native_menu = crate::native_menu::subscription().map(Message::NativeMenu);
+        let close_requests = iced::window::close_requests().map(Message::WindowCloseRequested);
         let window_events = iced::window::events().filter_map(|(id, event)| match event {
             iced::window::Event::Unfocused => Some(Message::WindowUnfocused(id)),
-            iced::window::Event::Opened { .. }
-            | iced::window::Event::Focused
-            | iced::window::Event::Moved(_)
-            | iced::window::Event::Rescaled(_) => Some(Message::RefreshWindowMode(id)),
+            iced::window::Event::Opened { size, position } => {
+                Some(Message::WindowOpened(id, size, position))
+            }
+            iced::window::Event::Moved(position) => Some(Message::WindowMoved(id, position)),
+            iced::window::Event::Focused | iced::window::Event::Rescaled(_) => {
+                Some(Message::RefreshWindowMode(id))
+            }
             iced::window::Event::Resized(size) => Some(Message::WindowResized(id, size)),
             _ => None,
         });
         // A click anywhere, including the start of a new drag, ends a
         // whole-document selection.
-        let select_all_clear = if self.reader_select_all {
-            iced::event::listen_with(|ev, _status, _id| match ev {
-                iced::Event::Mouse(iced::mouse::Event::ButtonPressed(_)) => {
-                    Some(Message::ClearSelectAll)
-                }
-                _ => None,
-            })
+        let select_all_clear = if self.select_all_clear_listens() {
+            iced::event::listen_with(|ev, _status, _id| select_all_ends_on(&ev))
         } else {
             iced::Subscription::none()
         };
         iced::Subscription::batch([
             dnd,
+            mouse_history,
             select_all_clear,
             watcher,
             theme_watcher,
             keys,
             scroller,
+            reader_autoscroll,
             drag,
             mind_drag,
             full_mind_drag,
             window_events,
             ipc,
             native_pinch,
+            native_swipe,
             macos_open,
+            macos_quit,
+            native_menu,
+            close_requests,
         ])
     }
 
@@ -3262,6 +3557,7 @@ impl App {
         let recently_scrolled = self
             .last_scroll_at
             .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(SCROLLER_FADE_MS));
+        let scroller_alpha = self.reader_scroller.alpha(std::time::Instant::now());
         let full_mindmap = self.full_mindmap.is_some();
         let footer_visible = !full_mindmap
             && !self.settings_open
@@ -3269,6 +3565,8 @@ impl App {
             && self.file.is_some()
             && self.view_mode != ViewMode::Mindmap;
 
+        let toolbar_always = self.prefs.toolbar == crate::prefs::ToolbarMode::Always;
+        let reader_top_pad = self.body_top_pad();
         let reader: Element<'_, Message> = if self.settings_open {
             // Drawn over whatever view is open, which stays untouched below.
             settings_page(self, pal, reader_fill)
@@ -3291,12 +3589,24 @@ impl App {
                 reader_fill,
             )
         } else if let Some(err) = &self.error {
+            let mut actions =
+                irow![secondary_button("Dismiss", pal).on_press(Message::DismissError)]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center);
+            if let Some(path) = self.error_reveal_path() {
+                actions = actions.push(
+                    secondary_button("Reveal in Finder", pal)
+                        .on_press(Message::RevealPath(path.to_path_buf())),
+                );
+            }
+            actions = actions
+                .push(primary_button("Open Folder", pal).on_press(Message::OpenFolderPicker));
             centered_card(
                 column![
                     text("Couldn't open file").size(20).color(pal.fg),
                     text(err.clone()).color(pal.muted).size(13),
                     Space::new().height(8),
-                    primary_button("Open Folder", pal).on_press(Message::OpenFolderPicker),
+                    actions,
                 ]
                 .spacing(10)
                 .align_x(iced::Alignment::Center)
@@ -3304,7 +3614,7 @@ impl App {
                 pal,
             )
         } else if self.file.is_none() {
-            welcome_view(pal)
+            welcome_view(&self.recent, pal)
         } else {
             // Results still belong to the previous query while a debounced
             // search is pending, so don't mark any hit as current.
@@ -3336,10 +3646,22 @@ impl App {
                     layout_generation: Some(self.mindmap_layout_generation.get()),
                     keyboard_zoom_enabled: self.overlay == Overlay::None
                         && !self.search_open
-                        && !self.fold_chord_pending,
+                        && !self.fold_chord_pending
+                        && self.context_menu.is_none(),
                     native_pinch_log: self.mindmap_native_pinch_log,
+                    scroll_pans: self.prefs.mindmap_scroll_pans,
+                    zoom_request: self.mindmap_zoom_request,
                     on_toggle: Box::new(Message::MindmapToggleNode),
                     on_select: Box::new(Message::MindmapSelectLeaf),
+                    // A double click reads a heading in the Reader. The
+                    // JSON/YAML map has no reader position to jump to.
+                    on_activate: if self.is_data_doc {
+                        None
+                    } else {
+                        Some(Box::new(Message::MindmapActivateNode))
+                    },
+                    hover_text: None,
+                    on_context: Some(Box::new(Message::MindmapContextMenu)),
                     on_deselect: Message::MindmapDeselect,
                 };
                 let canvas_el: Element<'_, Message> = iced::widget::canvas(program)
@@ -3348,14 +3670,15 @@ impl App {
                     .into();
                 let canvas_with_hint: Element<'_, Message> = stack![
                     canvas_el,
-                    floating_mindmap_hint(
-                        &[("←↑→↓", "move"), ("Space", "fold"), ("= / −", "zoom"),],
-                        pal,
-                    ),
+                    floating_mindmap_controls(&[("←↑→↓", "move"), ("Space", "fold")], pal),
                 ]
                 .width(Length::Fill)
                 .height(Length::Fill)
                 .into();
+                // The canvas keeps its tree position whether or not the
+                // panel is shown, so a panel toggle keeps its zoom, pan, and
+                // pointer focus.
+                let mut body = irow![canvas_with_hint];
                 if self.mindmap_panel_open {
                     let panel = self.mindmap_panel_view(
                         &pal,
@@ -3363,14 +3686,15 @@ impl App {
                         recently_scrolled,
                         self.mindmap_panel_width,
                     );
-                    let handle = mindmap_panel_resize_handle(reader_fill);
-                    irow![canvas_with_hint, handle, panel].into()
-                } else {
-                    canvas_with_hint
+                    let panel = with_panel_close(panel, Message::ToggleMindmapPanel, pal);
+                    let handle = mindmap_panel_resize_handle(reader_fill, pal);
+                    body = body.push(handle).push(panel);
                 }
+                body.into()
             } else if self.view_mode == ViewMode::Raw {
                 if let Some(ed) = self.editor.as_ref() {
                     let editor = iced::widget::text_editor(ed)
+                        .id(Self::editor_id())
                         .on_action(Message::EditorAction)
                         // Filter cmd/ctrl combos so global shortcuts (⌘B, ⌘T,
                         // ⌘E, ⌘K, ⌘M, ⌘P, ⌘O, etc.) don't ALSO get inserted
@@ -3380,10 +3704,10 @@ impl App {
                         .key_binding(editor_key_binding)
                         .font(editor_font())
                         .size(self.typography.code_size)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.55))
+                        .line_height(iced::widget::text::LineHeight::Relative(EDITOR_LINE_HEIGHT))
                         .height(Length::Fill)
                         .padding(iced::Padding {
-                            top: 0.0,
+                            top: zen_editor_top_inset(self.prefs.toolbar),
                             right: 32.0,
                             bottom: zen_editor_bottom_inset(footer_visible),
                             left: 64.0,
@@ -3404,15 +3728,31 @@ impl App {
                             selection: pal.selection,
                         })
                         .height(Length::Fill);
-                    container(
-                        container(editor)
-                            .width(Length::Fill)
-                            .height(Length::Fill)
-                            .max_width(self.prefs.reading_width),
+                    // A trackpad scrolls the editor by the finger distance.
+                    let editor = WheelGate::new(
+                        editor,
+                        Gate::EditorScroll {
+                            line_height: self.typography.code_size * EDITOR_LINE_HEIGHT,
+                        },
+                    );
+                    // A click in the empty margin beside the editor column
+                    // focuses the editor; clicks inside it are captured by the
+                    // editor and never reach this area.
+                    iced::widget::mouse_area(
+                        container(
+                            container(editor)
+                                .width(Length::Fill)
+                                .height(Length::Fill)
+                                .max_width(self.prefs.reading_width),
+                        )
+                        .width(Length::Fill)
+                        .height(Length::Fill)
+                        .center_x(Length::Fill),
                     )
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                    .center_x(Length::Fill)
+                    .on_press(Message::FocusEditor)
+                    // The editor ignores right presses: they open its menu
+                    // and leave its focus and selection alone.
+                    .on_right_press(Message::EditorContextMenu)
                     .into()
                 } else {
                     let fallback = text(self.source.as_str())
@@ -3449,6 +3789,7 @@ impl App {
                         (0, 0),
                         recently_scrolled,
                         crate::render::ReadingWidth::Fill,
+                        self.copy_flash.map(|(_, key)| key),
                     )
                 }
             } else {
@@ -3468,6 +3809,7 @@ impl App {
                     (0, 0),
                     recently_scrolled,
                     crate::render::ReadingWidth::Fill,
+                    self.copy_flash.map(|(_, key)| key),
                 )
             };
             if self.view_mode == ViewMode::Raw || self.view_mode == ViewMode::Mindmap {
@@ -3485,24 +3827,47 @@ impl App {
                 // each block, and it covers off-screen blocks as they scroll in.
                 let select_all = self.reader_select_all && self.reader_shows_document();
                 let column = container(body)
+                    .id(iced::widget::Id::new("reader-column"))
                     .max_width(self.prefs.reading_width)
                     .width(Length::Fill)
                     .style(move |_| container::Style {
                         background: select_all.then(|| pal.selection.into()),
                         ..Default::default()
                     });
-                let scroll: Element<'_, Message> = scrollable(
+                let scroll = scrollable(
                     container(column)
-                        .padding(Padding::from([56, 32]))
+                        .padding(Padding {
+                            top: reader_top_pad,
+                            right: 32.0,
+                            bottom: BODY_BOTTOM_PAD,
+                            left: 32.0,
+                        })
                         .center_x(Length::Fill)
                         .width(Length::Fill),
                 )
                 .id(Self::scroll_id())
                 .height(Length::Fill)
                 .on_scroll(Message::BodyScrolled)
-                .direction(slim_scroll_direction())
-                .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled))
-                .into();
+                .direction(reader_scroll_direction(self.reader_scroller.hovered))
+                .style(move |_, status| reader_scrollable_style(status, pal, scroller_alpha));
+                // ⌘+wheel changes the font size; the gate keeps it from
+                // also scrolling the reader. It also arms a swipe (macOS).
+                let gate = Gate::Reader {
+                    swipe: self.reader_swipe_probe(),
+                };
+                let scroll = WheelGate::new(scroll, gate);
+                // A right press beside the text (the margins, below the
+                // end) opens the reader's menu too; the text reports its
+                // own presses first.
+                let scroll: Element<'_, Message> = iced::widget::mouse_area(scroll)
+                    .on_right_press(Message::ReaderContextMenu(ReaderHit::default()))
+                    .into();
+                // The scrollbar's strip reports hover so the bar widens; it
+                // takes no presses, so the scrollbar under it gets them.
+                let scroll: Element<'_, Message> = stack![scroll, reader_scrollbar_strip()]
+                    .width(Length::Fill)
+                    .height(Length::Fill)
+                    .into();
                 if select_all {
                     stack![
                         scroll,
@@ -3517,7 +3882,46 @@ impl App {
             }
         };
 
-        let reader_with_search: Element<'_, Message> = if self.search_open && !full_mindmap {
+        let find_bar_open = self.search_open && !full_mindmap;
+        let sidebar_visible = !full_mindmap && self.sidebar_open && self.workspace.is_some();
+        // On hover, the toolbar's band lies over the top of the reader, under
+        // the find bar when that is open.
+        let reader: Element<'_, Message> = if toolbar_always {
+            reader
+        } else {
+            let revealed = self.toolbar_revealed.then(|| {
+                toolbar(
+                    self,
+                    pal,
+                    ToolbarLook {
+                        fill: reader_ground,
+                        left_inset: toolbar_left_inset(
+                            !sidebar_visible && !find_bar_open,
+                            self.window_fullscreen,
+                        ),
+                        corner_radius: if sidebar_visible && !find_bar_open {
+                            READER_CORNER_RADIUS
+                        } else {
+                            0.0
+                        },
+                        hairline: true,
+                    },
+                )
+            });
+            // The vault search page keeps its own bar (query, Search, Close)
+            // in the top band; the band would cover it.
+            let vault_page = self.vault_open && !self.settings_open && !full_mindmap;
+            let band: Element<'_, Message> = if vault_page {
+                Space::new().into()
+            } else {
+                toolbar_band(revealed)
+            };
+            stack![reader, band]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into()
+        };
+        let reader_with_search: Element<'_, Message> = if find_bar_open {
             column![
                 search_bar_view(
                     &self.query,
@@ -3533,6 +3937,36 @@ impl App {
             reader.into()
         };
 
+        // Always: the toolbar sits above everything in the reader panel; the
+        // panel's own fill shows through it. It is a layer over the reader's
+        // reserved top strip, not a column row: a stack stops at the press
+        // the toolbar takes, so the Zen editor below keeps its focus.
+        let reader_with_search: Element<'_, Message> = if toolbar_always {
+            stack![
+                container(reader_with_search)
+                    .padding(Padding {
+                        top: TOOLBAR_H,
+                        ..Padding::ZERO
+                    })
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+                toolbar(
+                    self,
+                    pal,
+                    ToolbarLook {
+                        fill: Color::TRANSPARENT,
+                        left_inset: toolbar_left_inset(!sidebar_visible, self.window_fullscreen),
+                        corner_radius: 0.0,
+                        hairline: false,
+                    },
+                ),
+            ]
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+        } else {
+            reader_with_search
+        };
         let main_area: Element<'_, Message> =
             if !full_mindmap && self.sidebar_open && self.workspace.is_some() {
                 // View panel paints its own rounded background. iced 0.14 doesn't
@@ -3622,12 +4056,25 @@ impl App {
                 )
             }
             Overlay::Shortcuts => shortcuts_overlay(pal),
-            Overlay::ImageZoom => image_zoom_overlay(
-                self.zoom_url.as_deref(),
-                self.zoom_diagram.as_ref(),
-                &self.image_cache,
-                pal,
-            ),
+            Overlay::ImageZoom => {
+                // A sharper raster, once made, draws at the inline raster's
+                // size, so the zoom does not jump when it arrives.
+                let raster = self.image_zoom_raster.as_ref();
+                let diagram = raster
+                    .and_then(|r| r.sharp.as_ref().map(|(_, handle)| handle))
+                    .or(self.zoom_diagram.as_ref());
+                image_zoom_overlay(
+                    self.zoom_url.as_deref(),
+                    diagram,
+                    &self.image_cache,
+                    ImageZoomInput {
+                        request: self.image_zoom_request,
+                        pinch_log: self.image_zoom_pinch_log,
+                        content: raster.map(|r| iced::Size::new(r.base.0 as f32, r.base.1 as f32)),
+                    },
+                    pal,
+                )
+            }
         };
         let width_slider_visible = !full_mindmap
             && self.overlay == Overlay::None
@@ -3672,7 +4119,14 @@ impl App {
                 iced::widget::tooltip::Position::Left,
             );
             let footer: Element<'_, Message> = if footer_visible {
-                status_footer(self.source_words, pal)
+                status_footer(
+                    FooterCounts {
+                        words: self.source_words,
+                        characters: self.source_chars,
+                    },
+                    self.prefs.footer_stat,
+                    pal,
+                )
             } else {
                 Space::new().into()
             };
@@ -3696,7 +4150,7 @@ impl App {
             Space::new().into()
         };
         let quick_slots_layer: Element<'_, Message> = if quick_slots_rail_visible(
-            self.quick_slots_rail_revealed,
+            self.quick_slots_rail_revealed || self.quick_slots_pinned,
             self.overlay != Overlay::None,
             self.vault_open,
             self.search_open,
@@ -3715,17 +4169,49 @@ impl App {
         } else {
             Space::new().into()
         };
+        let link_pill_layer: Element<'_, Message> = match &self.hovered_link {
+            Some(link) => link_pill(
+                &link.label,
+                pal,
+                if sidebar_visible {
+                    self.sidebar_width
+                } else {
+                    0.0
+                },
+            ),
+            None => Space::new().into(),
+        };
+        // The hidden sidebar peeks over the content from the left edge. The
+        // layer is always built, so its band keeps its state (a held button)
+        // across rebuilds.
+        let peek_allowed = self.sidebar_peek_allowed();
+        let peek: Element<'_, Message> = if self.sidebar_peek && peek_allowed {
+            sidebar_peek_view(self)
+        } else {
+            Space::new().into()
+        };
+        let peek_layer: Element<'_, Message> = EdgePeek::new(peek)
+            .on_enter((peek_allowed && !self.sidebar_peek).then_some(Message::SidebarPeek(true)))
+            .top(TOOLBAR_BAND_H)
+            .into();
         let base: Element<'_, Message> = iced::widget::stack![
             Element::from(main),
             width_slider_layer,
             kb_button_layer,
+            link_pill_layer,
             quick_slots_layer,
+            peek_layer,
             overlay_layer
         ]
         .into();
         let slot_replace_layer: Element<'_, Message> = match &self.quick_slot_replace {
             Some(pending) => quick_slot_replace_overlay(pending, pal),
             None => Space::new().into(),
+        };
+        let close_confirm_layer: Element<'_, Message> = if self.close_confirm.is_some() {
+            close_confirm_overlay(self.file.as_deref(), pal)
+        } else {
+            Space::new().into()
         };
         let toast_layer: Element<'_, Message> = match &self.toast {
             Some(t) => toast_overlay(t, pal),
@@ -3740,18 +4226,52 @@ impl App {
             }
             _ => Space::new().into(),
         };
+        let drop_layer: Element<'_, Message> = if self.drop_hover {
+            drop_highlight(pal)
+        } else {
+            Space::new().into()
+        };
         let update_layer: Element<'_, Message> = match &self.pending_update {
             Some(u) => update_banner(&u.version, pal),
             None => Space::new().into(),
         };
-        iced::widget::stack![
+        let menu_layer: Element<'_, Message> = match &self.context_menu {
+            Some(menu) => context_menu_layer(menu, pal),
+            None => Space::new().into(),
+        };
+        let root = iced::widget::stack![
             base,
             slot_replace_layer,
+            close_confirm_layer,
             progress_layer,
             toast_layer,
-            update_layer
-        ]
-        .into()
+            update_layer,
+            menu_layer,
+            drop_layer
+        ];
+        // The picker's double-click: presses are reported only while the
+        // picker is open or a row click just closed it.
+        let report: fn(bool) -> Message = |double| Message::PickerPointerPress { double };
+        let watching =
+            self.overlay == Overlay::FolderPicker || self.picker_click != PickerClick::Idle;
+        PressWatch::new(root)
+            .on_press(watching.then_some(report))
+            .on_right_press(Message::PointerRightPress)
+            .swallow_double(self.picker_click != PickerClick::Idle)
+            .into()
+    }
+}
+
+/// A press ends the whole-document selection; a right press keeps it, for
+/// the reader's context menu to copy.
+fn select_all_ends_on(event: &iced::Event) -> Option<Message> {
+    match event {
+        iced::Event::Mouse(iced::mouse::Event::ButtonPressed(button))
+            if *button != iced::mouse::Button::Right =>
+        {
+            Some(Message::ClearSelectAll)
+        }
+        _ => None,
     }
 }
 
@@ -3781,7 +4301,10 @@ fn block_text_bytes(block: &Block) -> usize {
             .chain(rows.iter().flat_map(|row| row.iter()))
             .map(|cells| inline_text_bytes(cells))
             .sum(),
-        Block::Image { url, alt } => url.len().saturating_add(alt.len()),
+        Block::Image { url, alt, link } => url
+            .len()
+            .saturating_add(alt.len())
+            .saturating_add(link.as_ref().map_or(0, String::len)),
         Block::Diagram { source, .. } => source.len(),
         Block::Rule => 0,
     }
@@ -3808,5 +4331,45 @@ fn block_contains_diagram_hash(block: &Block, hash: u64) -> bool {
     }
 }
 
+/// How long a toast stays on screen: a toast with an action button or an
+/// error stays long enough to read and act on; a status note goes quickly.
+fn toast_duration(toast: &Toast) -> std::time::Duration {
+    if toast.action.is_some() || toast.error {
+        std::time::Duration::from_secs(8)
+    } else {
+        std::time::Duration::from_millis(1500)
+    }
+}
+
+/// The message a file or folder dropped on the window sends. It shares the
+/// Finder open path: a folder opens as the workspace, a file honors Full
+/// Mindmap and the unsaved-edits guard, and an open overlay closes.
+fn dropped_path_message(path: PathBuf) -> Message {
+    Message::FileDropped(path)
+}
+
+/// The message a file drag over the window sends: entering shows the drop
+/// highlight; leaving or dropping removes it. Each arrives once per file, not
+/// per pointer move.
+fn file_drag_message(event: iced::window::Event) -> Option<Message> {
+    match event {
+        iced::window::Event::FileHovered(_) => Some(Message::DropHover(true)),
+        iced::window::Event::FilesHoveredLeft => Some(Message::DropHover(false)),
+        iced::window::Event::FileDropped(path) => Some(dropped_path_message(path)),
+        _ => None,
+    }
+}
+
+/// The path Finder can reveal for `path`: the path itself, or its nearest
+/// existing folder when it no longer exists.
+fn reveal_target(path: &Path) -> PathBuf {
+    path.ancestors()
+        .find(|ancestor| ancestor.exists())
+        .unwrap_or(path)
+        .to_path_buf()
+}
+
+#[cfg(test)]
+mod pointer_tests;
 #[cfg(test)]
 mod tests;

@@ -9,11 +9,20 @@ impl App {
     /// Full-window workspace navigator. It deliberately reads only
     /// `full_mindmap` and `workspace_mindmap` state; document mindmap layout,
     /// collapse, selection, and preview state stay untouched underneath.
+    /// Its pointer exit (the Read segment), the parent folder, and the panel
+    /// toggle are toolbar buttons, so they show over every state.
     pub(super) fn full_mindmap_view(
         &self,
         pal: Palette,
         recently_scrolled: bool,
     ) -> Element<'_, Message> {
+        if self.full_mindmap.is_none() {
+            return Space::new().into();
+        }
+        self.full_mindmap_body(pal, recently_scrolled)
+    }
+
+    fn full_mindmap_body(&self, pal: Palette, recently_scrolled: bool) -> Element<'_, Message> {
         let Some(full) = self.full_mindmap.as_ref() else {
             return Space::new().into();
         };
@@ -63,10 +72,23 @@ impl App {
             panel_width: full.panel_width,
             autocenter: true,
             layout_generation: Some(full.layout_generation),
-            keyboard_zoom_enabled: self.overlay == Overlay::None,
+            // An open context menu owns the keyboard.
+            keyboard_zoom_enabled: self.overlay == Overlay::None && self.context_menu.is_none(),
             native_pinch_log: self.full_mindmap_native_pinch_log,
+            scroll_pans: self.prefs.mindmap_scroll_pans,
+            zoom_request: self.full_mindmap_zoom_request,
             on_toggle: Box::new(Message::FullMindmapToggleNode),
-            on_select: Box::new(Message::FullMindmapSelectNode),
+            on_select: Box::new(Message::FullMindmapPointerSelect),
+            on_activate: Some(Box::new(Message::FullMindmapActivateNode)),
+            // The tooltip names where a node is on disk; status rows
+            // ("More…", "Loading…") fall back to their label.
+            hover_text: Some(Box::new(|id: &WorkspaceNodeId| match id {
+                WorkspaceNodeId::Root(path)
+                | WorkspaceNodeId::Folder(path)
+                | WorkspaceNodeId::File(path) => Some(path.display().to_string()),
+                WorkspaceNodeId::Status(..) => None,
+            })),
+            on_context: Some(Box::new(Message::FullMindmapContextMenu)),
             on_deselect: Message::FullMindmapDeselect,
         };
         let canvas: Element<'_, Message> = iced::widget::canvas(program)
@@ -84,28 +106,26 @@ impl App {
                     .as_ref()
                     .is_some_and(|request| request.preserve_navigation));
         let hint_items: &[(&str, &str)] = match selected_is_file {
-            true => &[("←↑→↓", "move"), ("= / −", "zoom"), ("Enter", "open")],
-            false => &[
-                ("←↑→↓", "move"),
-                ("Space", "fold"),
-                ("= / −", "zoom"),
-                ("Enter", "root"),
-            ],
+            true => &[("←↑→↓", "move"), ("Enter", "open")],
+            false => &[("←↑→↓", "move"), ("Space", "fold"), ("Enter", "root")],
         };
-        let canvas: Element<'_, Message> = stack![canvas, floating_mindmap_hint(hint_items, pal)]
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
-        let body: Element<'_, Message> = if full.panel_open {
-            irow![
-                canvas,
-                full_mindmap_panel_resize_handle(self.reader_fill()),
-                self.full_mindmap_panel_view(&graph, pal, full.panel_width, recently_scrolled),
-            ]
-            .into()
-        } else {
-            canvas
-        };
+        let canvas: Element<'_, Message> =
+            stack![canvas, floating_mindmap_controls(hint_items, pal)]
+                .width(Length::Fill)
+                .height(Length::Fill)
+                .into();
+        // The canvas keeps its tree position whether or not the panel is
+        // shown, so a panel toggle keeps its zoom, pan, and pointer focus.
+        let mut body = irow![canvas];
+        if full.panel_open {
+            body = body
+                .push(full_mindmap_panel_resize_handle(self.reader_fill(), pal))
+                .push(with_panel_close(
+                    self.full_mindmap_panel_view(&graph, pal, full.panel_width, recently_scrolled),
+                    Message::FullMindmapTogglePanel,
+                    pal,
+                ));
+        }
         let fill = self.reader_fill();
         container(body)
             .width(Length::Fill)
@@ -185,11 +205,9 @@ impl App {
                             preview_widget_generation,
                             recently_scrolled,
                             crate::render::ReadingWidth::Fill,
+                            self.copy_flash.map(|(_, key)| key),
                         )
-                        .map(|message| match message {
-                            Message::TableScrolled => Message::TableScrolled,
-                            _ => Message::Noop,
-                        });
+                        .map(|message| Self::full_mindmap_preview_message(message, path, blocks));
                         let mut preview = Column::new().push(rendered);
                         if *truncated {
                             preview = preview.push(
@@ -245,7 +263,8 @@ impl App {
                 )
                 .padding(Padding {
                     top: 20.0,
-                    right: 18.0,
+                    // Clear of the panel's close button.
+                    right: 40.0,
                     bottom: 10.0,
                     left: 18.0,
                 })
@@ -337,5 +356,39 @@ impl App {
                 ..Default::default()
             })
             .into()
+    }
+
+    /// What a message from the Full Mindmap preview does. The preview is a
+    /// read-only look at another file: its links resolve from that file,
+    /// Copy and zoom work as in the reader, and folding stays a reader
+    /// action.
+    pub(super) fn full_mindmap_preview_message(
+        message: Message,
+        path: &Path,
+        blocks: &[(BlockId, Block)],
+    ) -> Message {
+        match message {
+            Message::TableScrolled
+            | Message::CopyCode(_)
+            | Message::CopyBlockSource(..)
+            | Message::DiagramZoom(_)
+            | Message::OpenImageZoom(_) => message,
+            Message::OpenLink(url) => Message::FullMindmapPreviewLink {
+                base: path.to_path_buf(),
+                url,
+            },
+            // The app looks a diagram's source up in the open document;
+            // the preview holds its own blocks.
+            Message::CopyDiagramSource(hash) => blocks
+                .iter()
+                .find_map(|(_, block)| match block {
+                    Block::Diagram {
+                        hash: h, source, ..
+                    } if *h == hash => Some(Message::CopyCode(source.clone())),
+                    _ => None,
+                })
+                .unwrap_or(Message::Noop),
+            _ => Message::Noop,
+        }
     }
 }

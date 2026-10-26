@@ -9,14 +9,20 @@
 //!
 //! [`BlockMark`] wraps each block row and tells the scope which document
 //! block the text widgets under it belong to.
+//!
+//! On a right press the scope reports what the reader's text holds there
+//! ([`Message::ReaderContextMenu`]): the link under the pointer and the
+//! selected text. The press changes no selection. [`TargetMark`] wraps a
+//! reader element with its own menu items (a heading, a code block, an
+//! image, a diagram) and reports it first ([`Message::ReaderTarget`]).
 
-use crate::app::Message;
+use crate::app::{Message, ReaderHit, ReaderTarget};
 use crate::ast::{Block, BlockId};
 use iced::advanced::widget::{tree, Operation, Tree, Widget};
 use iced::advanced::{layout, mouse, overlay, renderer, Clipboard, Layout, Shell};
-use iced::{keyboard, Element, Event, Length, Point, Rectangle, Size, Vector};
+use iced::{keyboard, window, Element, Event, Length, Point, Rectangle, Size, Vector};
 use iced_selection::selection::SelectionEnd;
-use iced_selection::text::RichState;
+use iced_selection::text::{Dragging, RichState};
 use std::any::Any;
 use std::collections::HashSet;
 
@@ -95,6 +101,20 @@ struct State {
     range: Option<(Pos, Pos)>,
     /// Text widgets may still show a range the scope painted.
     painted: bool,
+    /// The scroll speed last published while the drag is past the
+    /// viewport's top or bottom edge.
+    autoscroll: Option<f32>,
+    /// How the held drag selects: by word or line after a double or
+    /// triple click; `None` by grapheme.
+    unit: Option<Dragging>,
+    /// The word or line the drag started on, as (start, end); both ends
+    /// are the press for a grapheme drag.
+    span: Option<(Pos, Pos)>,
+    /// Shift is held: a press extends the selection.
+    shift: bool,
+    /// Where the last plain press put the caret; Shift+click extends from
+    /// it when nothing is selected.
+    caret: Option<Pos>,
 }
 
 impl State {
@@ -193,6 +213,102 @@ fn locate(
         },
     );
     best.map(|(d, pos)| (pos, d == (0.0, 0.0)))
+}
+
+/// The scope's selection runs from `anchor` to `focus` (a Shift+click);
+/// the text widgets drop their own.
+fn extend_to(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    state: &mut State,
+    (anchor, focus): (Pos, Pos),
+) {
+    visit(content, tree, layout, renderer, |_, _, _, t| {
+        t.clear_selection();
+    });
+    state.press = Some(anchor);
+    state.unit = None;
+    state.span = Some((anchor, anchor));
+    state.crossing = true;
+    state.range = Some((anchor, focus));
+}
+
+/// `at` moved out to the edge of its word or line in its widget (to the
+/// end when `forward`), for a word or line drag.
+fn snap(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    at: Pos,
+    unit: Dragging,
+    forward: bool,
+) -> Pos {
+    if unit == Dragging::Grapheme {
+        return at;
+    }
+    let mut out = at;
+    visit(content, tree, layout, renderer, |block, sub, _, text| {
+        if (block, sub) == at.widget() {
+            let end = text.snap(at.end(), unit, forward);
+            out = Pos {
+                line: end.line,
+                index: end.index,
+                ..at
+            };
+        }
+    });
+    out
+}
+
+/// The held drag of the text widget `widget` (by grapheme, word, or line)
+/// and its own selection as (anchor, focus).
+fn widget_drag(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    widget: (usize, usize),
+) -> (Option<Dragging>, Option<(Pos, Pos)>) {
+    let mut out = (None, None);
+    visit(content, tree, layout, renderer, |block, sub, _, text| {
+        if (block, sub) == widget {
+            let pos = |end: SelectionEnd| Pos {
+                block,
+                sub,
+                line: end.line,
+                index: end.index,
+            };
+            out = (
+                text.dragging(),
+                text.selection_ends().map(|(a, f)| (pos(a), pos(f))),
+            );
+        }
+    });
+    out
+}
+
+/// The anchor of the first mounted text widget's own selection.
+fn own_anchor(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+) -> Option<Pos> {
+    let mut out = None;
+    visit(content, tree, layout, renderer, |block, sub, _, text| {
+        if out.is_none() {
+            out = text.selection_ends().map(|(a, _)| Pos {
+                block,
+                sub,
+                line: a.line,
+                index: a.index,
+            });
+        }
+    });
+    out
 }
 
 /// Shows `range` in every mounted text widget, or clears it.
@@ -299,6 +415,85 @@ fn copy_text(
     pieces.join("\n\n")
 }
 
+/// What the reader's text holds at `p`: the link there, and the selected
+/// text (the scope's cross-block `range`, or one widget's own selection)
+/// with whether `p` is inside it. Nothing changes.
+#[allow(clippy::too_many_arguments)]
+fn right_press_hit(
+    content: &mut Element<'_, Message>,
+    tree: &mut Tree,
+    layout: Layout<'_>,
+    renderer: &iced::Renderer,
+    blocks: &[(BlockId, Block)],
+    folded: &HashSet<BlockId>,
+    range: Option<(Pos, Pos)>,
+    p: Point,
+) -> ReaderHit {
+    let mut link = None;
+    let mut own: Option<(String, bool)> = None;
+    visit(content, tree, layout, renderer, |_, _, bounds, text| {
+        if link.is_none() {
+            link = match text.link_at(p, bounds) {
+                Some(Message::OpenLink(url)) => Some(url),
+                _ => None,
+            };
+        }
+        if own.is_none() {
+            own = text
+                .selected_text()
+                .map(|selected| (selected, text.selection_contains(p, bounds)));
+        }
+    });
+    let (selection, in_selection) = match range {
+        Some((start, end)) => {
+            let inside = locate(content, tree, layout, renderer, p)
+                .is_some_and(|(at, over)| over && start <= at && at <= end);
+            let text = copy_text(
+                content,
+                tree,
+                layout,
+                renderer,
+                blocks,
+                folded,
+                (start, end),
+            );
+            (Some(text), inside)
+        }
+        None => match own {
+            Some((text, inside)) => (Some(text), inside),
+            None => (None, false),
+        },
+    };
+    ReaderHit {
+        link,
+        selection: selection.filter(|text| !text.is_empty()),
+        in_selection,
+    }
+}
+
+/// Pixels per tick for each pixel the drag is past the edge.
+const AUTOSCROLL_GAIN: f32 = 0.25;
+/// The slowest and the fastest auto-scroll, in pixels per tick.
+const AUTOSCROLL_MIN: f32 = 2.0;
+const AUTOSCROLL_MAX: f32 = 60.0;
+
+/// How fast a selection drag at height `y` scrolls the reader: negative
+/// above the viewport, positive below it, `None` inside. Proportional to
+/// the overshoot and rounded, so small moves publish nothing new.
+fn autoscroll_speed(y: f32, viewport: &Rectangle) -> Option<f32> {
+    let over = if y < viewport.y {
+        y - viewport.y
+    } else if y > viewport.y + viewport.height {
+        y - (viewport.y + viewport.height)
+    } else {
+        return None;
+    };
+    let speed = (over.abs() * AUTOSCROLL_GAIN)
+        .round()
+        .clamp(AUTOSCROLL_MIN, AUTOSCROLL_MAX);
+    Some(speed.copysign(over))
+}
+
 fn is_copy(event: &Event) -> bool {
     matches!(
         event,
@@ -378,6 +573,9 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
 
         let doc = (self.blocks.as_ptr() as usize, self.blocks.len());
         if state.doc != doc {
+            if state.autoscroll.is_some() {
+                shell.publish(Message::ReaderAutoScroll(None));
+            }
             *state = State {
                 doc,
                 painted: state.painted,
@@ -388,22 +586,89 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         let latin = crate::selectable::latin_event(event);
         let event_seen = latin.as_ref().unwrap_or(event);
         let mut forward = true;
+        let mut right_press = None;
+        let mut beside_text = None;
+        let mut shift_beside = None;
+        let mut on_text = None;
 
         match event_seen {
             Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) => {
-                state.range = None;
-                state.crossing = false;
-                state.press = cursor
-                    .position_over(layout.bounds())
-                    .and_then(|p| locate(&mut self.content, child_tree, child, renderer, p))
-                    .and_then(|(pos, inside)| inside.then_some(pos));
+                // Anywhere in the reader's viewport: on text, the text
+                // widget selects; beside it (a margin, a gap between
+                // blocks, below the end), the scope does, unless the
+                // content takes the press.
+                let located = cursor
+                    .position()
+                    .filter(|p| viewport.contains(*p))
+                    .and_then(|p| locate(&mut self.content, child_tree, child, renderer, p));
+                // Shift+click extends the selection (the scope's, else a
+                // text widget's, else from the caret) to the press. Inside
+                // the one widget that holds it, that widget extends its own.
+                // Beside the text, it waits until the content has seen the
+                // press (see `shift_beside`).
+                let extended = match located {
+                    Some((focus, _)) if state.shift => state
+                        .range
+                        .map(|(anchor, _)| anchor)
+                        .or_else(|| own_anchor(&mut self.content, child_tree, child, renderer))
+                        .or(state.caret)
+                        .filter(|anchor| state.range.is_some() || anchor.widget() != focus.widget())
+                        .map(|anchor| (anchor, focus)),
+                    _ => None,
+                };
+                let on_text_press = located.is_some_and(|(_, inside)| inside);
+                if let Some((anchor, focus)) = extended.filter(|_| on_text_press) {
+                    extend_to(
+                        &mut self.content,
+                        child_tree,
+                        child,
+                        renderer,
+                        state,
+                        (anchor, focus),
+                    );
+                    forward = false;
+                    shell.capture_event();
+                    shell.request_redraw();
+                } else if let Some(ends) = extended {
+                    // Beside the text, a link, an image, a button, or a
+                    // chevron takes the press first, as without Shift.
+                    shift_beside = Some(ends);
+                } else {
+                    state.range = None;
+                    state.crossing = false;
+                    state.unit = None;
+                    state.press = located.and_then(|(pos, inside)| inside.then_some(pos));
+                    state.span = state.press.map(|pos| (pos, pos));
+                    on_text = state.press;
+                    beside_text = located.and_then(|(pos, inside)| (!inside).then_some(pos));
+                }
             }
-            Event::Mouse(mouse::Event::CursorMoved { .. }) => {
+            Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                state.shift = modifiers.shift();
+            }
+            // While the drag is past the viewport edge, the reader scrolls
+            // under a still pointer: each frame moves the selection end too.
+            Event::Mouse(mouse::Event::CursorMoved { .. })
+            | Event::Window(window::Event::RedrawRequested(_))
+                if matches!(event_seen, Event::Mouse(_)) || state.autoscroll.is_some() =>
+            {
+                let moved = matches!(event_seen, Event::Mouse(_));
                 if let (Some(anchor), Some(p)) = (state.press, cursor.land().position()) {
+                    let speed = autoscroll_speed(p.y, viewport);
+                    if speed != state.autoscroll {
+                        state.autoscroll = speed;
+                        shell.publish(Message::ReaderAutoScroll(speed));
+                    }
+                    // Past the edge, the selection ends on the edge line.
+                    let bottom = (viewport.y + viewport.height - 1.0).max(viewport.y);
+                    let p = Point::new(p.x, p.y.clamp(viewport.y, bottom));
                     if let Some((focus, _)) =
                         locate(&mut self.content, child_tree, child, renderer, p)
                     {
-                        if !state.crossing && focus.widget() != anchor.widget() {
+                        // The scope also takes over a drag that scrolls:
+                        // its range survives the start widget unmounting.
+                        if !state.crossing && (focus.widget() != anchor.widget() || speed.is_some())
+                        {
                             state.crossing = true;
                             // The widget the drag started in drops its own
                             // selection and drag; the scope owns it now.
@@ -417,17 +682,54 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
                                 },
                             );
                         }
-                        if state.crossing {
-                            state.range = Some((anchor, focus));
-                            forward = false;
+                        // A word or line drag keeps whole words or lines:
+                        // the start's word or line stays selected, and the
+                        // end moves out to the edge of its own.
+                        let range = state.crossing.then(|| {
+                            let (lo, hi) = state.span.unwrap_or((anchor, anchor));
+                            let unit = state.unit.unwrap_or(Dragging::Grapheme);
+                            let mut snap_to = |forward| {
+                                snap(
+                                    &mut self.content,
+                                    child_tree,
+                                    child,
+                                    renderer,
+                                    focus,
+                                    unit,
+                                    forward,
+                                )
+                            };
+                            if focus < lo {
+                                (hi, snap_to(false))
+                            } else {
+                                (lo, snap_to(true).max(hi))
+                            }
+                        });
+                        if range.is_some() && state.range != range {
+                            state.range = range;
                             shell.request_redraw();
+                        }
+                        if state.crossing && moved {
+                            forward = false;
                         }
                     }
                 }
             }
-            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
+            // The window losing focus ends a drag too: its release may go
+            // to another app, and a held press would start the scroll
+            // again on the next move.
+            Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Window(window::Event::Unfocused) => {
                 state.press = None;
                 state.crossing = false;
+                if state.autoscroll.take().is_some() {
+                    shell.publish(Message::ReaderAutoScroll(None));
+                }
+            }
+            // Reported after the content, so a `TargetMark` under the
+            // pointer reports its element first.
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right)) => {
+                right_press = cursor.position_over(layout.bounds());
             }
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: keyboard::Key::Named(keyboard::key::Named::Escape),
@@ -469,6 +771,64 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
             );
         }
 
+        // A Shift press beside the text that no element took extends the
+        // selection to the nearest text position.
+        if let Some(ends) = shift_beside {
+            if !shell.is_event_captured() {
+                extend_to(&mut self.content, child_tree, child, renderer, state, ends);
+                shell.capture_event();
+                shell.request_redraw();
+            }
+        }
+        // A press beside the text that no element took (a link, an image,
+        // a button, a chevron, a diagram) starts the scope's own selection
+        // at the nearest text position.
+        if let Some(pos) = beside_text {
+            if !shell.is_event_captured() {
+                state.press = Some(pos);
+                state.span = Some((pos, pos));
+                state.crossing = true;
+                state.range = Some((pos, pos));
+                state.caret = Some(pos);
+            }
+        }
+        // A press on text: the widget there has chosen how its drag
+        // selects (a double click selects a word, a triple click a line)
+        // and what it selected first; a drag across blocks keeps both.
+        if let Some(at) = on_text {
+            state.caret = Some(at);
+            let (unit, ends) =
+                widget_drag(&mut self.content, child_tree, child, renderer, at.widget());
+            state.unit = unit;
+            match (unit, ends) {
+                (Some(Dragging::Word | Dragging::Line), Some((a, f))) => {
+                    state.span = Some((a.min(f), a.max(f)));
+                }
+                // Shift+click inside the widget that holds the selection:
+                // the drag goes on from that selection's anchor.
+                (_, Some((anchor, _))) => {
+                    state.press = Some(anchor);
+                    state.span = Some((anchor, anchor));
+                }
+                _ => {}
+            }
+        }
+
+        if let Some(p) = right_press {
+            let hit = right_press_hit(
+                &mut self.content,
+                child_tree,
+                child,
+                renderer,
+                self.blocks,
+                &self.folded,
+                state.ordered(),
+                p,
+            );
+            shell.publish(Message::ReaderContextMenu(hit));
+            shell.capture_event();
+        }
+
         // Paint after every event while a range exists, so blocks mounted by
         // scrolling show it too; clear once after it goes away.
         let range = state.ordered();
@@ -486,13 +846,24 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for SelectScope<'a> {
         viewport: &Rectangle,
         renderer: &iced::Renderer,
     ) -> mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
+        let inner = self.content.as_widget().mouse_interaction(
             &tree.children[0],
             child_layout(layout),
             cursor,
             viewport,
             renderer,
-        )
+        );
+        if inner != mouse::Interaction::None {
+            return inner;
+        }
+        // A press anywhere in the reader starts a selection, so the
+        // margins and the gaps between blocks show the text cursor too.
+        let dragging = tree.state.downcast_ref::<State>().press.is_some();
+        if dragging || cursor.position().is_some_and(|p| viewport.contains(p)) {
+            mouse::Interaction::Text
+        } else {
+            mouse::Interaction::None
+        }
     }
 
     fn draw(
@@ -655,6 +1026,145 @@ impl<'a> Widget<Message, iced::Theme, iced::Renderer> for BlockMark<'a> {
 
 impl<'a> From<BlockMark<'a>> for Element<'a, Message> {
     fn from(w: BlockMark<'a>) -> Self {
+        Element::new(w)
+    }
+}
+
+/// Wraps a reader element that has its own context menu items; transparent
+/// to layout, events, and the widget tree. On a right press over it, it
+/// reports its element after its content; the innermost mark reports first.
+pub struct TargetMark<'a> {
+    target: Box<dyn Fn() -> ReaderTarget + 'a>,
+    content: Element<'a, Message>,
+}
+
+impl<'a> TargetMark<'a> {
+    /// `target` builds the element's description; it runs only on a right
+    /// press, so a rebuild of the view copies nothing.
+    pub fn new(
+        target: impl Fn() -> ReaderTarget + 'a,
+        content: impl Into<Element<'a, Message>>,
+    ) -> Self {
+        Self {
+            target: Box::new(target),
+            content: content.into(),
+        }
+    }
+}
+
+impl<'a> Widget<Message, iced::Theme, iced::Renderer> for TargetMark<'a> {
+    fn tag(&self) -> tree::Tag {
+        self.content.as_widget().tag()
+    }
+
+    fn state(&self) -> tree::State {
+        self.content.as_widget().state()
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        self.content.as_widget().children()
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        self.content.as_widget().diff(tree);
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn size_hint(&self) -> Size<Length> {
+        self.content.as_widget().size_hint()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content.as_widget_mut().layout(tree, renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &iced::Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(tree, layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget_mut().update(
+            tree, event, layout, cursor, renderer, clipboard, shell, viewport,
+        );
+        if matches!(
+            event,
+            Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Right))
+        ) && cursor.is_over(layout.bounds())
+        {
+            shell.publish(Message::ReaderTarget((self.target)()));
+        }
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &iced::Renderer,
+    ) -> mouse::Interaction {
+        self.content
+            .as_widget()
+            .mouse_interaction(tree, layout, cursor, viewport, renderer)
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content
+            .as_widget()
+            .draw(tree, renderer, theme, style, layout, cursor, viewport);
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &iced::Renderer,
+        viewport: &Rectangle,
+        translation: Vector,
+    ) -> Option<overlay::Element<'b, Message, iced::Theme, iced::Renderer>> {
+        self.content
+            .as_widget_mut()
+            .overlay(tree, layout, renderer, viewport, translation)
+    }
+}
+
+impl<'a> From<TargetMark<'a>> for Element<'a, Message> {
+    fn from(w: TargetMark<'a>) -> Self {
         Element::new(w)
     }
 }

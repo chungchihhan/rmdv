@@ -8,9 +8,79 @@ impl App {
         if self.settings_open && msg.leaves_settings() {
             self.settings_open = false;
         }
+        // Only while a link pill shows: the snapshot clones the path.
+        let link_page = self.hovered_link.is_some().then(|| self.link_page());
+        // Only while a context menu is open.
+        let menu_scope = self.context_menu.is_some().then(|| self.menu_scope());
+        let outline_was_shown = self.outline_shown();
+        let menu_inert = msg.leaves_menu_unchanged();
         let mut task = self.dispatch_message(msg);
+        // A menu closes when what is under it changes: an overlay, a view,
+        // a modal, the sidebar.
+        if menu_scope.is_some_and(|scope| scope != self.menu_scope()) {
+            self.context_menu = None;
+        }
+        // An inline rename ends with the file tree that shows it; a tree
+        // shown again has the keys again.
+        if !self.file_tree_shown() {
+            self.tree_rename = None;
+            self.reader_keys = false;
+        }
+        // A confirmation card owns the keyboard; its Esc and Enter must not
+        // reach a rename field still focused underneath.
+        if self.close_confirm.is_some() || self.quick_slot_replace.is_some() {
+            self.tree_rename = None;
+        }
+        // Every way out of the viewer (Esc, a click beside the image, an
+        // open from Finder or the CLI, Zen) frees what it holds: the sharper
+        // raster alone can be 64 MB.
+        if self.overlay != Overlay::ImageZoom {
+            self.drop_image_zoom();
+        }
+        if link_page.is_some_and(|page| page != self.link_page()) {
+            self.hovered_link = None;
+        }
+        // ⌘Q reads this from AppKit, outside the update loop.
+        crate::macos_quit::set_unsaved(self.dirty);
+        // The two-finger swipe bridge reads its state from AppKit too.
+        crate::native_swipe::set_armed(self.swipe_directions());
+        self.sync_toolbar_band();
+        self.sync_sidebar_peek();
+        // The pinned Quick Slots popover closes for good wherever the rail
+        // may not show (the find bar, the vault page, an unsaved Zen edit),
+        // so it does not pop back later.
+        if self.quick_slots_pinned && !self.quick_slots_rail_allowed() {
+            self.quick_slots_pinned = false;
+        }
+        // So does the menu bar, after the state above settled. It is pushed
+        // only when it changed; pointer and scroll reports cannot change it
+        // and skip the computation.
+        if !menu_inert || !self.menu_pushed.synced() {
+            self.sync_native_menu();
+        }
+        if let Some(scroll) = self.sync_outline_shown(outline_was_shown) {
+            task = Task::batch([task, scroll]);
+        }
+        // The scrollbar strip goes with the document view; a strip removed
+        // under the pointer reports no exit.
+        if !self.reader_shows_document() {
+            self.reader_scroller
+                .set_hovered(false, std::time::Instant::now());
+        }
+        // A folder click's double-click ends with the picker (Esc, an open,
+        // another overlay). `Closed` stays for the one press it swallows.
+        if self.overlay != Overlay::FolderPicker
+            && matches!(self.picker_click, PickerClick::Descended(_))
+        {
+            self.picker_click = PickerClick::Idle;
+        }
         if let Some(glass) = self.sync_glass() {
             task = Task::batch([task, glass]);
+        }
+        // A slot from another workspace activates once that workspace is
+        // open (MDV-048 P8b).
+        if self.pending_quick_slot_switch.is_some() {
+            task = Task::batch([task, self.resume_quick_slot_switch()]);
         }
         if (self.workspace_epoch, self.expanded.len()) == before {
             return task;
@@ -18,10 +88,55 @@ impl App {
         Task::batch([task, self.load_incomplete_expanded_folders()])
     }
 
+    /// Open a vault hit's file at its line and leave the vault page.
+    fn open_vault_hit(&mut self, path: PathBuf, line: u32) -> Task<Message> {
+        if let Some(blocked) = self.block_file_open_if_dirty(&path) {
+            return blocked;
+        }
+        self.vault_open = false;
+        self.pending_nav = Some(PendingNav {
+            line: Some(line),
+            ..Default::default()
+        });
+        Task::done(Message::Open(path))
+    }
+
+    /// Forget the viewer's image and rasters.
+    fn drop_image_zoom(&mut self) {
+        self.zoom_url = None;
+        self.zoom_diagram = None;
+        self.image_zoom_raster = None;
+    }
+
     fn dispatch_message(&mut self, msg: Message) -> Task<Message> {
-        // A clean Zen editor can keep focus under the replace confirmation;
-        // its Enter must not type into the buffer.
-        if self.quick_slot_replace.is_some() && matches!(msg, Message::EditorAction(_)) {
+        // A clean Zen editor can keep focus under the replace confirmation
+        // or a context menu; its Enter must not type into the buffer. The
+        // menu's items run after it closes.
+        if (self.quick_slot_replace.is_some()
+            || self.close_confirm.is_some()
+            || self.context_menu.is_some())
+            && matches!(msg, Message::EditorAction(_))
+        {
+            return Task::none();
+        }
+        // So can the finder's, the vault page's, and the find bar's query
+        // fields, and a rename field: while a context menu is open, typing
+        // and Enter belong to the menu. The menu layer stops the keys; this
+        // drops what a field would still send.
+        if self.context_menu.is_some()
+            && matches!(
+                msg,
+                Message::OverlayQueryChanged(_)
+                    | Message::OverlayQueryClear
+                    | Message::OverlayConfirm
+                    | Message::VaultQueryChanged(_)
+                    | Message::VaultQueryClear
+                    | Message::VaultEnter
+                    | Message::QueryChanged(_)
+                    | Message::TreeRenameInput(_)
+                    | Message::TreeRenameCommit
+            )
+        {
             return Task::none();
         }
         if let Some(rel) = self.queued_snap.take() {
@@ -38,25 +153,36 @@ impl App {
             tasks.push(Task::done(msg));
             return Task::batch(tasks);
         }
+        if let Some(task) = self.context_menu_message(&msg) {
+            return task;
+        }
         match msg {
             Message::Open(p) => self.load_file_unless_dirty(p),
             Message::Refresh => self.refresh_status(),
+            Message::DismissError => {
+                self.error = None;
+                self.error_path = None;
+                Task::none()
+            }
+            Message::RevealPath(path) => match Self::reveal_file_in_finder(&reveal_target(&path)) {
+                Ok(()) => self.show_toast("Revealed in Finder".to_string()),
+                Err(error) => self.show_error_toast(error),
+            },
             Message::RevealFileInFinder => {
                 let Some(path) = self.focused_file_path() else {
                     return self.show_toast("No file open".into());
                 };
-                let label = match Self::reveal_file_in_finder(&path) {
-                    Ok(()) => "Revealed in Finder".to_string(),
-                    Err(error) => error,
-                };
-                self.show_toast(label)
+                match Self::reveal_file_in_finder(&path) {
+                    Ok(()) => self.show_toast("Revealed in Finder".to_string()),
+                    Err(error) => self.show_error_toast(error),
+                }
             }
             Message::CopyFilePath => {
                 let Some(path) = self.focused_file_path() else {
                     return self.show_toast("No file open".into());
                 };
                 let Some(expected) = path.to_str().map(str::to_owned) else {
-                    return self.show_toast("File path cannot be copied as text".into());
+                    return self.show_error_toast("File path cannot be copied as text".into());
                 };
                 self.pending_clipboard_copy = Some(expected.clone());
                 let toast = self.show_toast("Copying file path…".into());
@@ -90,7 +216,7 @@ impl App {
                 if actual.as_deref() == Some(expected.as_str()) {
                     self.show_toast("File path copied".into())
                 } else {
-                    self.show_toast("Couldn't copy file path".into())
+                    self.show_error_toast("Couldn't copy file path".into())
                 }
             }
             Message::OpenFileFinderPath(p) => {
@@ -111,25 +237,7 @@ impl App {
                     self.load_file_unless_dirty(p)
                 }
             }
-            Message::OpenWorkspace(p) => {
-                self.cancel_refresh_tracking();
-                // A workspace selected through Full Mindmap Mode should not
-                // silently alter the hidden sidebar's open/closed preference.
-                if self.full_mindmap.is_some() {
-                    let exit_after_refresh = self.pending_ipc_file_open.is_some();
-                    self.begin_full_mindmap_workspace_load(
-                        p,
-                        false,
-                        None,
-                        false,
-                        false,
-                        exit_after_refresh,
-                    )
-                } else {
-                    self.set_workspace(p, true);
-                    Task::none()
-                }
-            }
+            Message::OpenWorkspace(p) => self.open_workspace(p, true),
             Message::OpenFolderPicker => {
                 self.open_overlay(Overlay::FolderPicker);
                 Task::none()
@@ -165,6 +273,7 @@ impl App {
                 self.vault_cursor = 0;
                 self.vault_collapsed.clear();
                 self.vault_viewport = None;
+                self.list_pointer = ListPointer::default();
                 // Bump seq so any in-flight `run` from a prior open is dropped
                 // by the `VaultSearchDone` seq guard instead of repopulating
                 // the freshly-blank page.
@@ -188,6 +297,8 @@ impl App {
             }
             Message::VaultRunSearch => {
                 self.vault_cursor = 0;
+                // A new list under a still pointer is not motion.
+                self.list_pointer.settle();
                 self.vault_seq += 1;
                 self.vault_searched_query = Some(self.vault_query.clone());
                 let seq = self.vault_seq;
@@ -215,6 +326,7 @@ impl App {
                     self.vault_file_count = n;
                     self.vault_truncated = r.truncated;
                     self.vault_cursor = 0;
+                    self.list_pointer.settle();
                     // New result set: drop the stale viewport so virtualization
                     // renders from the top, and scroll the list back to 0.
                     self.vault_viewport = None;
@@ -232,7 +344,21 @@ impl App {
                 }
                 let next = (self.vault_cursor as isize + d).clamp(0, visible.len() as isize - 1);
                 self.vault_cursor = next as usize;
+                self.list_pointer.settle();
                 self.scroll_vault_to_cursor()
+            }
+            Message::VaultHover(index) => {
+                if self.list_pointer.take_motion() {
+                    let visible = self.vault_visible_matches().len();
+                    if index < visible {
+                        self.vault_cursor = index;
+                    }
+                }
+                Task::none()
+            }
+            Message::ListPointerMoved(at) => {
+                self.list_pointer.moved(at);
+                Task::none()
             }
             Message::VaultToggleFile(path) => {
                 // Remember which hit the cursor pointed at so it tracks that
@@ -249,6 +375,8 @@ impl App {
                         // Anchored hit is now hidden: clamp to the last visible.
                         self.vault_cursor.min(visible.len().saturating_sub(1))
                     });
+                // Rows shift under the pointer; that is not motion.
+                self.list_pointer.settle();
                 Task::none()
             }
             Message::VaultOpenSelected => {
@@ -258,19 +386,18 @@ impl App {
                     None => Task::none(),
                 }
             }
-            Message::VaultOpenHit(idx) => {
-                if let Some(hit) = self.vault_results.get(idx).cloned() {
-                    if let Some(blocked) = self.block_file_open_if_dirty(&hit.path) {
-                        return blocked;
-                    }
-                    self.vault_open = false;
-                    self.pending_nav = Some(PendingNav {
-                        line: Some(hit.line),
-                        ..Default::default()
-                    });
-                    return Task::done(Message::Open(hit.path));
+            Message::VaultOpenHit(idx) => match self.vault_results.get(idx) {
+                Some(hit) => {
+                    let (path, line) = (hit.path.clone(), hit.line);
+                    self.open_vault_hit(path, line)
                 }
-                Task::none()
+                None => Task::none(),
+            },
+            Message::VaultOpenHitAt { path, line } => {
+                if !self.vault_open {
+                    return Task::none();
+                }
+                self.open_vault_hit(path, line)
             }
             Message::OpenSettings => self.open_settings(),
             Message::CloseSettings => {
@@ -316,6 +443,26 @@ impl App {
                 }
                 Task::none()
             }
+            Message::ShortcutSheetRun(action) => {
+                // As a palette pick: close the sheet, then run the action.
+                if self.overlay == Overlay::Shortcuts {
+                    self.overlay = Overlay::None;
+                }
+                Task::done(*action)
+            }
+            Message::FooterCycleStat => {
+                self.prefs.footer_stat = self.prefs.footer_stat.next();
+                self.save_prefs();
+                Task::none()
+            }
+            Message::OverlayQueryClear => {
+                let _ = self.update(Message::OverlayQueryChanged(String::new()));
+                iced::widget::operation::focus(Self::overlay_input_id())
+            }
+            Message::VaultQueryClear => {
+                let _ = self.update(Message::VaultQueryChanged(String::new()));
+                iced::widget::operation::focus(Self::vault_input_id())
+            }
             Message::QuickSlotsModifier(held) => {
                 if held {
                     if self.quick_slots_modifier_held {
@@ -353,11 +500,21 @@ impl App {
                 }
                 Task::none()
             }
-            Message::QuickSlotActivate(index) => self.begin_quick_slot_activation(index),
+            Message::QuickSlotsPopover(open) => {
+                self.quick_slots_pinned = open && self.quick_slots_rail_allowed();
+                Task::none()
+            }
+            Message::QuickSlotActivate(index) => {
+                // Choosing a slot is what the popover was opened for.
+                self.quick_slots_pinned = false;
+                self.begin_quick_slot_activation(index)
+            }
             Message::QuickSlotAssign(index) => self.assign_quick_slot(index),
             Message::QuickSlotClear(index) => self.clear_quick_slot(index),
             Message::QuickSlotClearAll => self.clear_all_quick_slots(),
             Message::QuickSlotUndo => self.undo_quick_slot_clear(),
+            Message::QuickSlotAssignPath(path) => self.assign_quick_slot_path(path),
+            Message::QuickSlotContextMenu(index) => self.open_quick_slot_context_menu(index),
             Message::QuickSlotReplaceConfirm => self.confirm_quick_slot_replace(),
             Message::QuickSlotReplaceCancel => {
                 self.quick_slot_replace = None;
@@ -365,6 +522,22 @@ impl App {
             }
             Message::QuickSlotClose => self.close_active_quick_slot(),
             Message::QuickSlotCloseWindow => self.close_quick_slot_window(),
+            Message::DropHover(hovered) => {
+                self.drop_hover = hovered;
+                Task::none()
+            }
+            Message::FileDropped(path) => {
+                self.drop_hover = false;
+                self.update(Message::OpenFileFinderPath(path))
+            }
+            Message::WindowCloseRequested(id) => self.request_window_close(Some(id)),
+            Message::QuitRequested => self.request_window_close(None),
+            Message::CloseConfirmSave => self.close_confirm_save(),
+            Message::CloseConfirmDiscard => self.close_confirm_discard(),
+            Message::CloseConfirmCancel => {
+                self.close_confirm = None;
+                Task::none()
+            }
             Message::QuickSlotCycle(delta) => {
                 let active = self.quick_slots.active;
                 let start = active.unwrap_or(if delta < 0 {
@@ -372,7 +545,6 @@ impl App {
                 } else {
                     0
                 }) as isize;
-                let root = self.quick_slots_workspace_root().map(PathBuf::from);
                 let steps: Vec<usize> = if active.is_some() {
                     (1..=crate::quick_slots::SLOT_COUNT).collect()
                 } else {
@@ -386,13 +558,10 @@ impl App {
                             as usize
                     })
                     .find(|&index| {
-                        self.quick_slots.occupied(index).is_some_and(|slot| {
-                            root.as_ref()
-                                .and_then(|root| {
-                                    crate::quick_slots::resolve_path(root, &slot.relative_path)
-                                })
-                                .is_some_and(|path| path.is_file())
-                        })
+                        self.quick_slots
+                            .occupied(index)
+                            .and_then(crate::quick_slots::QuickSlot::resolve)
+                            .is_some_and(|path| path.is_file())
                     });
                 match next {
                     Some(index) => self.begin_quick_slot_activation(index),
@@ -408,6 +577,8 @@ impl App {
                 Task::none()
             }
             Message::QuickSlotRestorePending => self.apply_pending_quick_slot_restore(),
+            Message::HistoryGo(dir) => self.history_go(dir),
+            Message::NativeSwipe(dir) => self.native_swipe(dir),
             Message::QuickSlotFileLoaded {
                 index,
                 slot,
@@ -426,16 +597,15 @@ impl App {
                 }
                 match result {
                     Ok((path, source)) => {
-                        let expected = self.quick_slots_workspace_root().and_then(|root| {
-                            crate::quick_slots::resolve_path(root, &slot.relative_path)
-                        });
+                        let expected = slot.resolve();
                         if expected.as_ref() != Some(&path) {
                             self.invalidate_pending_quick_slot_restore();
                             return Task::none();
                         }
                         if self.dirty {
                             self.invalidate_pending_quick_slot_restore();
-                            return self.show_toast(self.unsaved_edits_open_message());
+                            return self
+                                .show_unsaved_edits_toast(self.unsaved_edits_open_message());
                         }
                         self.update(Message::FileLoaded(Ok((path, source))))
                     }
@@ -450,8 +620,7 @@ impl App {
                 let was_zoom = self.overlay == Overlay::ImageZoom;
                 self.overlay = Overlay::None;
                 self.picker = None;
-                self.zoom_url = None;
-                self.zoom_diagram = None;
+                self.drop_image_zoom();
                 if was_zoom {
                     self.restore_body_scroll()
                 } else {
@@ -656,6 +825,12 @@ impl App {
                 self.reader_select_all = false;
                 Task::none()
             }
+            Message::ReaderTarget(target) => {
+                self.note_reader_target(target);
+                Task::none()
+            }
+            Message::ReaderContextMenu(hit) => self.open_reader_context_menu(hit),
+            Message::WelcomeNeedsFile => self.show_toast("Open a file first".into()),
             Message::FoldChordStart => {
                 self.fold_chord_pending = true;
                 return self.show_toast("Fold: press 0-6 …".into());
@@ -763,26 +938,15 @@ impl App {
             }
             Message::FontSizeUp => {
                 let size = self.adjust_font_scale(1.1);
-                self.height_cache.clear();
-                self.rebuild_virt_here();
-                let preview_measure = self.refresh_full_mindmap_preview_heights();
-                Task::batch([
-                    self.measure_window_heights(),
-                    preview_measure,
-                    self.show_toast(format!("Font {:.0} px", size)),
-                ])
+                self.font_size_changed(format!("Font {:.0} px", size))
             }
             Message::FontSizeDown => {
                 let size = self.adjust_font_scale(1.0 / 1.1);
-                self.height_cache.clear();
-                self.rebuild_virt_here();
-                let preview_measure = self.refresh_full_mindmap_preview_heights();
-                Task::batch([
-                    self.measure_window_heights(),
-                    preview_measure,
-                    self.show_toast(format!("Font {:.0} px", size)),
-                ])
+                self.font_size_changed(format!("Font {:.0} px", size))
             }
+            Message::ReaderZoomBy(steps) => self.reader_zoom_by(steps),
+            Message::ReaderZoomFlush => self.reader_zoom_flush(),
+            Message::ReaderZoomSave(seq) => self.reader_zoom_save(seq),
             Message::FontSizeReset => {
                 self.font_scale = 1.0;
                 self.rebuild_typography();
@@ -808,15 +972,44 @@ impl App {
                 Task::none()
             }
             Message::SetLineSpacing(spacing) => self.set_line_spacing(spacing),
+            Message::SetToolbarMode(mode) => self.set_toolbar_mode(mode),
+            Message::ToolbarHover(entered) => self.toolbar_hover(entered),
+            Message::ToolbarHideAfter(generation) => {
+                if generation == self.toolbar_hover_generation && !self.toolbar_hovered {
+                    self.toolbar_revealed = false;
+                }
+                Task::none()
+            }
+            Message::SidebarPeek(entered) => self.sidebar_peek_hover(entered),
+            Message::SidebarPeekHideAfter(generation) => {
+                self.sidebar_peek_hide_after(generation);
+                Task::none()
+            }
+            Message::ToolbarView(target) => self.toolbar_view(target),
+            Message::NativeMenu(tag) => self.native_menu_click(tag),
+            // A fullscreen window neither moves nor zooms, as on macOS.
+            Message::WindowDrag if !self.window_fullscreen => {
+                iced::window::latest().and_then(iced::window::drag)
+            }
+            Message::WindowTitlebarDoubleClick if !self.window_fullscreen => {
+                iced::window::latest().and_then(iced::window::toggle_maximize)
+            }
+            Message::WindowDrag | Message::WindowTitlebarDoubleClick => Task::none(),
             Message::MindmapNativePinch(delta) => {
                 // The native monitor runs for the whole app. Only forward a
-                // finite magnification delta while a graph owns the visible
-                // surface; search and overlays retain their normal input.
-                if delta.is_finite() && self.overlay == Overlay::None {
+                // finite magnification delta while a graph, the image
+                // viewer, or the reader owns the visible surface; search
+                // and the other overlays retain their normal input.
+                if delta.is_finite() && self.overlay == Overlay::ImageZoom {
+                    self.image_zoom_pinch_log += f64::from(delta);
+                } else if delta.is_finite() && self.overlay == Overlay::None {
                     if self.full_mindmap.is_some() {
                         self.full_mindmap_native_pinch_log += f64::from(delta);
                     } else if self.view_mode == ViewMode::Mindmap && !self.search_open {
                         self.mindmap_native_pinch_log += f64::from(delta);
+                    } else if self.reader_shows_document() {
+                        // The reader's font, by the ⌘+ and ⌘− steps.
+                        return self.reader_zoom_by(super::gestures::pinch_zoom_steps(delta));
                     }
                 }
                 Task::none()
@@ -983,6 +1176,84 @@ impl App {
                 }
             }
             Message::FullMindmapSelectNode(id) => self.select_full_mindmap_node(id),
+            Message::FullMindmapPointerSelect(id) => {
+                // "More… (N left)" is a button: one click shows the next page.
+                let more = self
+                    .full_mindmap_graph()
+                    .and_then(|graph| graph.node(&id).map(|node| node.kind.clone()))
+                    == Some(WorkspaceNodeKind::More);
+                if more {
+                    return self.update(Message::FullMindmapShowMore(id.path().to_path_buf()));
+                }
+                // A click shows what it selected, as a document mind map
+                // click does. Keyboard selection leaves the panel as it is.
+                if let Some(full) = self.full_mindmap.as_mut() {
+                    full.panel_open = true;
+                }
+                self.select_full_mindmap_node(id)
+            }
+            Message::FullMindmapActivateNode(id) => {
+                // The first click of the pair normally selected the node
+                // already; select it here if it did not, so Enter's action
+                // runs on the node under the pointer.
+                let selected = self
+                    .full_mindmap
+                    .as_ref()
+                    .is_some_and(|full| full.selected.as_ref() == Some(&id));
+                let select = if selected {
+                    Task::none()
+                } else {
+                    self.select_full_mindmap_node(id)
+                };
+                Task::batch([select, self.update(Message::FullMindmapActivate)])
+            }
+            Message::FullMindmapPreviewLink { base, url } => {
+                // A link in the preview goes where it would from the
+                // previewed file: in-app files open as Enter on a file
+                // node does, the rest as reader links do.
+                let (target, fragment) = match url.split_once('#') {
+                    Some((t, f)) => (t, Some(f)),
+                    None => (url.as_str(), None),
+                };
+                if !target.is_empty() && is_external_link(target) {
+                    let background = cfg!(target_os = "macos") && self.quick_slots_modifier_held;
+                    self.open_externally(url, background);
+                    return Task::none();
+                }
+                let path = if target.is_empty() {
+                    Some(base.clone())
+                } else {
+                    resolve_image_path(target, Some(base.as_path()))
+                };
+                let Some(path) = path else {
+                    return Task::none();
+                };
+                if !path.exists() {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| target.to_string());
+                    return self.show_toast(format!("File not found: {name}"));
+                }
+                if link_opens_in_app(&path) && path.is_file() {
+                    let open = self.update(Message::OpenFileFinderPath(path.clone()));
+                    // The heading waits on the navigator until this open is
+                    // accepted, so a blocked, failed, or superseded open
+                    // cannot move a later document.
+                    if let (Some(fragment), Some(full)) = (fragment, self.full_mindmap.as_mut()) {
+                        full.link_nav = Some((
+                            canonicalize_existing_path(path),
+                            PendingNav {
+                                fragment: Some(fragment.to_string()),
+                                ..Default::default()
+                            },
+                        ));
+                    }
+                    return open;
+                }
+                self.open_externally(path.to_string_lossy().into_owned(), false);
+                Task::none()
+            }
             Message::FullMindmapDeselect => {
                 let checkpoint = self.checkpoint_active_quick_slot();
                 self.invalidate_pending_quick_slot_restore();
@@ -1239,8 +1510,12 @@ impl App {
                         match anchor {
                             None => full.panel_drag = Some((origin, Some(cursor_x))),
                             Some(anchor) => {
-                                full.panel_width =
-                                    mindmap_panel_width_for_drag(origin, anchor, cursor_x);
+                                full.panel_width = mindmap_panel_width_for_drag(
+                                    origin,
+                                    anchor,
+                                    cursor_x,
+                                    self.window_size,
+                                );
                             }
                         }
                     }
@@ -1272,7 +1547,7 @@ impl App {
                     }
                     self.pending_nav = None;
                     self.invalidate_pending_quick_slot_restore();
-                    return self.show_toast(self.unsaved_edits_open_message());
+                    return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
                 }
                 match result {
                     Err(error) => {
@@ -1292,6 +1567,14 @@ impl App {
                         // request was accepted preserves its dirty safety.
                         self.cancel_full_mindmap_verification();
                         self.pending_ipc_file_open = None;
+                        if let Some((_, nav)) = self
+                            .full_mindmap
+                            .as_mut()
+                            .and_then(|full| full.link_nav.take())
+                            .filter(|(target, _)| *target == request.path)
+                        {
+                            self.pending_nav = Some(nav);
+                        }
                         self.full_mindmap = None;
                         // Full Mindmap file activation always hands the file
                         // back to the document mindmap, whose normal load path
@@ -1799,11 +2082,119 @@ impl App {
                 self.mindmap_panel_open = true;
                 Task::none()
             }
+            Message::MindmapActivateNode(id) => {
+                // A double click on a heading reads it in the Reader, the
+                // way an outline row jumps to it; the root reads the
+                // document from its top.
+                if self.view_mode != ViewMode::Mindmap || self.is_data_doc {
+                    return Task::none();
+                }
+                // Resolve the heading block itself. A line lookup could land
+                // on another block that starts on the same line.
+                let heading = if id == crate::mindmap::DOC_ROOT {
+                    None
+                } else {
+                    let Some(idx) = self.ast.iter().position(|(block, node)| {
+                        *block == id && matches!(node, Block::Heading { .. })
+                    }) else {
+                        return Task::none();
+                    };
+                    Some(idx)
+                };
+                self.reader_select_all = false;
+                self.mindmap_panel_drag = None;
+                // Leaving the mind map is a stop: Back returns to it, as
+                // after a jump to a #fragment.
+                self.record_history();
+                // The jump replaces any scroll restore still waiting for the
+                // Reader's first viewport report (a Quick Slot or a Back
+                // stop); otherwise that report would scroll away from it.
+                self.quick_slot_body_restore = None;
+                self.quick_slot_preview_restore = None;
+                self.history.arriving = None;
+                let jump = match heading {
+                    Some(idx) => self.scroll_to_block_top(idx),
+                    None => {
+                        self.view_mode = ViewMode::Rendered;
+                        Task::done(Message::ScrollToTop)
+                    }
+                };
+                let checkpoint = self.checkpoint_active_quick_slot();
+                Task::batch([checkpoint, jump])
+            }
+            Message::MindmapZoom(command) => {
+                // The canvas applies the request on the redraw this
+                // message causes; see `crate::mindmap::ZoomRequest`.
+                if self.full_mindmap.is_some() {
+                    self.full_mindmap_zoom_request = self.full_mindmap_zoom_request.next(command);
+                } else {
+                    self.mindmap_zoom_request = self.mindmap_zoom_request.next(command);
+                }
+                Task::none()
+            }
+            Message::ImageZoomCommand(command) => {
+                // The viewer applies the request on the redraw this message
+                // causes, as the mind map canvas does.
+                if self.overlay == Overlay::ImageZoom {
+                    self.image_zoom_request = self.image_zoom_request.next(command);
+                }
+                Task::none()
+            }
+            Message::ImageZoomDetail(tier) => {
+                let budget = crate::diagram::DEFAULT_CACHE_BYTE_BUDGET
+                    .saturating_sub(self.diagram_cache.cost_bytes())
+                    .min(crate::diagram::ZOOM_RASTER_MAX_BYTES);
+                let next = self.image_zoom_raster_seq.wrapping_add(1);
+                let requested = match self.image_zoom_raster.as_mut() {
+                    Some(raster) if self.overlay == Overlay::ImageZoom => {
+                        raster.want(tier, budget, next)
+                    }
+                    _ => None,
+                };
+                match requested {
+                    Some(id) => {
+                        self.image_zoom_raster_seq = id;
+                        Task::perform(
+                            async move { tokio::time::sleep(ZOOM_RASTER_DEBOUNCE).await },
+                            move |()| Message::ImageZoomRasterDue(id),
+                        )
+                    }
+                    None => Task::none(),
+                }
+            }
+            Message::ImageZoomRasterDue(id) => {
+                let Some(raster) = self.image_zoom_raster.as_mut() else {
+                    return Task::none();
+                };
+                let Some((width, _)) = raster.due(id) else {
+                    return Task::none();
+                };
+                let svg = match self.diagram_cache.peek(&raster.key) {
+                    Some(crate::diagram::DiagramState::Ready { source_bytes, .. }) => {
+                        source_bytes.clone()
+                    }
+                    _ => {
+                        // The diagram left the cache (a theme change or an
+                        // eviction); keep the raster on screen.
+                        raster.pending = None;
+                        return Task::none();
+                    }
+                };
+                Task::perform(crate::diagram::rasterize_zoom(svg, width), move |result| {
+                    Message::ImageZoomRasterReady(id, result)
+                })
+            }
+            Message::ImageZoomRasterReady(id, result) => {
+                if let Some(raster) = self.image_zoom_raster.as_mut() {
+                    raster.ready(id, result);
+                }
+                Task::none()
+            }
             Message::MindmapDeselect => {
+                // A click on empty canvas clears the selection; the panel
+                // stays open until its X or ⌘⌥B hides it.
                 self.mindmap_selected = None;
                 self.mindmap_panel_shown = None;
-                self.mindmap_panel_open = false;
-                self.mindmap_panel_drag = None;
                 Task::none()
             }
             Message::MindmapNavigate(dir) => {
@@ -1831,13 +2222,17 @@ impl App {
                     }
                     return Task::none();
                 };
-                // The document root is represented by an unselectable node
-                // (`id == None`). Left at that boundary (including the
-                // no-selection/root semantic above) hands navigation to the
-                // current file's Full Mindmap workspace.
-                if dir == MindmapDir::Left
-                    && parents[cur_idx].map_or(true, |parent| nodes[parent].id.is_none())
-                {
+                // The document root (`DOC_ROOT`) is the boundary. Left from
+                // it, or from a top heading (including the no-selection
+                // semantic above), hands navigation to the current file's
+                // Full Mindmap workspace; Left never selects the root. A
+                // pointer click is the only way to select the root.
+                let is_doc_root = |idx: usize| {
+                    nodes[idx]
+                        .id
+                        .map_or(true, |id| id == crate::mindmap::DOC_ROOT)
+                };
+                if dir == MindmapDir::Left && parents[cur_idx].map_or(true, is_doc_root) {
                     return self.enter_full_mindmap_for_current_file();
                 }
                 let next_idx: Option<usize> = match dir {
@@ -1857,7 +2252,7 @@ impl App {
                             _ => unreachable!(),
                         }
                     })(),
-                    MindmapDir::Left => parents[cur_idx].filter(|&p| nodes[p].id.is_some()),
+                    MindmapDir::Left => parents[cur_idx].filter(|&p| !is_doc_root(p)),
                     MindmapDir::Right => {
                         let n = &nodes[cur_idx];
                         if !n.children.is_empty() {
@@ -1918,6 +2313,7 @@ impl App {
             }
             Message::WindowResized(id, size) => {
                 self.window_size = Some(size);
+                self.context_menu = None;
                 // The preview viewport height can change without a scroll
                 // event (for example when a window is tiled). Re-window and
                 // remeasure its retained layout deterministically.
@@ -1925,9 +2321,31 @@ impl App {
                 Task::batch([
                     self.refresh_window_mode_after_native_transition(id),
                     preview_geometry,
+                    self.note_window_frame_change(id),
                 ])
             }
+            Message::WindowMoved(id, position) => {
+                self.window_position = Some(position);
+                // A move can precede a full screen transition, as before.
+                // The outer `update` runs the epilogue once, after this.
+                let mode = self.dispatch_message(Message::RefreshWindowMode(id));
+                Task::batch([mode, self.note_window_frame_change(id)])
+            }
+            Message::WindowFrameSettled(id) => self.window_frame_settle_fired(id),
+            Message::WindowFrameSampled {
+                fullscreen,
+                maximized,
+            } => {
+                self.save_window_frame(fullscreen, maximized);
+                Task::none()
+            }
+            Message::WindowMonitorSize(id, monitor) => self.fit_window_on_monitor(id, monitor),
             Message::WindowUnfocused(id) => {
+                self.context_menu = None;
+                // A selection drag's release can go to another app; the
+                // reader must not go on scrolling in the background.
+                self.reader_autoscroll = None;
+                self.quick_slots_pinned = false;
                 self.quick_slots_modifier_held = false;
                 self.quick_slots_rail_revealed = false;
                 self.quick_slots_modifier_generation =
@@ -1940,11 +2358,32 @@ impl App {
                 // leaves the macOS event loop alive without ever creating a
                 // visible window on current macOS releases.
                 crate::native_pinch::install();
+                crate::native_swipe::install();
+                // The menu bar replaces winit's app menu once the app has
+                // finished launching.
+                self.install_native_menu();
                 if self.glass_capable && self.glass_window.is_none() {
                     // `update` pushes the glass state to this window next.
                     self.glass_window = Some(id);
                 }
                 self.refresh_window_mode_after_native_transition(id)
+            }
+            Message::WindowOpened(id, size, position) => {
+                // A resize or move may already have reported a newer frame.
+                // Opening is not a change: nothing is saved.
+                self.window_size.get_or_insert(size);
+                if let Some(position) = position {
+                    self.window_position.get_or_insert(position);
+                }
+                let mode = self.dispatch_message(Message::RefreshWindowMode(id));
+                // macOS fitted the frame to a screen before the window
+                // opened; elsewhere the monitor is known only now.
+                if cfg!(target_os = "macos") {
+                    return mode;
+                }
+                let monitor = iced::window::monitor_size(id)
+                    .map(move |monitor| Message::WindowMonitorSize(id, monitor));
+                Task::batch([mode, monitor])
             }
             Message::RefreshWindowModeSettled(id) => self.window_mode_settle_fired(id),
             Message::WindowModeChanged(mode) => {
@@ -2006,7 +2445,11 @@ impl App {
                                 ),
                                 Err(e) => format!("Screenshot failed: {e}"),
                             };
-                            self.show_toast(msg)
+                            if saved.is_ok() {
+                                self.show_toast(msg)
+                            } else {
+                                self.show_error_toast(msg)
+                            }
                         }
                     }
                 } else {
@@ -2044,12 +2487,33 @@ impl App {
                             self.mindmap_panel_drag = Some((orig_w, Some(cursor_x)));
                         }
                         Some(ax) => {
-                            self.mindmap_panel_width =
-                                mindmap_panel_width_for_drag(orig_w, ax, cursor_x);
+                            self.mindmap_panel_width = mindmap_panel_width_for_drag(
+                                orig_w,
+                                ax,
+                                cursor_x,
+                                self.window_size,
+                            );
                         }
                     }
                 }
                 Task::none()
+            }
+            Message::MindmapPanelResetWidth => {
+                self.mindmap_panel_width = MIND_PANEL_DEFAULT;
+                self.mindmap_panel_step = 0;
+                // The double click's own press started a drag; the button is
+                // still down, so end it before jitter drags the width back.
+                self.mindmap_panel_drag = None;
+                Task::none()
+            }
+            Message::FullMindmapPanelResetWidth => {
+                if let Some(full) = self.full_mindmap.as_mut() {
+                    full.panel_width = MIND_PANEL_DEFAULT;
+                    full.panel_step = 0;
+                    // As above: end the drag the same press started.
+                    full.panel_drag = None;
+                }
+                self.refresh_full_mindmap_preview_heights()
             }
             Message::MindmapPanelDragEnd => {
                 self.mindmap_panel_drag = None;
@@ -2063,6 +2527,16 @@ impl App {
                     "Mindmap auto-center: on"
                 } else {
                     "Mindmap auto-center: off"
+                };
+                self.show_toast(label.into())
+            }
+            Message::ToggleMindmapScrollPans => {
+                self.prefs.mindmap_scroll_pans = !self.prefs.mindmap_scroll_pans;
+                self.save_prefs();
+                let label = if self.prefs.mindmap_scroll_pans {
+                    "Mindmap scroll: pans (pinch or ⌘+scroll zooms)"
+                } else {
+                    "Mindmap scroll: zooms"
                 };
                 self.show_toast(label.into())
             }
@@ -2093,6 +2567,23 @@ impl App {
                 }
                 Task::none()
             }
+            Message::FocusEditor => iced::widget::operation::focus(Self::editor_id()),
+            Message::EditorContextMenu => self.open_editor_context_menu(),
+            Message::MindmapContextMenu(target) => self.open_mindmap_context_menu(target),
+            Message::MindmapCollapseBelow(id) => self.mindmap_collapse_below(id),
+            Message::MindmapExpandBelow(id) => self.mindmap_expand_below(id),
+            Message::MindmapCopyDataValue(id) => match self.mindmap_data_value(id) {
+                Some(value) => self.update(Message::CopyCode(value)),
+                None => self.show_toast("No value to copy".into()),
+            },
+            Message::FullMindmapContextMenu(target) => self.open_full_mindmap_context_menu(target),
+            Message::OutlineContextMenu(index) => self.open_outline_context_menu(index),
+            Message::VaultHitContextMenu(index) => self.open_vault_hit_context_menu(index),
+            Message::FileFinderContextMenu(path) => self.open_file_finder_context_menu(path),
+            Message::EditorMenuCut => self.editor_menu_cut(),
+            Message::EditorMenuCopy => self.editor_menu_copy(),
+            Message::EditorMenuPaste => iced::clipboard::read().map(Message::EditorPasted),
+            Message::EditorPasted(text) => self.editor_pasted(text),
             Message::EditorUndo => {
                 let mut changed = false;
                 if let Some(ed) = self.editor.as_mut() {
@@ -2167,6 +2658,11 @@ impl App {
                 // An older write may finish after a newer save was queued. Only
                 // advance the persisted baseline when this is still the source
                 // shown by the app; otherwise the newer write owns the state.
+                // A close confirmed with Save waits on this write.
+                let close_waits = self
+                    .close_after_save
+                    .as_ref()
+                    .is_some_and(|pending| pending.text == saved_source);
                 if self.source == saved_source {
                     self.saved_source = saved_source;
                     let current = self
@@ -2176,7 +2672,12 @@ impl App {
                         .unwrap_or_else(|| self.source.clone());
                     self.dirty = current != self.saved_source;
                 }
-                self.show_toast("✓ Saved".into())
+                let close = if close_waits {
+                    self.close_after_save_settled()
+                } else {
+                    Task::none()
+                };
+                Task::batch([self.show_toast("✓ Saved".into()), close])
             }
             Message::FileSaved {
                 result: Err(e),
@@ -2188,7 +2689,13 @@ impl App {
                 if self.source == saved_source {
                     self.dirty = true;
                 }
-                self.error = Some(format!("save failed: {e}"));
+                // The close waiting on a save does not happen.
+                self.close_after_save = None;
+                let message = format!("save failed: {e}");
+                match self.file.clone() {
+                    Some(path) => self.set_error_for(message, path),
+                    None => self.error = Some(message),
+                }
                 Task::none()
             }
             Message::OpenImageZoom(url) => {
@@ -2223,6 +2730,7 @@ impl App {
                 };
                 self.zoom_url = Some(url);
                 self.zoom_diagram = None;
+                self.image_zoom_raster = None;
                 self.overlay = Overlay::ImageZoom;
                 let restore = self.restore_body_scroll();
                 match raster_task {
@@ -2233,8 +2741,9 @@ impl App {
             Message::PickerNavigate(p) => {
                 if let Some(pk) = self.picker.as_mut() {
                     if p.is_dir() {
-                        pk.navigate_to(p);
+                        pk.navigate_to(p.clone());
                         self.overlay_selected = 0;
+                        self.list_pointer.settle();
                         // Leaf folder (no subfolders, readable): treat the
                         // navigation as a workspace pick. Saves the user an
                         // extra Space/Enter on dead-end folders.
@@ -2242,8 +2751,10 @@ impl App {
                             let cwd = pk.cwd.clone();
                             self.overlay = Overlay::None;
                             self.picker = None;
+                            self.picker_click = PickerClick::Closed;
                             return Task::done(Message::OpenWorkspace(cwd));
                         }
+                        self.picker_click = PickerClick::Descended(p);
                     }
                 }
                 Task::none()
@@ -2252,6 +2763,7 @@ impl App {
                 if let Some(pk) = self.picker.as_mut() {
                     pk.parent();
                     self.overlay_selected = 0;
+                    self.list_pointer.settle();
                 }
                 Task::none()
             }
@@ -2263,14 +2775,28 @@ impl App {
                 }
                 Task::none()
             }
-            Message::PickerSelectFolderHere => {
-                if let Some(pk) = &self.picker {
-                    let p = pk.cwd.clone();
-                    return Task::done(Message::OpenWorkspace(p));
+            Message::PickerPointerPress { double } => {
+                // Any press consumes the last row click. Only the press that
+                // completes a double-click on the folder that click
+                // descended into opens it; the rows under the pointer have
+                // changed since.
+                let click = std::mem::take(&mut self.picker_click);
+                if let (true, PickerClick::Descended(folder)) = (double, click) {
+                    let still_there = self.overlay == Overlay::FolderPicker
+                        && self.picker.as_ref().is_some_and(|pk| pk.cwd == folder);
+                    if still_there {
+                        // Same close-then-open order as Enter on a folder row.
+                        self.overlay = Overlay::None;
+                        self.picker = None;
+                        return Task::done(Message::OpenWorkspace(folder));
+                    }
                 }
                 Task::none()
             }
             Message::PickerOpenFile(path) => {
+                if self.picker.is_some() {
+                    self.picker_click = PickerClick::Closed;
+                }
                 self.overlay = Overlay::None;
                 self.picker = None;
                 self.cancel_refresh_tracking();
@@ -2316,11 +2842,14 @@ impl App {
             Message::OverlayQueryChanged(q) => {
                 self.overlay_query = q;
                 self.overlay_selected = 0;
+                // A new list under a still pointer is not motion.
+                self.list_pointer.settle();
                 Task::none()
             }
             Message::OverlayMove(d) => {
                 let len = match self.overlay {
-                    Overlay::FileFinder => self.filtered_files().len(),
+                    // Only the rendered rows are reachable.
+                    Overlay::FileFinder => self.filtered_files().len().min(FILE_FINDER_ROW_CAP),
                     Overlay::Command => self.filtered_commands().len(),
                     Overlay::ThemePicker => self.filtered_themes().len(),
                     Overlay::FolderPicker => {
@@ -2333,7 +2862,19 @@ impl App {
                 }
                 let next = (self.overlay_selected as isize + d).clamp(0, len as isize - 1);
                 self.overlay_selected = next as usize;
+                self.list_pointer.settle();
                 self.scroll_overlay_to_cursor_with_len(len)
+            }
+            Message::OverlayPick(index) => {
+                // A row click is Enter on that row.
+                self.overlay_selected = index;
+                self.update(Message::OverlayConfirm)
+            }
+            Message::OverlayHover(index) => {
+                if self.list_pointer.take_motion() {
+                    self.overlay_selected = index;
+                }
+                Task::none()
             }
             Message::OverlayConfirm => match self.overlay {
                 Overlay::FileFinder => {
@@ -2387,6 +2928,7 @@ impl App {
                             if e.is_dir {
                                 pk.navigate_to(e.path);
                                 self.overlay_selected = 0;
+                                self.list_pointer.settle();
                                 // Leaf folder: auto-open as workspace.
                                 if pk.entries.is_empty() && pk.error.is_none() {
                                     let cwd = pk.cwd.clone();
@@ -2414,7 +2956,19 @@ impl App {
                     // this read before it reached the update loop.
                     return Task::none();
                 }
-                self.update(Message::FileLoaded(result))
+                let failed_path = self
+                    .generic_load
+                    .take()
+                    .filter(|(load, _)| *load == generation)
+                    .map(|(_, path)| path);
+                let failure = result.as_ref().err().cloned();
+                let task = self.update(Message::FileLoaded(result));
+                if let (Some(error), Some(path)) = (failure, failed_path) {
+                    if self.error.as_ref() == Some(&error) {
+                        self.set_error_for(error, path);
+                    }
+                }
+                task
             }
             Message::RefreshFileLoaded { request, result } => {
                 let current = self.pending_refresh_file.as_ref() == Some(&request)
@@ -2478,7 +3032,7 @@ impl App {
                     // affect the next successful open after this one is blocked.
                     self.pending_nav = None;
                     self.invalidate_pending_quick_slot_restore();
-                    return self.show_toast(self.unsaved_edits_open_message());
+                    return self.show_unsaved_edits_toast(self.unsaved_edits_open_message());
                 }
                 // Non-refresh loads supersede a refresh transaction. The
                 // refresh-owned path calls `apply_loaded_file` directly after
@@ -2530,39 +3084,68 @@ impl App {
                     if let Some(line) =
                         fragment.and_then(|f| line_for_fragment(&self.source, f, is_tex))
                     {
+                        // A jump in the document is a stop, as in a browser.
+                        self.record_history();
                         return Task::done(goto_line_message(line));
                     }
                     return Task::none();
                 }
-                // Local markdown file: open it in-app, then navigate to the
-                // fragment (if any) once it has loaded.
-                if !is_external_link(target) {
-                    if let Some(path) = resolve_image_path(target, self.file.as_deref()) {
-                        let is_md = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
-                            e.eq_ignore_ascii_case("md")
-                                || e.eq_ignore_ascii_case("markdown")
-                                || e.eq_ignore_ascii_case("tex")
-                        });
-                        if is_md && path.is_file() {
-                            if let Some(blocked) = self.block_file_open_if_dirty(&path) {
-                                return blocked;
-                            }
-                            if let Some(f) = fragment {
-                                self.pending_nav = Some(PendingNav {
-                                    fragment: Some(f.to_string()),
-                                    ..Default::default()
-                                });
-                            }
-                            return Task::done(Message::Open(path));
+                // ⌘-click opens a web link behind rmdv (macOS `open -g`).
+                if is_external_link(target) {
+                    let background = cfg!(target_os = "macos") && self.quick_slots_modifier_held;
+                    self.open_externally(url, background);
+                    return Task::none();
+                }
+                let Some(path) = resolve_image_path(target, self.file.as_deref()) else {
+                    // A relative link with no open file to resolve it from.
+                    self.open_externally(url, false);
+                    return Task::none();
+                };
+                if !path.exists() {
+                    let name = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| target.to_string());
+                    return self.show_toast(format!("File not found: {name}"));
+                }
+                // A file the sidebar would open: open it in-app, then
+                // navigate to the fragment (if any) once it has loaded.
+                if link_opens_in_app(&path) && path.is_file() {
+                    // `this.md#part` from inside this.md jumps in place,
+                    // like a bare `#part`.
+                    let same_file = self.file.as_ref().is_some_and(|current| {
+                        canonicalize_existing_path(current.clone())
+                            == canonicalize_existing_path(path.clone())
+                    });
+                    if same_file {
+                        let is_tex = is_tex_path(self.file.as_deref());
+                        if let Some(line) =
+                            fragment.and_then(|f| line_for_fragment(&self.source, f, is_tex))
+                        {
+                            self.record_history();
+                            return Task::done(goto_line_message(line));
                         }
                     }
+                    if let Some(blocked) = self.block_file_open_if_dirty(&path) {
+                        return blocked;
+                    }
+                    if let Some(f) = fragment {
+                        self.pending_nav = Some(PendingNav {
+                            fragment: Some(f.to_string()),
+                            ..Default::default()
+                        });
+                    }
+                    return Task::done(Message::Open(path));
                 }
-                let _ = open::that_detached(&url);
+                // A local file rmdv cannot show (an image, a folder): its
+                // default app opens it by the resolved path.
+                self.open_externally(path.to_string_lossy().into_owned(), false);
                 Task::none()
             }
             Message::FileLoaded(Err(e)) => {
                 self.cancel_refresh_tracking();
                 self.pending_nav = None;
+                self.history.pending = None;
                 self.error = Some(e);
                 Task::none()
             }
@@ -2768,11 +3351,21 @@ impl App {
                 Task::none()
             }
             Message::InstallUpdate => {
+                // Installing relaunches rmdv, which would drop unsaved edits.
+                if self.dirty && self.pending_update.is_some() {
+                    return self.show_unsaved_edits_toast(format!(
+                        "unsaved edits in {}; save or discard before installing the update",
+                        self.file
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default()
+                    ));
+                }
                 if let Some(ready) = &self.pending_update {
                     // apply() relaunches + exits on success; only returns on error.
                     if let Err(e) = crate::update::apply(ready) {
                         self.pending_update = None;
-                        return self.show_toast(format!("Update failed: {e}"));
+                        return self.show_error_toast(format!("Update failed: {e}"));
                     }
                 }
                 Task::none()
@@ -2783,6 +3376,8 @@ impl App {
             }
             Message::SetSidebarTab(tab) => {
                 self.sidebar_tab = tab;
+                // ← on the Files tab gives the arrow keys back to the tree.
+                self.reader_keys = false;
                 Task::none()
             }
             Message::ToggleHidden => {
@@ -2809,6 +3404,7 @@ impl App {
                                 self.workspace_files_rev = self.workspace_files_rev.wrapping_add(1);
                                 self.workspace_sidebar_files = snapshot.sidebar_files;
                                 self.workspace_tree = Some(snapshot.root);
+                                self.keep_new_folders_in_tree();
                                 self.workspace_snapshot_show_hidden = self.show_hidden;
                                 self.workspace_truncated = snapshot.listing_truncated;
                                 self.begin_workspace_epoch();
@@ -2874,9 +3470,45 @@ impl App {
                 }
                 let len_i = len as isize;
                 self.tree_cursor = ((self.tree_cursor as isize + d).rem_euclid(len_i)) as usize;
+                self.tree_cursor_shown = true;
                 self.scroll_tree_to_cursor_with_len(len)
             }
+            Message::TreeRowClicked { path, is_dir } => {
+                // The second click of a double click: the first already
+                // opened the file or toggled the folder. A file's double
+                // click also gives the arrow keys to the reader.
+                let now = std::time::Instant::now();
+                let double = self.tree_last_click.as_ref().is_some_and(|(last, at)| {
+                    *last == path && now.duration_since(*at) <= double_click_interval()
+                });
+                self.tree_last_click = (!double).then(|| (path.clone(), now));
+                if double {
+                    if !is_dir {
+                        self.reader_keys = true;
+                    }
+                    return Task::none();
+                }
+                self.reader_keys = false;
+                if let Some(root) = &self.workspace_tree {
+                    let rows = tree::flatten_with_files(
+                        root,
+                        &self.workspace_sidebar_files,
+                        &self.expanded,
+                    );
+                    if let Some(index) = rows.iter().position(|row| row.node.path() == path) {
+                        self.tree_cursor = index;
+                    }
+                }
+                self.tree_cursor_shown = false;
+                // Then the row's own action, as before the cursor moved.
+                self.dispatch_message(if is_dir {
+                    Message::TreeToggle(path)
+                } else {
+                    Message::Open(path)
+                })
+            }
             Message::TreeActivate => {
+                self.tree_cursor_shown = true;
                 let Some(root) = &self.workspace_tree else {
                     return Task::none();
                 };
@@ -2906,14 +3538,27 @@ impl App {
                     ((self.outline_cursor as isize + d).rem_euclid(len_i)) as usize;
                 self.scroll_outline_to_cursor()
             }
+            Message::OutlineRowClicked { index, line } => {
+                if index < self.outline_sections.len() {
+                    self.outline_cursor = index;
+                    self.outline_hold = Some(index);
+                }
+                self.scroll_to_line_top(line)
+            }
             Message::OutlineActivate => {
                 let Some(s) = self.outline_sections.get(self.outline_cursor) else {
                     return Task::none();
                 };
+                self.outline_hold = Some(self.outline_cursor);
                 self.scroll_to_line_top(s.line)
+            }
+            Message::OutlineHovered(hovered) => {
+                self.outline_hovered = hovered;
+                Task::none()
             }
             Message::ScrollToLine(line) => self.scroll_to_line_top(line),
             Message::TreeToggleAtCursor => {
+                self.tree_cursor_shown = true;
                 let Some(root) = &self.workspace_tree else {
                     return Task::none();
                 };
@@ -2931,6 +3576,7 @@ impl App {
                 Task::none()
             }
             Message::CopyTreePath => {
+                self.tree_cursor_shown = true;
                 let Some(root) = &self.workspace_tree else {
                     return Task::none();
                 };
@@ -2943,6 +3589,42 @@ impl App {
                 let toast = self.show_toast("Path copied".into());
                 Task::batch([iced::clipboard::write::<Message>(path), toast])
             }
+            Message::TreeContextMenu(target) => self.open_tree_context_menu(target),
+            Message::TreeNewFile(folder) => self.create_tree_item(folder, false),
+            Message::TreeNewFolder(folder) => self.create_tree_item(folder, true),
+            Message::TreeRenameStart(path) => self.begin_tree_rename(path),
+            Message::TreeRenameInput(value) => {
+                if let Some(rename) = self.tree_rename.as_mut() {
+                    rename.value = value;
+                }
+                Task::none()
+            }
+            Message::TreeRenameCommit => self.commit_tree_rename(),
+            Message::TreeRenameCancel => {
+                self.tree_rename = None;
+                Task::none()
+            }
+            Message::TreeTrash(path) => self.trash_tree_item(path),
+            Message::CopyPath(path) => {
+                let toast = self.show_toast("Path copied".into());
+                Task::batch([iced::clipboard::write::<Message>(path), toast])
+            }
+            // Only the reader's own column scrolls this way; a mind map
+            // panel or a Full Mindmap preview never moves the document.
+            Message::ReaderAutoScroll(speed) => {
+                self.reader_autoscroll = speed.filter(|_| self.reader_shows_document());
+                Task::none()
+            }
+            Message::ReaderAutoScrollTick => match self.reader_autoscroll {
+                Some(dy) if self.reader_shows_document() => iced::widget::operation::scroll_by(
+                    Self::scroll_id(),
+                    iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: dy },
+                ),
+                _ => {
+                    self.reader_autoscroll = None;
+                    Task::none()
+                }
+            },
             Message::ScrollBy(dy) => iced::widget::operation::scroll_by(
                 Self::scroll_id(),
                 iced::widget::scrollable::AbsoluteOffset { x: 0.0, y: dy },
@@ -3030,6 +3712,19 @@ impl App {
                     self.match_idx = (self.match_idx + self.matches.len() - 1) % self.matches.len();
                 }
                 self.scroll_to_current_match()
+            }
+            Message::FindStepClicked(next) => {
+                let step = self.update(if next {
+                    Message::NextMatch
+                } else {
+                    Message::PrevMatch
+                });
+                // The click moved focus to the chevron; typing and Enter
+                // belong to the query field.
+                Task::batch([
+                    step,
+                    iced::widget::operation::focus(Self::search_input_id()),
+                ])
             }
             Message::TreeScrolled(v) => {
                 self.tree_viewport = Some(v);
@@ -3133,7 +3828,14 @@ impl App {
                     self.height_cache.clear();
                 }
                 self.body_viewport = Some(v);
-                self.last_scroll_at = Some(std::time::Instant::now());
+                let now = std::time::Instant::now();
+                self.last_scroll_at = Some(now);
+                self.reader_scroller.poke(now);
+                if self.quick_slot_body_restore.is_none() {
+                    // No restore waits on this report: the viewport is
+                    // where the reader is.
+                    self.history.arriving = None;
+                }
                 let checkpoint = if self.quick_slot_body_restore.is_some() {
                     Task::none()
                 } else {
@@ -3164,13 +3866,16 @@ impl App {
                         Some(idx) => self.rebuild_virt_around_block(idx),
                         None => self.rebuild_virt_here(),
                     }
+                    let spy = self.update_outline_spy(anchor.is_some());
                     return Task::batch([
                         checkpoint,
                         restore.unwrap_or_else(Task::none),
                         self.measure_window_heights(),
+                        spy,
                     ]);
                 }
-                Task::batch([checkpoint, restore.unwrap_or_else(Task::none)])
+                let spy = self.update_outline_spy(anchor.is_some());
+                Task::batch([checkpoint, restore.unwrap_or_else(Task::none), spy])
             }
             Message::TableScrolled => {
                 self.last_scroll_at = Some(std::time::Instant::now());
@@ -3192,6 +3897,7 @@ impl App {
                     _ => None,
                 };
                 if let Some(h) = handle {
+                    self.image_zoom_raster = rgba_size(&h).map(|base| ZoomRaster::new(key, base));
                     self.zoom_diagram = Some(h);
                     self.zoom_url = None;
                     self.overlay = Overlay::ImageZoom;
@@ -3344,16 +4050,66 @@ impl App {
                 Task::none()
             }
             Message::SidebarDragMove(x) => {
-                if self.sidebar_drag.is_some() {
-                    self.sidebar_width = x.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                let Some(start) = self.sidebar_drag else {
+                    return Task::none();
+                };
+                if x < SIDEBAR_COLLAPSE_X {
+                    // Past the minimum: the sidebar collapses and keeps the
+                    // width it had before the drag for the next opening.
+                    if !self.sidebar_open {
+                        return Task::none();
+                    }
+                    self.sidebar_open = false;
+                    self.sidebar_width = start;
+                    return self.restore_body_scroll();
+                }
+                self.sidebar_width = x.clamp(SIDEBAR_MIN, SIDEBAR_MAX);
+                if self.sidebar_open {
+                    return Task::none();
+                }
+                // Dragged back out during the same drag.
+                self.sidebar_open = true;
+                self.restore_body_scroll()
+            }
+            Message::SidebarDragEnd => {
+                if self.sidebar_drag.take().is_some() {
+                    self.save_sidebar_width();
                 }
                 Task::none()
             }
-            Message::SidebarDragEnd => {
+            Message::SidebarResetWidth => {
+                self.sidebar_width = SIDEBAR_WIDTH;
+                // The double click's own press started a drag; end it before
+                // jitter drags the width back.
                 self.sidebar_drag = None;
+                self.save_sidebar_width();
+                Task::none()
+            }
+            Message::ReaderScrollbarHover(hovered) => {
+                self.reader_scroller
+                    .set_hovered(hovered, std::time::Instant::now());
+                Task::none()
+            }
+            Message::CopyBlockSource(source, key) => {
+                self.copy_flash_seq = self.copy_flash_seq.wrapping_add(1);
+                let seq = self.copy_flash_seq;
+                self.copy_flash = Some((seq, key));
+                // One timer per copy; nothing ticks while the check shows.
+                Task::batch([
+                    iced::clipboard::write::<Message>(source),
+                    Task::perform(async { tokio::time::sleep(COPY_FLASH).await }, move |_| {
+                        Message::CopyFlashEnd(seq)
+                    }),
+                ])
+            }
+            Message::CopyFlashEnd(seq) => {
+                if self.copy_flash.as_ref().is_some_and(|(s, _)| *s == seq) {
+                    self.copy_flash = None;
+                }
                 Task::none()
             }
             Message::ScrollerTick => {
+                self.reader_scroller.tick(std::time::Instant::now());
                 if let Some(t) = self.last_scroll_at {
                     if t.elapsed() >= std::time::Duration::from_millis(SCROLLER_FADE_MS) {
                         self.last_scroll_at = None;
@@ -3563,7 +4319,33 @@ impl App {
                 }
                 Task::batch([assets, followup])
             }
+            Message::LinkHovered(url, source) => {
+                let label =
+                    link_destination_label(&url, self.file.as_deref(), self.workspace.as_deref());
+                self.hovered_link = Some(HoveredLink { url, label, source });
+                Task::none()
+            }
+            Message::LinkLeft(url, source) => {
+                // Moving straight from one link to another can report the
+                // new link's enter before the old one's leave, even when
+                // both links go to the same place.
+                if self
+                    .hovered_link
+                    .as_ref()
+                    .is_some_and(|h| h.url == url && h.source == source)
+                {
+                    self.hovered_link = None;
+                }
+                Task::none()
+            }
             Message::Noop => Task::none(),
+            // Handled by `context_menu_message` above.
+            Message::PointerRightPress(_)
+            | Message::ContextMenuHover(..)
+            | Message::ContextMenuMove(_)
+            | Message::ContextMenuActivate
+            | Message::ContextMenuChoose(_)
+            | Message::ContextMenuClose => Task::none(),
             Message::ToggleAutoFocusOnNav => {
                 self.prefs.auto_focus_on_nav = !self.prefs.auto_focus_on_nav;
                 self.save_prefs();

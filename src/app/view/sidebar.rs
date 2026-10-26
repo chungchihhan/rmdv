@@ -4,6 +4,7 @@ use super::*;
 // Explicit import: the `column!` macro is otherwise ambiguous between the glob
 // import and iced's exported macro.
 use iced::widget::column;
+use iced::widget::tooltip::Position;
 
 pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a, Message> {
     let recently_scrolled = app
@@ -16,30 +17,8 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
         .unwrap_or("workspace");
     // Title row: workspace name on the left; the Files/Outline tabs, command-palette
     // button, and sidebar-collapse button pinned to the right beside each other.
-    let kbd_pill = |label: &'static str, pal: Palette| {
-        container(
-            text(label)
-                .size(11)
-                .color(pal.fg)
-                .shaping(iced::widget::text::Shaping::Advanced),
-        )
-        .padding(Padding::from([4, 8]))
-        .style(move |_| container::Style {
-            background: Some(pal.chip().into()),
-            border: Border {
-                color: pal.border(),
-                width: 1.0,
-                radius: theme::radius::SM.into(),
-            },
-            ..Default::default()
-        })
-    };
     let switch_tip = |inner: Element<'a, Message>| {
-        iced::widget::tooltip(
-            inner,
-            kbd_pill("← → switch", pal),
-            iced::widget::tooltip::Position::Bottom,
-        )
+        action_tip(inner, "Switch Tab", Some("← →"), Position::Bottom, pal)
     };
     // Only the (variable-length) title may be clipped on a narrow sidebar — the
     // control cluster stays unclipped so the collapse button is never cut off.
@@ -53,6 +32,19 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
     )
     .width(Length::Fill)
     .clip(true);
+    let (hide_glyph, hide_action, hide_id) = if app.sidebar_peek && !app.sidebar_open {
+        (
+            ic::PANEL_LEFT_OPEN,
+            "Keep Sidebar Open",
+            iced::widget::Id::new("sidebar-keep-open"),
+        )
+    } else {
+        (
+            ic::PANEL_LEFT_CLOSE,
+            "Hide Sidebar",
+            iced::widget::Id::new("sidebar-hide"),
+        )
+    };
     let controls = irow![
         switch_tip(sidebar_tab_button(
             "Files",
@@ -66,20 +58,27 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
             SidebarTab::Outline,
             pal
         )),
-        iced::widget::tooltip(
+        action_tip(
             ghost_lu(ic::COMMAND, pal).on_press(Message::OpenCommandPalette),
-            kbd_pill("⌘⇧P", pal),
-            iced::widget::tooltip::Position::Bottom,
+            "Command Palette",
+            Some("⌘⇧P"),
+            Position::Bottom,
+            pal,
         ),
-        iced::widget::tooltip(
+        action_tip(
             ghost_lu(ic::SETTINGS, pal).on_press(Message::ToggleSettings),
-            kbd_pill("⌘,", pal),
-            iced::widget::tooltip::Position::Bottom,
+            "Settings",
+            Some("⌘,"),
+            Position::Bottom,
+            pal,
         ),
-        iced::widget::tooltip(
-            ghost_lu(ic::PANEL_LEFT_CLOSE, pal).on_press(Message::ToggleSidebar),
-            kbd_pill("⌘B", pal),
-            iced::widget::tooltip::Position::Bottom,
+        // While peeking, the same place pins the sidebar open, as ⌘B does.
+        action_tip(
+            container(ghost_lu(hide_glyph, pal).on_press(Message::ToggleSidebar)).id(hide_id),
+            hide_action,
+            Some("⌘B"),
+            Position::Bottom,
+            pal,
         ),
     ]
     .spacing(6)
@@ -88,6 +87,8 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
         .spacing(6)
         .align_y(iced::Alignment::Center);
 
+    // The header sits where a titlebar would: its blank space moves the
+    // window.
     let header = container(column![
         Space::new().height(Length::Fixed(sidebar_titlebar_reserve_for_fullscreen(
             app.window_fullscreen,
@@ -102,6 +103,7 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
             .width(Length::Fill),
     ])
     .width(Length::Fill);
+    let header = window_drag_area(header);
 
     let body: Element<'a, Message> = match app.sidebar_tab {
         SidebarTab::Files => sidebar_files_body(app, pal, recently_scrolled),
@@ -118,18 +120,53 @@ pub(in crate::app) fn sidebar_view<'a>(app: &'a App, pal: Palette) -> Element<'a
         .into()
 }
 
+/// The hidden sidebar shown over the content (the peek): the same sidebar
+/// as the docked one, with no divider to drag. It reports the pointer
+/// entering and leaving it, and takes every press and hover over it, so the
+/// content under it gets none.
+pub(in crate::app) fn sidebar_peek_view<'a>(app: &'a App) -> Element<'a, Message> {
+    let mut pal = app.chrome_palette();
+    pal.sidebar = sidebar_peek_fill(app.palette, app.glass(), app.glass_opacity());
+    let panel = iced::widget::opaque(
+        mouse_area(sidebar_view(app, pal))
+            .on_enter(Message::SidebarPeek(true))
+            .on_exit(Message::SidebarPeek(false)),
+    );
+    container(panel)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(iced::alignment::Horizontal::Left)
+        .into()
+}
+
+/// The peek's fill. Over the content a translucent sidebar would show the
+/// text through, so the fill is opaque. With glass, the docked sidebar is
+/// its tint over the blur, as the reader beside it is; the peek paints that
+/// tint over the reader's color, so it stands out from the reader as much as
+/// the docked sidebar does.
+pub(in crate::app) fn sidebar_peek_fill(pal: Palette, glass: Glass, opacity: f32) -> Color {
+    match glass {
+        Glass::Off => Color {
+            a: 1.0,
+            ..pal.sidebar
+        },
+        Glass::Sidebar | Glass::Window => theme::mix(pal.bg, pal.sidebar, opacity),
+    }
+}
+
 pub(in crate::app) fn sidebar_tab_button<'a>(
     label: &'a str,
     active: bool,
     tab: SidebarTab,
     pal: Palette,
 ) -> Element<'a, Message> {
-    button(
+    let button = button(
         text(label)
             .size(11)
             .color(if active { pal.fg } else { pal.muted }),
     )
-    .padding(Padding::from([3, 9]))
+    // 7 px above and below the 11 px label's line: a 28 px tall target.
+    .padding(Padding::from([7, 9]))
     .style(move |_, status| {
         let bg = if active {
             Some(Background::Color(pal.hover()))
@@ -154,9 +191,22 @@ pub(in crate::app) fn sidebar_tab_button<'a>(
             ..Default::default()
         }
     })
-    .on_press(Message::SetSidebarTab(tab))
-    .into()
+    .on_press(Message::SetSidebarTab(tab));
+    let id = match tab {
+        SidebarTab::Files => "sidebar-tab-files",
+        SidebarTab::Outline => "sidebar-tab-outline",
+    };
+    container(button).id(iced::widget::Id::new(id)).into()
 }
+
+/// Container id of the divider between the sidebar and the reader.
+pub(in crate::app) const SIDEBAR_DIVIDER_ID: &str = "sidebar-divider";
+
+/// Container id of the hairline the sidebar divider shows on hover.
+pub(in crate::app) const SIDEBAR_DIVIDER_LINE_ID: &str = "sidebar-divider-line";
+
+/// Id of the file tree's inline rename field.
+pub(in crate::app) const TREE_RENAME_ID: &str = "tree-rename";
 
 pub(in crate::app) fn sidebar_files_body<'a>(
     app: &'a App,
@@ -174,7 +224,14 @@ pub(in crate::app) fn sidebar_files_body<'a>(
     if let Some(tree_root) = &app.workspace_tree {
         let rows = tree::flatten_with_files(tree_root, &app.workspace_sidebar_files, &app.expanded);
         let current = app.file.as_ref();
-        let cursor = app.tree_cursor;
+        // The cursor row is painted only while the arrow keys drive it.
+        let cursor = app.tree_cursor_shown.then_some(app.tree_cursor);
+        // The row an open context menu acts on.
+        let menu_target = app
+            .context_menu
+            .as_ref()
+            .and_then(|menu| menu.tree_target.as_deref());
+        let rename = app.tree_rename.as_ref();
         for r in rows.iter() {
             let w = tree_row_width(r.node, r.depth);
             if w > content_w {
@@ -185,7 +242,18 @@ pub(in crate::app) fn sidebar_files_body<'a>(
         // full height so scroll offsets and keyboard edge-scroll still match.
         list = push_sidebar_rows(list, app.tree_viewport.as_ref(), rows.len(), |i| {
             let r = &rows[i];
-            tree_row(r.node, r.depth, &app.expanded, current, i == cursor, pal)
+            tree_row(
+                r.node,
+                r.depth,
+                &app.expanded,
+                current,
+                cursor == Some(i),
+                menu_target == Some(r.node.path()),
+                rename
+                    .filter(|rename| rename.path == r.node.path())
+                    .map(|rename| rename.value.as_str()),
+                pal,
+            )
         });
     }
     let list = list.width(Length::Fixed(content_w));
@@ -201,10 +269,14 @@ pub(in crate::app) fn sidebar_files_body<'a>(
         .on_scroll(Message::TreeScrolled)
         .direction(slim_scroll_direction())
         .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
-    scrollable(inner)
+    let outer = scrollable(inner)
         .height(Length::Fill)
         .direction(slim_scroll_direction_horizontal())
-        .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled))
+        .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
+    // A right press on a row opens that row's menu (the row captures it);
+    // anywhere else in the tree it opens the workspace root's menu.
+    mouse_area(outer)
+        .on_right_press(Message::TreeContextMenu(None))
         .into()
 }
 
@@ -222,15 +294,19 @@ pub(in crate::app) fn sidebar_outline_body<'a>(
         );
     } else {
         list = push_sidebar_rows(list, app.outline_viewport.as_ref(), sections.len(), |i| {
-            outline_row(&sections[i], i == app.outline_cursor, pal)
+            outline_row(&sections[i], i, i == app.outline_cursor, pal)
         });
     }
-    scrollable(list.width(Length::Fill))
+    let list = scrollable(list.width(Length::Fill))
         .id(App::outline_scroll_id())
         .height(Length::Fill)
         .on_scroll(Message::OutlineScrolled)
         .direction(slim_scroll_direction())
-        .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled))
+        .style(move |_, status| sleek_scrollable_style(status, pal, recently_scrolled));
+    // While the pointer is over the list, the scroll-spy leaves it alone.
+    mouse_area(list)
+        .on_enter(Message::OutlineHovered(true))
+        .on_exit(Message::OutlineHovered(false))
         .into()
 }
 
@@ -325,6 +401,7 @@ pub(in crate::app) fn sidebar_rows_near(
 
 pub(in crate::app) fn outline_row<'a>(
     s: &crate::ipc::sections::Section,
+    index: usize,
     is_cursor: bool,
     pal: Palette,
 ) -> Element<'a, Message> {
@@ -343,7 +420,7 @@ pub(in crate::app) fn outline_row<'a>(
         .wrapping(text::Wrapping::None);
     let content =
         irow![Space::new().width(Length::Fixed(indent)), label].align_y(iced::Alignment::Center);
-    button(content)
+    let row = button(content)
         .padding(Padding::from([4, 8]))
         .width(Length::Fill)
         .height(Length::Fixed(SIDEBAR_ROW_H))
@@ -363,17 +440,60 @@ pub(in crate::app) fn outline_row<'a>(
             },
             ..Default::default()
         })
-        .on_press(goto_line_message(s.line))
+        .on_press(Message::OutlineRowClicked {
+            index,
+            line: s.line,
+        });
+    mouse_area(row)
+        .on_right_press(Message::OutlineContextMenu(index))
         .into()
 }
 
-pub(in crate::app) fn mindmap_panel_resize_handle<'a>(fill: Color) -> Element<'a, Message> {
-    mouse_area(
+/// A mind map side panel with its close (X) button in the top-right
+/// corner. The button hides the panel as ⌘⌥B does; the selection stays.
+pub(in crate::app) fn with_panel_close<'a>(
+    panel: Element<'a, Message>,
+    on_close: Message,
+    pal: Palette,
+) -> Element<'a, Message> {
+    let close = action_tip(
+        ghost_lu(ic::X, pal).on_press(on_close),
+        "Hide Panel",
+        Some("⌘⌥B"),
+        Position::Left,
+        pal,
+    );
+    stack![
+        panel,
+        container(close)
+            .width(Length::Fill)
+            .padding(6)
+            .align_x(iced::alignment::Horizontal::Right),
+    ]
+    .into()
+}
+
+/// The divider between a mind map canvas and its panel: a
+/// [`crate::mindmap::PANEL_HANDLE_W`]-wide grab area with the resize cursor
+/// that shows a hairline while the pointer is over it (Iced's `hover`
+/// redraws only when the pointer enters or leaves). A double click resets
+/// the panel to its default width.
+fn panel_divider<'a>(
+    id: &'static str,
+    width: f32,
+    fill: Color,
+    pal: Palette,
+    press: Message,
+    release: Message,
+    reset: Message,
+) -> Element<'a, Message> {
+    let area = mouse_area(
         container(
             Space::new()
-                .width(Length::Fixed(crate::mindmap::PANEL_HANDLE_W))
+                .width(Length::Fixed(width))
                 .height(Length::Fill),
         )
+        .id(iced::widget::Id::new(id))
         .style(move |_| container::Style {
             background: Some(fill.into()),
             ..Default::default()
@@ -381,44 +501,78 @@ pub(in crate::app) fn mindmap_panel_resize_handle<'a>(fill: Color) -> Element<'a
         .height(Length::Fill),
     )
     .interaction(iced::mouse::Interaction::ResizingHorizontally)
-    .on_press(Message::MindmapPanelDragStart(0.0))
-    .on_release(Message::MindmapPanelDragEnd)
-    .into()
-}
-
-pub(in crate::app) fn full_mindmap_panel_resize_handle<'a>(fill: Color) -> Element<'a, Message> {
-    mouse_area(
-        container(
-            Space::new()
-                .width(Length::Fixed(crate::mindmap::PANEL_HANDLE_W))
-                .height(Length::Fill),
-        )
-        .style(move |_| container::Style {
-            background: Some(fill.into()),
-            ..Default::default()
-        })
-        .height(Length::Fill),
-    )
-    .interaction(iced::mouse::Interaction::ResizingHorizontally)
-    .on_press(Message::FullMindmapPanelDragStart(0.0))
-    .on_release(Message::FullMindmapPanelDragEnd)
-    .into()
-}
-
-pub(in crate::app) fn sidebar_resize_handle<'a>(pal: Palette) -> Element<'a, Message> {
-    mouse_area(
-        container(Space::new().width(Length::Fixed(5.0)).height(Length::Fill))
+    .on_press(press)
+    .on_release(release)
+    .on_double_click(reset);
+    let hairline = container(
+        container(Space::new().width(Length::Fixed(1.0)).height(Length::Fill))
+            .id(iced::widget::Id::new(divider_line_id(id)))
             .style(move |_| container::Style {
-                background: Some(pal.sidebar.into()),
+                background: Some(pal.subtle.into()),
                 ..Default::default()
-            })
-            .height(Length::Fill),
+            }),
     )
-    .interaction(iced::mouse::Interaction::ResizingHorizontally)
-    .on_press(Message::SidebarDragStart)
-    .on_release(Message::SidebarDragEnd)
-    .into()
+    .width(Length::Fixed(width))
+    .height(Length::Fill)
+    .center_x(Length::Fixed(width));
+    iced::widget::hover(area, hairline)
 }
+
+/// Id of the hairline a divider shows on hover.
+fn divider_line_id(id: &'static str) -> &'static str {
+    match id {
+        SIDEBAR_DIVIDER_ID => SIDEBAR_DIVIDER_LINE_ID,
+        "mindmap-panel-divider" => "mindmap-panel-divider-line",
+        _ => "full-mindmap-panel-divider-line",
+    }
+}
+
+pub(in crate::app) fn mindmap_panel_resize_handle<'a>(
+    fill: Color,
+    pal: Palette,
+) -> Element<'a, Message> {
+    panel_divider(
+        "mindmap-panel-divider",
+        crate::mindmap::PANEL_HANDLE_W,
+        fill,
+        pal,
+        Message::MindmapPanelDragStart(0.0),
+        Message::MindmapPanelDragEnd,
+        Message::MindmapPanelResetWidth,
+    )
+}
+
+pub(in crate::app) fn full_mindmap_panel_resize_handle<'a>(
+    fill: Color,
+    pal: Palette,
+) -> Element<'a, Message> {
+    panel_divider(
+        "full-mindmap-panel-divider",
+        crate::mindmap::PANEL_HANDLE_W,
+        fill,
+        pal,
+        Message::FullMindmapPanelDragStart(0.0),
+        Message::FullMindmapPanelDragEnd,
+        Message::FullMindmapPanelResetWidth,
+    )
+}
+
+/// The divider between the sidebar and the reader: a 5 px grab area that
+/// shows a hairline on hover, as the mind map panel divider does.
+pub(in crate::app) fn sidebar_resize_handle<'a>(pal: Palette) -> Element<'a, Message> {
+    panel_divider(
+        SIDEBAR_DIVIDER_ID,
+        SIDEBAR_DIVIDER_W,
+        pal.sidebar,
+        pal,
+        Message::SidebarDragStart,
+        Message::SidebarDragEnd,
+        Message::SidebarResetWidth,
+    )
+}
+
+/// Width of the sidebar divider's grab area.
+const SIDEBAR_DIVIDER_W: f32 = 5.0;
 
 /// Estimate the pixel width a [`tree_row`] needs at the given depth. Used to
 /// size the surrounding Column so the focus ring fills the sidebar width AND
@@ -441,6 +595,8 @@ pub(in crate::app) fn tree_row<'a>(
     expanded: &HashSet<PathBuf>,
     current: Option<&'a PathBuf>,
     is_cursor: bool,
+    menu_target: bool,
+    rename: Option<&'a str>,
     pal: Palette,
 ) -> Element<'a, Message> {
     let is_dir = node.is_dir();
@@ -480,11 +636,39 @@ pub(in crate::app) fn tree_row<'a>(
     };
     let mut label_font = iced::Font::with_name("Inter");
     label_font.weight = label_weight;
-    let label = text(node.name().into_owned())
-        .size(13)
-        .color(label_color)
-        .font(label_font)
-        .wrapping(text::Wrapping::None);
+    let label: Element<'a, Message> = match rename {
+        // Renamed in place: Enter commits, Esc or a press elsewhere cancels.
+        Some(value) => PressOutside::new(
+            iced::widget::text_input("", value)
+                .id(iced::widget::Id::new(TREE_RENAME_ID))
+                .on_input(Message::TreeRenameInput)
+                .on_submit(Message::TreeRenameCommit)
+                .size(13)
+                .font(label_font)
+                .padding(Padding::from([1, 4]))
+                .width(Length::Fill)
+                .style(move |_, _| iced::widget::text_input::Style {
+                    background: pal.field().into(),
+                    border: Border {
+                        color: pal.accent,
+                        width: 1.0,
+                        radius: theme::radius::XS.into(),
+                    },
+                    icon: pal.muted,
+                    placeholder: pal.subtle,
+                    value: pal.fg,
+                    selection: pal.selection,
+                }),
+            Message::TreeRenameCancel,
+        )
+        .into(),
+        None => text(node.name().into_owned())
+            .size(13)
+            .color(label_color)
+            .font(label_font)
+            .wrapping(text::Wrapping::None)
+            .into(),
+    };
 
     let leaf_icon: Element<'a, Message> = if is_dir {
         let open = expanded.contains(node_path);
@@ -504,13 +688,13 @@ pub(in crate::app) fn tree_row<'a>(
     .align_y(iced::Alignment::Center)
     .spacing(0);
 
-    let on_press = if is_dir {
-        Message::TreeToggle(path)
-    } else {
-        Message::Open(path)
+    let on_press = Message::TreeRowClicked {
+        path: path.clone(),
+        is_dir,
     };
+    let on_right_press = Message::TreeContextMenu(Some((path, is_dir)));
 
-    button(content)
+    let row = button(content)
         .padding(Padding::from([4, 8]))
         .width(Length::Fill)
         .height(Length::Fixed(SIDEBAR_ROW_H))
@@ -525,20 +709,25 @@ pub(in crate::app) fn tree_row<'a>(
                     _ => None,
                 }
             };
-            // Selection and keyboard cursor: background fill only, no ring.
+            // Selection and keyboard cursor: background fill only. The ring
+            // marks the row an open context menu acts on.
             button::Style {
                 background: bg,
                 text_color: pal.fg,
                 border: Border {
-                    color: Color::TRANSPARENT,
-                    width: 0.0,
+                    color: if menu_target {
+                        pal.accent
+                    } else {
+                        Color::TRANSPARENT
+                    },
+                    width: if menu_target { 1.0 } else { 0.0 },
                     radius: theme::radius::SM.into(),
                 },
                 ..Default::default()
             }
         })
-        .on_press(on_press)
-        .into()
+        .on_press(on_press);
+    mouse_area(row).on_right_press(on_right_press).into()
 }
 
 pub(in crate::app) fn indent_guide<'a>(pal: Palette) -> Element<'a, Message> {
