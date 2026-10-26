@@ -943,7 +943,7 @@ fn mindmap_controls_width(items: &[(&str, &str)]) -> f32 {
 }
 
 /// The mind map's floating island: its keyboard hints, then Zoom to Fit,
-/// Zoom Out, 100%, and Zoom In. Only the buttons take pointer input; the
+/// Zoom Out, and Zoom In. Only the buttons take pointer input; the
 /// hints and the rest of the layer leave the canvas its events. A canvas
 /// too narrow for the hints shows the buttons alone, so they never clip.
 pub(in crate::app) fn floating_mindmap_controls<'a>(
@@ -967,8 +967,9 @@ pub(in crate::app) fn floating_mindmap_controls<'a>(
 }
 
 /// The floating zoom island of the mind map and the image viewer: optional
-/// keyboard hints, then Zoom to Fit, Zoom Out, 100%, and Zoom In, each
-/// sending `on_zoom`.
+/// keyboard hints, then Zoom to Fit, Zoom Out, and Zoom In, each sending
+/// `on_zoom`. There is no 100% label: it never followed the live zoom, and
+/// Actual Size stays on the `0` key.
 pub(in crate::app) fn zoom_controls_island<'a>(
     items: &[(&'a str, &'a str)],
     pal: Palette,
@@ -1006,16 +1007,6 @@ pub(in crate::app) fn zoom_controls_island<'a>(
             zoom(glyph(ic::MINUS), ZoomCommand::Out),
             "Zoom Out",
             Some("−"),
-            Position::Top,
-            pal,
-        ),
-        action_tip(
-            zoom(
-                text("100%").size(11).color(pal.muted).into(),
-                ZoomCommand::Reset
-            ),
-            "Actual Size",
-            Some("0"),
             Position::Top,
             pal,
         ),

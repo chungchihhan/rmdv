@@ -350,10 +350,10 @@ pub enum Message {
     MindmapNativePinch(f32),
     /// A completed two-finger swipe from the macOS bridge: Back or Forward.
     NativeSwipe(HistoryDir),
-    /// A mind map zoom button: Fit, −, 100%, or +. It drives the canvas on
+    /// A mind map zoom button (Fit, −, +) or the `0` key (Actual Size). It drives the canvas on
     /// screen (the document mind map or Full Mindmap).
     MindmapZoom(crate::mindmap::ZoomCommand),
-    /// An image viewer zoom button or key: Fit, −, 100%, or +.
+    /// An image viewer zoom button (Fit, −, +) or key (`0` is Actual Size).
     ImageZoomCommand(crate::mindmap::ZoomCommand),
     /// The viewer wants this many raster pixels per inline-raster pixel
     /// for the diagram it shows.

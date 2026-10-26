@@ -156,7 +156,7 @@ impl App {
     }
 }
 
-/// Empty canvas: the zoom buttons' Fit and 100%.
+/// Empty canvas: Zoom to Fit and Actual Size (100%).
 fn canvas_entries() -> Vec<MenuEntry> {
     vec![
         MenuEntry::item("Zoom to Fit", Message::MindmapZoom(ZoomCommand::Fit)),

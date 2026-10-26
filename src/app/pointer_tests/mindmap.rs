@@ -156,7 +156,7 @@ fn zoom_buttons_send_their_command_and_leave_the_canvas_its_events() {
     let mut ui = PointerUi::new();
     assert_tips(
         &tips(&mut ui, &app),
-        &["Zoom to Fit", "Zoom Out  −", "Actual Size  0", "Zoom In  ="],
+        &["Zoom to Fit", "Zoom Out  −", "Zoom In  ="],
     );
 
     let plus = ui
@@ -184,10 +184,12 @@ fn zoom_buttons_send_their_command_and_leave_the_canvas_its_events() {
     apply(&mut app, messages);
     assert_eq!(app.mindmap_zoom_request.command, Some(ZoomCommand::Fit));
     assert_eq!(app.mindmap_zoom_request.generation, 2);
-    let reset = ui.text_bounds(&app, "100%").expect("100% button");
-    let messages = ui.click(&app, center(reset));
-    apply(&mut app, messages);
-    assert_eq!(app.mindmap_zoom_request.command, Some(ZoomCommand::Reset));
+    // The zoom bar has no "100%" label: it never showed the live zoom, so
+    // it read as a stale readout. Actual Size stays on the `0` key.
+    assert!(
+        ui.text_bounds(&app, "100%").is_none(),
+        "the zoom bar shows no percentage"
+    );
 
     // Just above the buttons the canvas still owns the pointer: it shows
     // its grab cursor and an empty-canvas click clears the selection.
@@ -765,8 +767,6 @@ fn a_narrow_mind_map_keeps_its_zoom_buttons_whole() {
             divider.x
         );
     }
-    let reset = ui.text_bounds(&app, "100%").expect("100% button");
-    assert!(reset.width > 0.0 && reset.x + reset.width <= divider.x);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
