@@ -961,15 +961,13 @@ impl App {
                     self.show_toast("Font reset".to_string()),
                 ])
             }
-            Message::SetReadingWidth(width) => {
-                self.prefs.reading_width = crate::prefs::clamp_reading_width(width);
-                self.height_cache.clear();
-                self.rebuild_virt_here();
-                self.measure_window_heights()
-            }
-            Message::SaveReadingWidth => {
-                self.save_prefs();
-                Task::none()
+            Message::SetReadingWidth(width) => self.set_reading_width(width),
+            Message::ReadingWidthStep(dir) => {
+                let width = self.prefs.reading_width.step(dir);
+                Task::batch([
+                    self.set_reading_width(width),
+                    self.show_toast(format!("Reading width: {}", width.label())),
+                ])
             }
             Message::SetLineSpacing(spacing) => self.set_line_spacing(spacing),
             Message::SetToolbarMode(mode) => self.set_toolbar_mode(mode),

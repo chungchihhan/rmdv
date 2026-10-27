@@ -951,7 +951,7 @@ mod group2 {
         assert!(app.editor.is_some());
         // The editor column is the reading width wide and centered; x = 24 is in
         // the empty left margin.
-        assert!(WINDOW.width - app.prefs.reading_width > 48.0);
+        assert!(WINDOW.width - app.reading_max_width() > 48.0);
 
         let messages = ui.click(&app, Point::new(24.0, 400.0));
         apply_ui(&mut app, &mut ui, messages);

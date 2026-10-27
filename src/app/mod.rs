@@ -954,6 +954,14 @@ impl App {
     }
 
     /// Rebuild `typography` from the theme base, font zoom, and line spacing.
+    /// The reading column's cap: the Reading width setting at the current
+    /// body size, so a font zoom keeps the characters per line.
+    fn reading_max_width(&self) -> f32 {
+        self.prefs
+            .reading_width
+            .max_width(self.typography.body_size)
+    }
+
     fn rebuild_typography(&mut self) {
         self.typography = self
             .typography_base
@@ -3149,6 +3157,8 @@ impl App {
             ("Increase Font Size  ⌘+", Message::FontSizeUp),
             ("Decrease Font Size  ⌘-", Message::FontSizeDown),
             ("Reset Font Size  ⌘0", Message::FontSizeReset),
+            ("Narrower Reading Width  ⌘⌥[", Message::ReadingWidthStep(-1)),
+            ("Wider Reading Width  ⌘⌥]", Message::ReadingWidthStep(1)),
             ("Toggle Status Footer", Message::ToggleFooter),
             ("Toggle Soft Syntax Colors", Message::ToggleSoftSyntax),
             ("Toggle Mindmap  ⌘M", Message::ToggleMindmap),
@@ -3743,7 +3753,7 @@ impl App {
                             container(editor)
                                 .width(Length::Fill)
                                 .height(Length::Fill)
-                                .max_width(self.prefs.reading_width),
+                                .max_width(self.reading_max_width()),
                         )
                         .width(Length::Fill)
                         .height(Length::Fill)
@@ -3762,7 +3772,7 @@ impl App {
                     container(
                         container(fallback)
                             .width(Length::Fill)
-                            .max_width(self.prefs.reading_width),
+                            .max_width(self.reading_max_width()),
                     )
                     .width(Length::Fill)
                     .height(Length::Fill)
@@ -3828,7 +3838,7 @@ impl App {
                 let select_all = self.reader_select_all && self.reader_shows_document();
                 let column = container(body)
                     .id(iced::widget::Id::new("reader-column"))
-                    .max_width(self.prefs.reading_width)
+                    .max_width(self.reading_max_width())
                     .width(Length::Fill)
                     .style(move |_| container::Style {
                         background: select_all.then(|| pal.selection.into()),
@@ -4076,34 +4086,30 @@ impl App {
                 )
             }
         };
-        let width_slider_visible = !full_mindmap
-            && self.overlay == Overlay::None
-            && !self.settings_open
-            && self.view_mode == ViewMode::Rendered
-            && self.file.is_some()
-            && !self.is_data_doc;
-        let width_slider_layer: Element<'_, Message> = if width_slider_visible {
-            let requested_width = self.prefs.reading_width;
-            let sidebar_extent = if self.sidebar_open && self.workspace.is_some() {
-                self.sidebar_width + 5.0
-            } else {
-                0.0
-            };
-            iced::widget::responsive(move |size| {
-                reading_width_slider(requested_width, size.width - sidebar_extent - 64.0, pal)
-            })
-            .into()
+        // Status footer floats over the reader (content scrolls behind it),
+        // pinned bottom-right. Shown for any open document except mindmap.
+        let footer_layer: Element<'_, Message> = if footer_visible {
+            status_footer(
+                FooterCounts {
+                    words: self.source_words,
+                    characters: self.source_chars,
+                },
+                self.prefs.footer_stat,
+                pal,
+            )
         } else {
             Space::new().into()
         };
-        // Status and shortcuts share one row above the bottom width control.
+        // Floating cheatsheet button, bottom-right of the active reader or mindmap.
+        // Sits just above the word-count pill when the footer is visible; drops to
+        // the corner when it's off. Hidden only while an overlay is open.
         let kb_button_layer: Element<'_, Message> = if self.overlay == Overlay::None {
-            let bottom_pad = if width_slider_visible {
-                56.0
+            let bottom_pad = if footer_visible {
+                KEYBOARD_BUTTON_FOOTER_BOTTOM_PAD
             } else {
                 KEYBOARD_BUTTON_BOTTOM_PAD
             };
-            let shortcut = iced::widget::tooltip(
+            container(iced::widget::tooltip(
                 ghost_lu(ic::KEYBOARD, pal).on_press(Message::ToggleShortcuts),
                 container(text("Keyboard shortcuts  ⌘/").size(12).color(pal.fg))
                     .padding(Padding::from([4, 8]))
@@ -4117,24 +4123,7 @@ impl App {
                         ..Default::default()
                     }),
                 iced::widget::tooltip::Position::Left,
-            );
-            let footer: Element<'_, Message> = if footer_visible {
-                status_footer(
-                    FooterCounts {
-                        words: self.source_words,
-                        characters: self.source_chars,
-                    },
-                    self.prefs.footer_stat,
-                    pal,
-                )
-            } else {
-                Space::new().into()
-            };
-            container(
-                irow![shortcut, footer]
-                    .spacing(8)
-                    .align_y(iced::Alignment::Center),
-            )
+            ))
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(Padding {
@@ -4196,7 +4185,7 @@ impl App {
             .into();
         let base: Element<'_, Message> = iced::widget::stack![
             Element::from(main),
-            width_slider_layer,
+            footer_layer,
             kb_button_layer,
             link_pill_layer,
             quick_slots_layer,

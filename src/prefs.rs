@@ -32,12 +32,9 @@ pub struct Prefs {
     /// theme's line height.
     #[serde(default, deserialize_with = "lenient_line_spacing")]
     pub line_spacing: crate::theme::LineSpacing,
-    /// Maximum reading-column width in logical pixels.
-    #[serde(
-        default = "default_reading_width",
-        deserialize_with = "lenient_reading_width"
-    )]
-    pub reading_width: f32,
+    /// Settings → Reading width: the reading column's cap.
+    #[serde(default, deserialize_with = "lenient_reading_width")]
+    pub reading_width: crate::theme::ReadingWidth,
     /// Show dot files and folders in the sidebar (⌘⇧.).
     #[serde(default)]
     pub show_hidden: bool,
@@ -152,28 +149,6 @@ impl ToolbarMode {
     }
 }
 
-pub const READING_WIDTH_MIN: f32 = 480.0;
-pub const READING_WIDTH_MAX: f32 = 1920.0;
-fn default_reading_width() -> f32 {
-    crate::theme::READING_MAX_PX
-}
-pub fn clamp_reading_width(width: f32) -> f32 {
-    if width.is_finite() {
-        width.clamp(READING_WIDTH_MIN, READING_WIDTH_MAX)
-    } else {
-        default_reading_width()
-    }
-}
-fn lenient_reading_width<'de, D>(deserializer: D) -> Result<f32, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = serde_json::Value::deserialize(deserializer)?;
-    Ok(clamp_reading_width(
-        value.as_f64().map_or(default_reading_width(), |v| v as f32),
-    ))
-}
-
 fn default_true() -> bool {
     true
 }
@@ -244,6 +219,16 @@ pub fn clamp_font_scale(scale: f32) -> f32 {
 /// An unknown or malformed line spacing falls back to Default instead of
 /// failing the whole file.
 fn lenient_line_spacing<'de, D>(deserializer: D) -> Result<crate::theme::LineSpacing, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value).unwrap_or_default())
+}
+
+/// An unknown or malformed reading width (an early build saved pixels)
+/// falls back to Default instead of failing the whole file.
+fn lenient_reading_width<'de, D>(deserializer: D) -> Result<crate::theme::ReadingWidth, D::Error>
 where
     D: serde::Deserializer<'de>,
 {
@@ -324,7 +309,7 @@ impl Default for Prefs {
             glass_opacity: crate::macos_vibrancy::DEFAULT_OPACITY,
             font_scale: default_font_scale(),
             line_spacing: crate::theme::LineSpacing::Default,
-            reading_width: default_reading_width(),
+            reading_width: crate::theme::ReadingWidth::Default,
             show_hidden: false,
             mindmap_autocenter: true,
             mindmap_scroll_pans: false,
@@ -451,6 +436,27 @@ mod tests {
         assert!(!prefs.show_footer);
         let prefs: Prefs = serde_json::from_str(r#"{"font_scale":9.0}"#).unwrap();
         assert_eq!(prefs.font_scale, FONT_SCALE_MAX);
+    }
+
+    #[test]
+    fn reading_width_defaults_when_missing_or_unknown() {
+        use crate::theme::ReadingWidth;
+        let prefs: Prefs = serde_json::from_str("{}").unwrap();
+        assert_eq!(prefs.reading_width, ReadingWidth::Default);
+        let prefs: Prefs = serde_json::from_str(r#"{"reading_width":"wide"}"#).unwrap();
+        assert_eq!(prefs.reading_width, ReadingWidth::Wide);
+        let prefs: Prefs = serde_json::from_str(r#"{"reading_width":"full"}"#).unwrap();
+        assert_eq!(prefs.reading_width, ReadingWidth::Full);
+        let prefs: Prefs =
+            serde_json::from_str(r#"{"reading_width":813.0,"show_footer":false}"#).unwrap();
+        assert_eq!(prefs.reading_width, ReadingWidth::Default);
+        assert!(!prefs.show_footer);
+        let json = serde_json::to_string(&Prefs {
+            reading_width: ReadingWidth::Narrow,
+            ..Prefs::default()
+        })
+        .unwrap();
+        assert!(json.contains(r#""reading_width":"narrow""#), "{json}");
     }
 
     #[test]
